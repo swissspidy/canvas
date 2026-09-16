@@ -1,0 +1,420 @@
+import { describe, expect, it } from "vitest";
+import { DocSession } from "../doc/session.js";
+import { executeToolCall } from "./execute.js";
+import { coordinateSurface } from "./coordinate.js";
+import { relationalSurface } from "./relational.js";
+import { documentSurface } from "./document.js";
+import { getSurface, SURFACES } from "./index.js";
+import { emptyDoc } from "../doc/ops.js";
+import { aabb, overlapArea } from "../doc/geometry.js";
+import { layoutTextElement } from "../text/layout.js";
+import type { Doc, Element } from "../doc/types.js";
+
+function session(doc: Doc = emptyDoc(1000, 1000)): DocSession {
+  return new DocSession(doc);
+}
+
+function el(id: string, partial: Partial<Element> = {}): Element {
+  return {
+    id,
+    type: "rect",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    rotation: 0,
+    z: 0,
+    style: { fill: "#ff0000" },
+    ...partial,
+  };
+}
+
+function docWith(...elements: Element[]): Doc {
+  return { ...emptyDoc(1000, 1000), elements };
+}
+
+function find(doc: Doc, id: string): Element {
+  const found = doc.elements.find((e) => e.id === id);
+  if (!found) throw new Error(`missing ${id}`);
+  return found;
+}
+
+describe("surface registry", () => {
+  it("exposes every surface with unique tool names", () => {
+    for (const id of Object.keys(SURFACES) as (keyof typeof SURFACES)[]) {
+      const surface = getSurface(id);
+      const names = surface.tools.map((t) => t.name);
+      expect(new Set(names).size).toBe(names.length);
+      expect(surface.briefing.length).toBeGreaterThan(50);
+    }
+  });
+
+  it("rejects an unknown surface by name", () => {
+    expect(() => getSurface("nope" as never)).toThrow(/Unknown surface/);
+  });
+});
+
+describe("shared behaviour across surfaces", () => {
+  it("reports unknown tools the same way everywhere", () => {
+    for (const surface of [coordinateSurface, relationalSurface, documentSurface]) {
+      const s = session();
+      const r = executeToolCall(s, surface, "teleport", {});
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/no tool called 'teleport'/);
+      // A rejected call is still recorded — failures are the interesting data.
+      expect(s.actions).toHaveLength(1);
+      expect(s.actions[0]!.ok).toBe(false);
+    }
+  });
+
+  it("leaves the document untouched when arguments are invalid", () => {
+    const s = session();
+    const before = JSON.stringify(s.doc);
+    const r = executeToolCall(s, coordinateSurface, "create", { type: "rect", x: "left" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/Invalid arguments/);
+    expect(JSON.stringify(s.doc)).toBe(before);
+  });
+
+  it("refuses a text element with no text, on every surface that creates", () => {
+    for (const surface of [coordinateSurface, relationalSurface]) {
+      const s = session();
+      const input =
+        surface.id === "coordinate"
+          ? { type: "text", x: 0, y: 0, width: 100, height: 50 }
+          : { type: "text", width: 100, height: 50, relation: "canvas_center" };
+      const r = executeToolCall(s, surface, "create", input);
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/needs 'text'/);
+    }
+  });
+
+  it("never reuses an id after a delete", () => {
+    const s = session();
+    executeToolCall(s, coordinateSurface, "create", { type: "rect", x: 0, y: 0, width: 10, height: 10 });
+    expect(s.doc.elements[0]!.id).toBe("el_1");
+    executeToolCall(s, coordinateSurface, "delete", { id: "el_1" });
+    executeToolCall(s, coordinateSurface, "create", { type: "rect", x: 0, y: 0, width: 10, height: 10 });
+    expect(s.doc.elements[0]!.id).toBe("el_2");
+  });
+});
+
+describe("equivalence: the same intent reaches the same document", () => {
+  const spec = { type: "rect" as const, width: 200, height: 100 };
+
+  it("centres an element identically by arithmetic and by relation", () => {
+    const coord = session();
+    executeToolCall(coord, coordinateSurface, "create", {
+      ...spec,
+      // (1000 - 200) / 2, (1000 - 100) / 2
+      x: 400,
+      y: 450,
+    });
+
+    const rel = session();
+    executeToolCall(rel, relationalSurface, "create", { ...spec, relation: "canvas_center" });
+
+    expect(find(rel.doc, "el_1")).toEqual(find(coord.doc, "el_1"));
+  });
+
+  it("stacks elements identically by arithmetic and by place(below)", () => {
+    const start = docWith(el("a", { x: 100, y: 100, width: 300, height: 80 }));
+
+    const coord = session(start);
+    executeToolCall(coord, coordinateSurface, "create", {
+      type: "rect",
+      // a ends at y=180, plus a 20 unit gap; centred on a horizontally.
+      x: 150,
+      y: 200,
+      width: 200,
+      height: 60,
+    });
+
+    const rel = session(start);
+    executeToolCall(rel, relationalSurface, "create", {
+      type: "rect",
+      width: 200,
+      height: 60,
+      relation: "below",
+      target: "a",
+      gap: 20,
+    });
+
+    expect(find(rel.doc, "el_1")).toEqual(find(coord.doc, "el_1"));
+  });
+
+  it("reaches the same document through whole-document rewriting", () => {
+    const coord = session();
+    executeToolCall(coord, coordinateSurface, "create", { ...spec, x: 400, y: 450 });
+
+    const asCode = session();
+    executeToolCall(asCode, documentSurface, "write_document", {
+      document: {
+        ...emptyDoc(1000, 1000),
+        elements: [
+          { id: "el_1", type: "rect", x: 400, y: 450, width: 200, height: 100, rotation: 0, z: 1, style: {} },
+        ],
+      },
+    });
+
+    expect(asCode.doc.elements).toEqual(coord.doc.elements);
+  });
+});
+
+describe("coordinate surface", () => {
+  it("moves to absolute coordinates", () => {
+    const s = session(docWith(el("a", { x: 10, y: 10 })));
+    const r = executeToolCall(s, coordinateSurface, "move", { id: "a", x: 300, y: 400 });
+    expect(r.ok).toBe(true);
+    expect(find(s.doc, "a")).toMatchObject({ x: 300, y: 400 });
+  });
+
+  it("resizes from the top-left corner", () => {
+    const s = session(docWith(el("a", { x: 50, y: 50 })));
+    executeToolCall(s, coordinateSurface, "resize", { id: "a", width: 400, height: 20 });
+    expect(find(s.doc, "a")).toMatchObject({ x: 50, y: 50, width: 400, height: 20 });
+  });
+
+  it("names the existing ids when one is wrong", () => {
+    const s = session(docWith(el("a"), el("b")));
+    const r = executeToolCall(s, coordinateSurface, "move", { id: "c", x: 0, y: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/Existing ids: a, b/);
+  });
+
+  it("clears a style key when passed null", () => {
+    const s = session(docWith(el("a", { style: { fill: "#ff0000", strokeColor: "#000000" } })));
+    executeToolCall(s, coordinateSurface, "set_style", { id: "a", style: { strokeColor: null } });
+    expect(find(s.doc, "a").style).toEqual({ fill: "#ff0000" });
+  });
+
+  it("refuses to set text on a non-text element", () => {
+    const s = session(docWith(el("a")));
+    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "a", text: "hello" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/has no text/);
+  });
+});
+
+describe("relational surface", () => {
+  it("has no tool that accepts a raw coordinate", () => {
+    // The point of the surface: intent in, geometry computed. If an `x` ever
+    // appears in a schema here, the comparison has sprung a leak.
+    for (const tool of relationalSurface.tools) {
+      const json = JSON.stringify(tool.schema.safeParse({}).success ? {} : tool.schema);
+      void json;
+    }
+    const names = relationalSurface.tools.flatMap((t) =>
+      Object.keys((t.schema as unknown as { shape?: Record<string, unknown> }).shape ?? {}),
+    );
+    expect(names).not.toContain("x");
+    expect(names).not.toContain("y");
+  });
+
+  it("places below using visual bounds, so rotation is respected", () => {
+    const start = docWith(el("a", { x: 400, y: 400, width: 200, height: 100, rotation: 45 }));
+    const s = session(start);
+    executeToolCall(s, relationalSurface, "create", {
+      type: "rect",
+      width: 100,
+      height: 50,
+      relation: "below",
+      target: "a",
+      gap: 10,
+    });
+    const target = aabb(find(s.doc, "a"));
+    const placed = aabb(find(s.doc, "el_1"));
+    // Committed geometry is rounded to 2dp, so agree to within that.
+    expect(placed.y).toBeCloseTo(target.y + target.height + 10, 1);
+  });
+
+  it("aligns a group to a shared left edge", () => {
+    const s = session(docWith(el("a", { x: 100 }), el("b", { x: 250 }), el("c", { x: 400 })));
+    executeToolCall(s, relationalSurface, "align", { ids: ["a", "b", "c"], edge: "left" });
+    for (const id of ["a", "b", "c"]) expect(find(s.doc, id).x).toBeCloseTo(100, 6);
+  });
+
+  it("aligns to the canvas when asked", () => {
+    const s = session(docWith(el("a", { x: 100, width: 200 })));
+    executeToolCall(s, relationalSurface, "align", { ids: ["a"], edge: "horizontal_center", to: "canvas" });
+    expect(find(s.doc, "a").x).toBeCloseTo(400, 6);
+  });
+
+  it("equalizes gaps when distributing without a spacing", () => {
+    const s = session(
+      docWith(
+        el("a", { x: 0, width: 100 }),
+        el("b", { x: 130, width: 100 }),
+        el("c", { x: 700, width: 100 }),
+      ),
+    );
+    executeToolCall(s, relationalSurface, "distribute", { ids: ["a", "b", "c"], axis: "horizontal" });
+    const gap1 = find(s.doc, "b").x - (find(s.doc, "a").x + 100);
+    const gap2 = find(s.doc, "c").x - (find(s.doc, "b").x + 100);
+    expect(gap1).toBeCloseTo(gap2, 6);
+    // The outermost elements do not move.
+    expect(find(s.doc, "a").x).toBeCloseTo(0, 6);
+    expect(find(s.doc, "c").x).toBeCloseTo(700, 6);
+  });
+
+  it("uses a fixed gap when spacing is given", () => {
+    const s = session(docWith(el("a", { x: 0, width: 100 }), el("b", { x: 500, width: 100 })));
+    executeToolCall(s, relationalSurface, "distribute", { ids: ["a", "b"], axis: "horizontal", spacing: 25 });
+    expect(find(s.doc, "b").x).toBeCloseTo(125, 6);
+  });
+
+  it("shrinks text until it fits", () => {
+    const s = session(
+      docWith(
+        el("t", {
+          type: "text",
+          text: "A headline that is far too long for this small box to hold",
+          width: 200,
+          height: 80,
+          style: { fontSize: 60 },
+        }),
+      ),
+    );
+    expect(layoutTextElement(find(s.doc, "t")).clipped).toBe(true);
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "shrink_to_fit" });
+    expect(r.ok).toBe(true);
+    expect(layoutTextElement(find(s.doc, "t")).clipped).toBe(false);
+  });
+
+  it("leaves text alone when shrink_to_fit has nothing to do", () => {
+    const s = session(docWith(el("t", { type: "text", text: "Short", width: 400, height: 200, style: { fontSize: 20 } })));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "shrink_to_fit" });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/already fits/);
+    expect(find(s.doc, "t").style.fontSize).toBe(20);
+  });
+
+  it("grows the box instead of the font when asked", () => {
+    const s = session(
+      docWith(el("t", { type: "text", text: "one two three four five six seven", width: 200, height: 30, style: { fontSize: 24 } })),
+    );
+    executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "grow_box" });
+    expect(find(s.doc, "t").style.fontSize).toBe(24);
+    expect(layoutTextElement(find(s.doc, "t")).clipped).toBe(false);
+  });
+
+  it("explains why grow_box cannot help an over-wide word", () => {
+    const s = session(docWith(el("t", { type: "text", text: "Unbreakablylongword", width: 40, height: 30, style: { fontSize: 40 } })));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "grow_box" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/too wide/);
+  });
+
+  it("scales an element down to fit inside the canvas", () => {
+    const s = session(docWith(el("a", { x: 0, y: 0, width: 2000, height: 1000 })));
+    executeToolCall(s, relationalSurface, "fit_within", { id: "a", container: "canvas", margin: 50 });
+    const box = aabb(find(s.doc, "a"));
+    expect(box.width).toBeLessThanOrEqual(900.01);
+    expect(box.x).toBeGreaterThanOrEqual(49.99);
+    // Aspect ratio preserved.
+    expect(box.width / box.height).toBeCloseTo(2, 6);
+  });
+
+  it("pushes overlapping elements apart", () => {
+    const s = session(
+      docWith(
+        el("a", { x: 100, y: 100, width: 200, height: 200 }),
+        el("b", { x: 150, y: 150, width: 200, height: 200 }),
+      ),
+    );
+    expect(overlapArea(find(s.doc, "a"), find(s.doc, "b"))).toBeGreaterThan(0);
+    const r = executeToolCall(s, relationalSurface, "avoid_overlap", { ids: ["a", "b"], padding: 10 });
+    expect(r.ok).toBe(true);
+    expect(overlapArea(find(s.doc, "a"), find(s.doc, "b"))).toBeCloseTo(0, 6);
+  });
+
+  it("says so when there is not enough room to separate", () => {
+    const small = { ...emptyDoc(200, 200) };
+    const s = session({
+      ...small,
+      elements: [el("a", { x: 0, y: 0, width: 190, height: 190 }), el("b", { x: 5, y: 5, width: 190, height: 190 })],
+    });
+    const r = executeToolCall(s, relationalSurface, "avoid_overlap", { ids: ["a", "b"], padding: 20 });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/still overlap|not enough room/);
+  });
+
+  it("requires a target for target-relative placement", () => {
+    const s = session(docWith(el("a")));
+    const r = executeToolCall(s, relationalSurface, "place", { id: "a", relation: "below" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/needs a 'target'/);
+  });
+
+  it("refuses to place an element relative to itself", () => {
+    const s = session(docWith(el("a")));
+    const r = executeToolCall(s, relationalSurface, "place", { id: "a", relation: "below", target: "a" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/relative to itself/);
+  });
+});
+
+describe("document-as-code surface", () => {
+  it("replaces the whole document", () => {
+    const s = session(docWith(el("a"), el("b")));
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: {
+        width: 1000,
+        height: 1000,
+        background: "#000000",
+        elements: [{ id: "only", type: "rect", x: 1, y: 2, width: 3, height: 4, rotation: 0, z: 0, style: {} }],
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(s.doc.elements.map((e) => e.id)).toEqual(["only"]);
+    expect(r.message).toMatch(/Removed a, b/);
+    expect(r.message).toMatch(/Background is now #000000/);
+  });
+
+  it("rejects an invalid document without changing anything", () => {
+    const s = session(docWith(el("a")));
+    const before = JSON.stringify(s.doc);
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: {
+        width: 1000,
+        height: 1000,
+        background: "not-a-color",
+        elements: [{ id: "x", type: "blob", x: 0, y: 0, width: 10, height: 10, z: 0, style: {} }],
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(s.doc)).toBe(before);
+    expect(r.message).toMatch(/Nothing was changed/);
+  });
+
+  it("rejects duplicate ids", () => {
+    const s = session();
+    const dup = { id: "x", type: "rect" as const, x: 0, y: 0, width: 10, height: 10, rotation: 0, z: 0, style: {} };
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: { width: 1000, height: 1000, background: "#ffffff", elements: [dup, { ...dup }] },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/duplicate id/);
+  });
+
+  it("rejects an unknown asset key", () => {
+    const s = session();
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: {
+        width: 1000,
+        height: 1000,
+        background: "#ffffff",
+        elements: [{ id: "i", type: "image", src: "photo/nope", x: 0, y: 0, width: 10, height: 10, rotation: 0, z: 0, style: {} }],
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/unknown asset/i);
+  });
+
+  it("returns the document as JSON on read", () => {
+    const s = session(docWith(el("a")));
+    const r = executeToolCall(s, documentSurface, "read_document", {});
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(r.message)).toEqual(s.doc);
+  });
+});
