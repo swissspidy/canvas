@@ -67,6 +67,98 @@ export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS,
   return { mean: m, low: means[lowIdx]!, high: means[highIdx]!, n, sd: stdev(values) };
 }
 
+/**
+ * Bootstrap that resamples *tasks*, not runs.
+ *
+ * Runs within a task are not independent observations: three repeats of
+ * "fix this overlapping layout" share a starting document, a difficulty and a
+ * set of checks. Resampling individual runs treats them as if they were
+ * independent and returns an interval that is too narrow — it would make a
+ * difference look resolved when the evidence is really eighteen tasks, not
+ * six hundred runs. So the cluster is the task, exactly as
+ * `docs/PREREGISTRATION.md` specifies for the headline comparisons.
+ */
+export function clusterBootstrapCI(
+  items: RunScore[],
+  valueOf: (item: RunScore) => number,
+  clusterOf: (item: RunScore) => string = (s) => s.taskId,
+  iterations = BOOTSTRAP_ITERATIONS,
+  alpha = 0.05,
+): Interval {
+  const clusters = [...groupBy(items, clusterOf).values()].map((rows) => mean(rows.map(valueOf)));
+  const k = clusters.length;
+  const observed = mean(items.map(valueOf));
+  if (k === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
+  if (k === 1) return { mean: observed, low: observed, high: observed, n: items.length, sd: 0 };
+
+  const rand = mulberry32(BOOTSTRAP_SEED + k * 7919);
+  const means: number[] = new Array(iterations);
+  for (let i = 0; i < iterations; i++) {
+    let sum = 0;
+    for (let j = 0; j < k; j++) sum += clusters[Math.floor(rand() * k)]!;
+    means[i] = sum / k;
+  }
+  means.sort((a, b) => a - b);
+  const lowIdx = Math.floor((alpha / 2) * iterations);
+  const highIdx = Math.min(iterations - 1, Math.ceil((1 - alpha / 2) * iterations) - 1);
+  return { mean: observed, low: means[lowIdx]!, high: means[highIdx]!, n: items.length, sd: stdev(clusters) };
+}
+
+/**
+ * Paired difference between two conditions, matched within task.
+ *
+ * Tasks differ enormously in difficulty, and every condition sees every task,
+ * so pairing removes that variance instead of letting it swamp the comparison.
+ * An interval that excludes zero is what `docs/PREREGISTRATION.md` counts as a
+ * resolved difference.
+ */
+export interface PairedDifference {
+  a: string;
+  b: string;
+  /** Mean of (a - b) across tasks. */
+  difference: number;
+  low: number;
+  high: number;
+  /** Tasks where both conditions have at least one run. */
+  pairs: number;
+  resolved: boolean;
+}
+
+export function pairedDifference(
+  scores: RunScore[],
+  condition: (s: RunScore) => string,
+  a: string,
+  b: string,
+  valueOf: (s: RunScore) => number = (s) => s.normalizedScore,
+  iterations = BOOTSTRAP_ITERATIONS,
+): PairedDifference {
+  const perTask = new Map<string, { a: number[]; b: number[] }>();
+  for (const score of scores) {
+    const side = condition(score);
+    if (side !== a && side !== b) continue;
+    const bucket = perTask.get(score.taskId) ?? { a: [], b: [] };
+    (side === a ? bucket.a : bucket.b).push(valueOf(score));
+    perTask.set(score.taskId, bucket);
+  }
+
+  const deltas: number[] = [];
+  for (const { a: left, b: right } of perTask.values()) {
+    if (left.length === 0 || right.length === 0) continue;
+    deltas.push(mean(left) - mean(right));
+  }
+
+  const interval = bootstrapCI(deltas, iterations);
+  return {
+    a,
+    b,
+    difference: interval.mean,
+    low: interval.low,
+    high: interval.high,
+    pairs: deltas.length,
+    resolved: deltas.length > 1 && (interval.low > 0 || interval.high < 0),
+  };
+}
+
 export function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
   const out = new Map<string, T[]>();
   for (const item of items) {
@@ -138,7 +230,7 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
         const judged = rows.filter((s) => s.judgeCriteriaScore !== null);
         return [
           surface,
-          ci(bootstrapCI(rows.map((s) => s.normalizedScore))),
+          ci(clusterBootstrapCI(rows, (s) => s.normalizedScore)),
           ci(bootstrapCI(rows.map((s) => s.composite))),
           ci(bootstrapCI(rows.map((s) => s.constraintScore))),
           judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
@@ -190,7 +282,7 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
           const judged = rows.filter((s) => s.judgeCriteriaScore !== null);
           return [
             feedbackLabel(feedback as FeedbackMode),
-            ci(bootstrapCI(rows.map((s) => s.normalizedScore))),
+            ci(clusterBootstrapCI(rows, (s) => s.normalizedScore)),
             ci(bootstrapCI(rows.map((s) => s.composite))),
             ci(bootstrapCI(rows.map((s) => s.constraintScore))),
             judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
@@ -227,6 +319,8 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
     );
     out.push("");
     out.push(spreadComparison(scores, surfaces, feedbacks));
+    out.push("");
+    out.push(pairedSection(scores, surfaces, feedbacks));
     out.push("");
   }
 
@@ -307,6 +401,46 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
 }
 
 /**
+ * Every pairwise comparison, paired within task. This is the pre-registered
+ * decision rule made visible: an interval that excludes zero is a resolved
+ * difference, anything else is not, however suggestive the means look.
+ */
+function pairedSection(scores: RunScore[], surfaces: string[], feedbacks: string[]): string {
+  const rows: string[][] = [];
+
+  const add = (label: string, diff: ReturnType<typeof pairedDifference>) => {
+    rows.push([
+      label,
+      `${diff.a} vs ${diff.b}`,
+      `${diff.difference >= 0 ? "+" : ""}${pct(diff.difference)}`,
+      `[${pct(diff.low)}–${pct(diff.high)}]`,
+      String(diff.pairs),
+      diff.resolved ? "resolved" : "not resolved",
+    ]);
+  };
+
+  for (let i = 0; i < surfaces.length; i++) {
+    for (let j = i + 1; j < surfaces.length; j++) {
+      add("surface", pairedDifference(scores, (s) => s.surfaceId, surfaces[i]!, surfaces[j]!));
+    }
+  }
+  for (let i = 0; i < feedbacks.length; i++) {
+    for (let j = i + 1; j < feedbacks.length; j++) {
+      add("feedback", pairedDifference(scores, (s) => s.feedbackMode, feedbacks[i]!, feedbacks[j]!));
+    }
+  }
+
+  return [
+    "### Paired differences",
+    "",
+    "Matched within task, since every condition sees every task and tasks differ wildly in difficulty.",
+    "A difference is resolved only when its interval excludes zero.",
+    "",
+    table(["Axis", "Comparison", "Difference", "95% interval", "Tasks", "Verdict"], rows),
+  ].join("\n");
+}
+
+/**
  * The headline comparison in one line: does changing the feedback move the
  * score more than changing the tool surface?
  */
@@ -370,7 +504,7 @@ export function buildReportJson(scores: RunScore[]): unknown {
       const judged = rows.filter((r) => r.judgeCriteriaScore !== null);
       byKey[group] = {
         n: rows.length,
-        improvement: bootstrapCI(rows.map((r) => r.normalizedScore)),
+        improvement: clusterBootstrapCI(rows, (r) => r.normalizedScore),
         baseline: mean(rows.map((r) => r.baselineScore)),
         composite: bootstrapCI(rows.map((r) => r.composite)),
         constraint: bootstrapCI(rows.map((r) => r.constraintScore)),
