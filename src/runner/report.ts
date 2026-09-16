@@ -1,0 +1,394 @@
+/**
+ * Aggregation and reporting.
+ *
+ * Bootstrap confidence intervals rather than bare means, because the cells are
+ * small: eighteen tasks times a handful of repeats is not enough to read a
+ * two-point difference as a result. If the intervals for two surfaces overlap,
+ * the report says so rather than ranking them.
+ *
+ * The bootstrap is seeded, so the same scores always produce the same
+ * intervals. A report that shifts slightly every time it is regenerated
+ * invites exactly the kind of re-rolling this study should not do.
+ */
+
+import type { RunScore } from "../eval/score.js";
+import { feedbackLabel, type FeedbackMode } from "../feedback/index.js";
+
+export const BOOTSTRAP_ITERATIONS = 2000;
+export const BOOTSTRAP_SEED = 20260916;
+
+/** Deterministic PRNG so reports are reproducible. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function mean(values: number[]): number {
+  return values.length ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+}
+
+export function stdev(values: number[]): number {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  return Math.sqrt(values.reduce((s, v) => s + (v - m) ** 2, 0) / (values.length - 1));
+}
+
+export interface Interval {
+  mean: number;
+  low: number;
+  high: number;
+  n: number;
+  sd: number;
+}
+
+/** Percentile bootstrap of the mean. */
+export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS, alpha = 0.05): Interval {
+  const n = values.length;
+  const m = mean(values);
+  if (n === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
+  if (n === 1) return { mean: m, low: m, high: m, n, sd: 0 };
+
+  const rand = mulberry32(BOOTSTRAP_SEED + n);
+  const means: number[] = new Array(iterations);
+  for (let i = 0; i < iterations; i++) {
+    let sum = 0;
+    for (let j = 0; j < n; j++) sum += values[Math.floor(rand() * n)]!;
+    means[i] = sum / n;
+  }
+  means.sort((a, b) => a - b);
+  const lowIdx = Math.floor((alpha / 2) * iterations);
+  const highIdx = Math.min(iterations - 1, Math.ceil((1 - alpha / 2) * iterations) - 1);
+  return { mean: m, low: means[lowIdx]!, high: means[highIdx]!, n, sd: stdev(values) };
+}
+
+export function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const bucket = out.get(k);
+    if (bucket) bucket.push(item);
+    else out.set(k, [item]);
+  }
+  return out;
+}
+
+const pct = (v: number) => `${(v * 100).toFixed(1)}`;
+const ci = (i: Interval) => `${pct(i.mean)} [${pct(i.low)}–${pct(i.high)}]`;
+const usd = (v: number) => `$${v.toFixed(4)}`;
+
+function table(headers: string[], rows: string[][]): string {
+  const sep = headers.map(() => "---");
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${sep.join(" | ")} |`,
+    ...rows.map((r) => `| ${r.join(" | ")} |`),
+  ].join("\n");
+}
+
+export interface ReportOptions {
+  title?: string;
+  /** Emit the surface x feedback interaction table. Needs >1 feedback mode. */
+  includeInteraction?: boolean;
+}
+
+export function buildReport(scores: RunScore[], opts: ReportOptions = {}): string {
+  if (scores.length === 0) return "# No runs\n\nNothing to report.";
+
+  const surfaces = [...new Set(scores.map((s) => s.surfaceId))].sort();
+  const feedbacks = [...new Set(scores.map((s) => s.feedbackMode))];
+  const models = [...new Set(scores.map((s) => s.model))].sort();
+  const families = [...new Set(scores.map((s) => s.taskFamily))].sort();
+
+  const out: string[] = [];
+  out.push(`# ${opts.title ?? "Surface comparison"}`);
+  out.push("");
+  out.push(
+    `${scores.length} runs — ${surfaces.length} surface(s), ${feedbacks.length} feedback condition(s), ` +
+      `${models.length} model(s), ${new Set(scores.map((s) => s.taskId)).size} task(s).`,
+  );
+  out.push("");
+  out.push(
+    "Scores are percentages with a bootstrapped 95% interval. Overlapping intervals mean the " +
+      "difference is not resolved at this sample size.",
+  );
+  out.push("");
+  out.push(
+    "**Improvement** is the headline metric: the share of available constraint headroom a run closed, " +
+      "where 0% is leaving the document exactly as it was found and 100% is satisfying every check. " +
+      "Raw scores start around " +
+      `${pct(mean(scores.map((s) => s.baselineScore)))}% on these tasks, so improvement resolves differences ` +
+      "that the raw scale flattens. A negative value means the run made the document worse.",
+  );
+  out.push("");
+
+  // --- headline: by surface ---
+  out.push("## By tool surface");
+  out.push("");
+  out.push(
+    table(
+      ["Surface", "Improvement", "Composite", "Constraints", "Judge", "Turns", "Tool calls", "Failed calls", "Cost/run", "n"],
+      surfaces.map((surface) => {
+        const rows = scores.filter((s) => s.surfaceId === surface);
+        const judged = rows.filter((s) => s.judgeCriteriaScore !== null);
+        return [
+          surface,
+          ci(bootstrapCI(rows.map((s) => s.normalizedScore))),
+          ci(bootstrapCI(rows.map((s) => s.composite))),
+          ci(bootstrapCI(rows.map((s) => s.constraintScore))),
+          judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
+          mean(rows.map((s) => s.efficiency.turns)).toFixed(1),
+          mean(rows.map((s) => s.efficiency.toolCalls)).toFixed(1),
+          `${pct(mean(rows.map((s) => s.efficiency.failureRate)))}%`,
+          usd(mean(rows.map((s) => s.efficiency.costUsd))),
+          String(rows.length),
+        ];
+      }),
+    ),
+  );
+  out.push("");
+  out.push("### Cost of a point");
+  out.push("");
+  out.push(
+    "Improvement per dollar. A surface that wins on quality while costing several times as much has not " +
+      "obviously won, and this is where document-as-code's few-turns-many-tokens profile shows up.",
+  );
+  out.push("");
+  out.push(
+    table(
+      ["Surface", "Improvement", "Cost/run", "Improvement per $", "Tokens/run"],
+      surfaces.map((surface) => {
+        const rows = scores.filter((s) => s.surfaceId === surface);
+        const improvement = mean(rows.map((s) => s.normalizedScore));
+        const cost = mean(rows.map((s) => s.efficiency.costUsd));
+        return [
+          surface,
+          `${pct(improvement)}`,
+          usd(cost),
+          cost > 0 ? pct(improvement / cost) : "—",
+          Math.round(mean(rows.map((s) => s.efficiency.totalTokens))).toLocaleString("en-US"),
+        ];
+      }),
+    ),
+  );
+  out.push("");
+
+  // --- feedback ---
+  if (feedbacks.length > 1) {
+    out.push("## By feedback condition");
+    out.push("");
+    out.push(
+      table(
+        ["Feedback", "Improvement", "Composite", "Constraints", "Judge", "Turns", "Cost/run", "n"],
+        feedbacks.map((feedback) => {
+          const rows = scores.filter((s) => s.feedbackMode === feedback);
+          const judged = rows.filter((s) => s.judgeCriteriaScore !== null);
+          return [
+            feedbackLabel(feedback as FeedbackMode),
+            ci(bootstrapCI(rows.map((s) => s.normalizedScore))),
+            ci(bootstrapCI(rows.map((s) => s.composite))),
+            ci(bootstrapCI(rows.map((s) => s.constraintScore))),
+            judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
+            mean(rows.map((s) => s.efficiency.turns)).toFixed(1),
+            usd(mean(rows.map((s) => s.efficiency.costUsd))),
+            String(rows.length),
+          ];
+        }),
+      ),
+    );
+    out.push("");
+  }
+
+  // --- the interaction, which is the question that actually matters ---
+  if (opts.includeInteraction !== false && feedbacks.length > 1 && surfaces.length > 1) {
+    out.push("## Surface x feedback");
+    out.push("");
+    out.push(
+      "Improvement. If the spread down a column exceeds the spread across a row, feedback matters more " +
+        "than the tool surface — which is the interaction this study exists to measure.",
+    );
+    out.push("");
+    out.push(
+      table(
+        ["Feedback", ...surfaces],
+        feedbacks.map((feedback) => [
+          feedbackLabel(feedback as FeedbackMode),
+          ...surfaces.map((surface) => {
+            const rows = scores.filter((s) => s.feedbackMode === feedback && s.surfaceId === surface);
+            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+          }),
+        ]),
+      ),
+    );
+    out.push("");
+    out.push(spreadComparison(scores, surfaces, feedbacks));
+    out.push("");
+  }
+
+  // --- by family ---
+  if (families.length > 1) {
+    out.push("## By task family");
+    out.push("");
+    out.push("Improvement. The `fit` and `arrange` families are where relational operations should help most.");
+    out.push("");
+    out.push(
+      table(
+        ["Family", ...surfaces],
+        families.map((family) => [
+          family,
+          ...surfaces.map((surface) => {
+            const rows = scores.filter((s) => s.taskFamily === family && s.surfaceId === surface);
+            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+          }),
+        ]),
+      ),
+    );
+    out.push("");
+  }
+
+  // --- by model ---
+  if (models.length > 1) {
+    out.push("## By model");
+    out.push("");
+    out.push(
+      table(
+        ["Model", ...surfaces, "Cost/run"],
+        models.map((model) => [
+          model,
+          ...surfaces.map((surface) => {
+            const rows = scores.filter((s) => s.model === model && s.surfaceId === surface);
+            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+          }),
+          usd(mean(scores.filter((s) => s.model === model).map((s) => s.efficiency.costUsd))),
+        ]),
+      ),
+    );
+    out.push("");
+  }
+
+  // --- what agents reached for ---
+  const toolRows = toolUsageRows(scores);
+  if (toolRows.length > 0) {
+    out.push("## Tool use");
+    out.push("");
+    out.push("Calls per run, and how often each call was rejected.");
+    out.push("");
+    out.push(table(["Surface", "Tool", "Calls/run", "Rejected"], toolRows));
+    out.push("");
+  }
+
+  // --- how runs ended ---
+  out.push("## How runs ended");
+  out.push("");
+  const stopReasons = [...new Set(scores.map((s) => s.stopReason))].sort();
+  out.push(
+    table(
+      ["Surface", ...stopReasons],
+      surfaces.map((surface) => {
+        const rows = scores.filter((s) => s.surfaceId === surface);
+        return [
+          surface,
+          ...stopReasons.map((reason) => {
+            const n = rows.filter((r) => r.stopReason === reason).length;
+            return n ? `${n} (${pct(n / rows.length)}%)` : "—";
+          }),
+        ];
+      }),
+    ),
+  );
+  out.push("");
+
+  return out.join("\n");
+}
+
+/**
+ * The headline comparison in one line: does changing the feedback move the
+ * score more than changing the tool surface?
+ */
+function spreadComparison(scores: RunScore[], surfaces: string[], feedbacks: string[]): string {
+  const surfaceMeans = surfaces.map((s) => mean(scores.filter((r) => r.surfaceId === s).map((r) => r.normalizedScore)));
+  const feedbackMeans = feedbacks.map((f) => mean(scores.filter((r) => r.feedbackMode === f).map((r) => r.normalizedScore)));
+  const surfaceSpread = Math.max(...surfaceMeans) - Math.min(...surfaceMeans);
+  const feedbackSpread = Math.max(...feedbackMeans) - Math.min(...feedbackMeans);
+  const verdict =
+    Math.abs(surfaceSpread - feedbackSpread) < 0.02
+      ? "The two effects are comparable at this sample size."
+      : feedbackSpread > surfaceSpread
+        ? "Feedback moves the score more than the tool surface does."
+        : "The tool surface moves the score more than feedback does.";
+  return `Spread across surfaces: ${pct(surfaceSpread)} points. Spread across feedback conditions: ${pct(feedbackSpread)} points. ${verdict}`;
+}
+
+function toolUsageRows(scores: RunScore[]): string[][] {
+  const rows: string[][] = [];
+  for (const [surface, group] of groupBy(scores, (s) => s.surfaceId)) {
+    const totals = new Map<string, { ok: number; failed: number }>();
+    for (const score of group) {
+      for (const [tool, counts] of Object.entries(score.toolUsage)) {
+        const acc = totals.get(tool) ?? { ok: 0, failed: 0 };
+        acc.ok += counts.ok;
+        acc.failed += counts.failed;
+        totals.set(tool, acc);
+      }
+    }
+    const sorted = [...totals.entries()].sort((a, b) => b[1].ok + b[1].failed - (a[1].ok + a[1].failed));
+    for (const [tool, counts] of sorted) {
+      const calls = counts.ok + counts.failed;
+      rows.push([
+        surface,
+        tool,
+        (calls / group.length).toFixed(2),
+        calls ? `${pct(counts.failed / calls)}%` : "—",
+      ]);
+    }
+  }
+  return rows;
+}
+
+/** Machine-readable aggregates, for plotting outside this repo. */
+export function buildReportJson(scores: RunScore[]): unknown {
+  const dimensions = {
+    surface: (s: RunScore) => s.surfaceId,
+    feedback: (s: RunScore) => s.feedbackMode,
+    model: (s: RunScore) => s.model,
+    family: (s: RunScore) => s.taskFamily,
+    task: (s: RunScore) => s.taskId,
+    surfaceByFeedback: (s: RunScore) => `${s.surfaceId}|${s.feedbackMode}`,
+    surfaceByFamily: (s: RunScore) => `${s.surfaceId}|${s.taskFamily}`,
+    surfaceByModel: (s: RunScore) => `${s.surfaceId}|${s.model}`,
+  };
+
+  const aggregates: Record<string, Record<string, unknown>> = {};
+  for (const [name, key] of Object.entries(dimensions)) {
+    const byKey: Record<string, unknown> = {};
+    for (const [group, rows] of groupBy(scores, key)) {
+      const judged = rows.filter((r) => r.judgeCriteriaScore !== null);
+      byKey[group] = {
+        n: rows.length,
+        improvement: bootstrapCI(rows.map((r) => r.normalizedScore)),
+        baseline: mean(rows.map((r) => r.baselineScore)),
+        composite: bootstrapCI(rows.map((r) => r.composite)),
+        constraint: bootstrapCI(rows.map((r) => r.constraintScore)),
+        judge: judged.length ? bootstrapCI(judged.map((r) => r.judgeCriteriaScore!)) : null,
+        turns: mean(rows.map((r) => r.efficiency.turns)),
+        toolCalls: mean(rows.map((r) => r.efficiency.toolCalls)),
+        failureRate: mean(rows.map((r) => r.efficiency.failureRate)),
+        costUsd: mean(rows.map((r) => r.efficiency.costUsd)),
+        totalTokens: mean(rows.map((r) => r.efficiency.totalTokens)),
+      };
+    }
+    aggregates[name] = byKey;
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    runs: scores.length,
+    bootstrap: { iterations: BOOTSTRAP_ITERATIONS, seed: BOOTSTRAP_SEED },
+    aggregates,
+  };
+}
