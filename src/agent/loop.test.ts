@@ -297,6 +297,110 @@ describe("model configuration", () => {
   });
 });
 
+describe("switching surface mid-session", () => {
+  it("swaps the tool list and keeps the document", async () => {
+    let surface = coordinateSurface;
+    const client = createScriptedClient(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 100, height: 100 } }] },
+        // After the switch, a relational-only tool must work.
+        { tools: [{ name: "place", input: { id: "el_1", relation: "canvas_center" } }] },
+        { text: "Done." },
+      ]),
+    );
+    const events: string[] = [];
+    const result = await runAgent({
+      runId: "switch",
+      task: trivialTask,
+      surface: coordinateSurface,
+      surfaceProvider: () => surface,
+      feedback: createFeedbackChannel("none"),
+      model: "claude-opus-5",
+      client,
+      onEvent: (e) => {
+        if (e.type === "tool_result" && e.tool === "create") surface = relationalSurface;
+        if (e.type === "surface_switch") events.push(`${e.from}->${e.to}`);
+      },
+    });
+
+    expect(events).toEqual(["coordinate->relational"]);
+    expect(result.surfacesUsed).toEqual(["coordinate", "relational"]);
+    expect(result.failedToolCalls).toBe(0);
+    // The element survived the switch and was then centred relationally.
+    expect(result.finalDoc.elements).toHaveLength(1);
+    expect(result.finalDoc.elements[0]!.x).toBeCloseTo(450, 1);
+
+    const toolNames = (client.requests.at(-1)!.tools ?? []).map((t) => (t as { name: string }).name);
+    expect(toolNames).toContain("place");
+    expect(toolNames).not.toContain("move");
+  });
+
+  it("announces the switch as an operator instruction where the model allows it", async () => {
+    let surface = coordinateSurface;
+    const client = createScriptedClient(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done." },
+      ]),
+    );
+    await runAgent({
+      runId: "switch",
+      task: trivialTask,
+      surface: coordinateSurface,
+      surfaceProvider: () => surface,
+      feedback: createFeedbackChannel("none"),
+      model: "claude-opus-5",
+      client,
+      onEvent: (e) => {
+        if (e.type === "tool_result") surface = relationalSurface;
+      },
+    });
+    const messages = client.requests.at(-1)!.messages as { role: string }[];
+    expect(messages.some((m) => m.role === "system")).toBe(true);
+  });
+
+  it("falls back to a user message on models that reject a system role in messages", async () => {
+    let surface = coordinateSurface;
+    const client = createScriptedClient(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done." },
+      ]),
+    );
+    await runAgent({
+      runId: "switch",
+      task: trivialTask,
+      surface: coordinateSurface,
+      surfaceProvider: () => surface,
+      feedback: createFeedbackChannel("none"),
+      model: "claude-sonnet-5",
+      client,
+      onEvent: (e) => {
+        if (e.type === "tool_result") surface = relationalSurface;
+      },
+    });
+    const messages = client.requests.at(-1)!.messages as { role: string }[];
+    expect(messages.some((m) => m.role === "system")).toBe(false);
+    expect(JSON.stringify(messages)).toContain("Your tools have been replaced");
+  });
+
+  it("does nothing when the provider returns the same surface", async () => {
+    const { client, result } = run("none", [{ text: "done" }]);
+    await result;
+    void client;
+    const r = await runAgent({
+      runId: "same",
+      task: trivialTask,
+      surface: coordinateSurface,
+      surfaceProvider: () => coordinateSurface,
+      feedback: createFeedbackChannel("none"),
+      model: "claude-opus-5",
+      client: createScriptedClient(fixedScript([{ text: "done" }])),
+    });
+    expect(r.surfacesUsed).toEqual(["coordinate"]);
+  });
+});
+
 describe("transcripts", () => {
   it("elides base64 image payloads", async () => {
     const { result } = run("screenshot", [

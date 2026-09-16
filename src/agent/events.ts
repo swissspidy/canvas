@@ -21,6 +21,7 @@ export type AgentEvent =
   | { type: "tool_result"; turn: number; seq: number; tool: string; ok: boolean; message: string; touched: string[] }
   | { type: "doc_update"; turn: number; seq: number; doc: Doc; svg: string }
   | { type: "feedback"; turn: number; mode: FeedbackMode; hasImage: boolean; text?: string }
+  | { type: "surface_switch"; turn: number; from: SurfaceId; to: SurfaceId }
   | { type: "turn_end"; turn: number; usage: TokenUsage; stopReason: string | null }
   | { type: "run_end"; runId: string; reason: StopReason; turns: number; usage: TokenUsage; costUsd: number }
   | { type: "error"; message: string; fatal: boolean };

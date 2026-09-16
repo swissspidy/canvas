@@ -33,6 +33,12 @@ export interface ModelSpec {
    * "budget" is the older `{type:"enabled", budget_tokens}` form.
    */
   thinking: "adaptive" | "budget";
+  /**
+   * A `{role: "system"}` entry may be appended to `messages`. Used to announce
+   * a mid-session surface switch as an operator instruction rather than as
+   * something the user said.
+   */
+  supportsMidConversationSystem: boolean;
 }
 
 const DEFAULTS = { cacheWriteMultiplier: 1.25, cacheReadMultiplier: 0.1 };
@@ -46,6 +52,7 @@ export const MODELS: Record<string, ModelSpec> = {
     contextWindow: 1_000_000,
     supportsEffort: true,
     thinking: "adaptive",
+    supportsMidConversationSystem: true,
     ...DEFAULTS,
   },
   "claude-sonnet-5": {
@@ -56,6 +63,8 @@ export const MODELS: Record<string, ModelSpec> = {
     contextWindow: 1_000_000,
     supportsEffort: true,
     thinking: "adaptive",
+    // Sonnet 5 rejects a system role inside `messages`.
+    supportsMidConversationSystem: false,
     ...DEFAULTS,
   },
   "claude-haiku-4-5": {
@@ -66,6 +75,7 @@ export const MODELS: Record<string, ModelSpec> = {
     contextWindow: 200_000,
     supportsEffort: false,
     thinking: "budget",
+    supportsMidConversationSystem: false,
     ...DEFAULTS,
   },
 };
@@ -88,6 +98,7 @@ export function getModel(id: string): ModelSpec {
     contextWindow: 200_000,
     supportsEffort: false,
     thinking: "adaptive",
+    supportsMidConversationSystem: false,
     ...DEFAULTS,
   };
 }

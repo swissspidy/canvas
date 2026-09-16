@@ -35,6 +35,17 @@ export interface RunConfig {
   runId: string;
   task: Task;
   surface: ToolSurface;
+  /**
+   * Consulted at the start of every turn. Returning a different surface swaps
+   * the tool list mid-run, keeping the document and the conversation — this is
+   * what the live page's surface toggle drives, and it is the demo worth
+   * sharing: the same brief, the same half-built layout, a different
+   * vocabulary from here on.
+   *
+   * It costs a prompt-cache miss, because tools render before the system
+   * prompt. That is unavoidable and is not worth working around for a demo.
+   */
+  surfaceProvider?: () => ToolSurface;
   feedback: FeedbackChannel;
   model: string;
   effort?: Effort;
@@ -67,6 +78,8 @@ export interface RunResult {
   runId: string;
   taskId: string;
   surfaceId: string;
+  /** Every surface the run used, in order. Longer than one after a toggle. */
+  surfacesUsed: string[];
   feedbackMode: string;
   model: string;
   effort: Effort | null;
@@ -145,7 +158,9 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
   const initialDoc = config.task.initial();
   const session = new DocSession(initialDoc);
-  const tools = toolDefinitions(config.surface, config.eagerInputStreaming === true);
+  let surface = config.surface;
+  let tools = toolDefinitions(surface, config.eagerInputStreaming === true);
+  const surfacesUsed: string[] = [surface.id];
 
   emit({
     type: "run_start",
@@ -178,12 +193,24 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
       emit({ type: "turn_start", turn });
       const turnStarted = Date.now();
 
+      const requested = config.surfaceProvider?.();
+      if (requested && requested.id !== surface.id) {
+        const from = surface.id;
+        surface = requested;
+        tools = toolDefinitions(surface, config.eagerInputStreaming === true);
+        surfacesUsed.push(surface.id);
+        // The last message here is always a user turn (tool results), which is
+        // where a mid-conversation system message is allowed to sit.
+        messages.push(switchNotice(surface, spec.supportsMidConversationSystem));
+        emit({ type: "surface_switch", turn, from, to: surface.id });
+      }
+
       const request: Anthropic.MessageStreamParams = {
         model: config.model,
         max_tokens: maxTokens,
         // The surface briefing is stable for every run on this surface, so the
         // tools + system prefix caches across the whole sweep.
-        system: [{ type: "text", text: systemPrompt(config.surface), cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: systemPrompt(surface), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
         ...(spec.thinking === "adaptive"
@@ -254,7 +281,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const use of toolUses) {
         emit({ type: "tool_call", turn, seq: session.actions.length + 1, tool: use.name, input: use.input });
-        const outcome = executeToolCall(session, config.surface, use.name, use.input);
+        const outcome = executeToolCall(session, surface, use.name, use.input);
 
         const counter = (toolUsage[use.name] ??= { ok: 0, failed: 0 });
         if (outcome.ok) counter.ok++;
@@ -327,6 +354,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     runId: config.runId,
     taskId: config.task.id,
     surfaceId: config.surface.id,
+    surfacesUsed,
     feedbackMode: config.feedback.mode,
     model: config.model,
     effort,
@@ -355,6 +383,27 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     costUsd: result.costUsd,
   });
   return result;
+}
+
+/**
+ * Tell the model its tools just changed.
+ *
+ * As an operator instruction where the model accepts one — that is what a
+ * mid-conversation system message is for, and it keeps the switch clearly
+ * distinct from anything the user said. Models that reject a system role
+ * inside `messages` get the same text as a user turn.
+ */
+function switchNotice(surface: ToolSurface, asSystem: boolean): Anthropic.MessageParam {
+  const text = [
+    `Your tools have been replaced. From now on you have the ${surface.title.toLowerCase()} tool set.`,
+    "",
+    surface.briefing,
+    "",
+    "The document is unchanged. Carry on from where you are with the tools you now have.",
+  ].join("\n");
+  return asSystem
+    ? ({ role: "system", content: text } as unknown as Anthropic.MessageParam)
+    : { role: "user", content: [{ type: "text", text }] };
 }
 
 function describeError(err: unknown): string {
