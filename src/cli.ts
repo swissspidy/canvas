@@ -383,9 +383,16 @@ async function cmdRun(args: Args): Promise<void> {
  * its own business, so nothing here can predict a price from first principles.
  * What it can do is read the runs already in `--out` and extrapolate per
  * model, which is exactly the number someone wants before committing to a
- * grid: do a one-task pilot, then estimate the rest from it. Models with no
- * pilot runs are named as unpriced rather than guessed at, so the total is
- * always a floor and says so.
+ * grid: do a one-task pilot, then estimate the rest from it.
+ *
+ * Two things keep it from inventing a number. A model with no pilot runs is
+ * named rather than guessed at. And a model with no *pricing* is named too,
+ * because a run whose model is absent from `MODELS` carries `costUsd: 0` with
+ * `pricingKnown: false`, and averaging that zero in would report a confident
+ * $0.0000 per run. Worse than zero, in fact: `scoreRun` adds the judge's cost
+ * to the run's, so an unpriced model judged by a priced one yields the judge's
+ * cost alone, presented as the whole. Either way the total is a floor, and
+ * says which models are missing from it and why.
  */
 function printEstimate(config: SweepConfig, cells: number): void {
   console.log(`Judge: ${config.judge ? `${config.judgeModel}, one call per run` : "disabled"}.`);
@@ -408,12 +415,17 @@ function printEstimate(config: SweepConfig, cells: number): void {
   }
 
   let total = 0;
-  const unknown: string[] = [];
+  const noRuns: string[] = [];
+  const noPrice: string[] = [];
   const rows: string[] = [];
   for (const model of config.models) {
     const sample = done.filter((s) => s.model === model);
     if (sample.length === 0) {
-      unknown.push(model);
+      noRuns.push(model);
+      continue;
+    }
+    if (sample.some((s) => !s.efficiency.pricingKnown)) {
+      noPrice.push(model);
       continue;
     }
     const perRun = sample.reduce((sum, s) => sum + s.efficiency.costUsd, 0) / sample.length;
@@ -427,11 +439,18 @@ function printEstimate(config: SweepConfig, cells: number): void {
 
   console.log(`\n${cells} runs, ${cellsPerModel} per model. Extrapolated from ${done.length} already in ${config.outDir}:`);
   for (const row of rows) console.log(row);
-  console.log(`  ${"total".padEnd(44)} $${total.toFixed(2)}${unknown.length ? " (a floor, see below)" : ""}`);
-  if (unknown.length > 0) {
+  const missing = noRuns.length + noPrice.length;
+  console.log(`  ${"total".padEnd(44)} $${total.toFixed(2)}${missing ? " (a floor, see below)" : ""}`);
+  if (noRuns.length > 0) {
     console.log(
-      `\nNo runs yet for ${unknown.join(", ")}, so nothing for them is in that total. ` +
+      `\nNo runs yet for ${noRuns.join(", ")}, so nothing for them is in that total. ` +
         `Run one task on each to bring it in.`,
+    );
+  }
+  if (noPrice.length > 0) {
+    console.log(
+      `\nNo pricing for ${noPrice.join(", ")}, so their runs are costed at zero and nothing for ` +
+        `them is in that total. Add a checked price to MODELS in src/agent/models.ts to include them.`,
     );
   }
   console.log("\nRun without --estimate to start.");

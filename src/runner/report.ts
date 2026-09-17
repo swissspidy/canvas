@@ -86,10 +86,10 @@ export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS,
  * six hundred runs. So the cluster is the task, exactly as
  * `docs/PREREGISTRATION.md` specifies for the headline comparisons.
  */
-export function clusterBootstrapCI(
-  items: RunScore[],
-  valueOf: (item: RunScore) => number,
-  clusterOf: (item: RunScore) => string = (s) => s.taskId,
+export function clusterBootstrapCI<T extends { taskId: string }>(
+  items: T[],
+  valueOf: (item: T) => number,
+  clusterOf: (item: T) => string = (s) => s.taskId,
   iterations = BOOTSTRAP_ITERATIONS,
   alpha = 0.05,
 ): Interval {
@@ -472,16 +472,29 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
  * no interval, so they are a place to look rather than a result.
  */
 function leaderboard(scores: RunScore[], models: string[]): string {
+  const grid = commonGrid(scores, models);
+  const aligned = scores.filter((s) => grid.has(gridKey(s)));
+  const excluded = scores.length - aligned.length;
+
+  if (aligned.length === 0) {
+    return [
+      "## Leaderboard",
+      "",
+      "No task, surface and feedback combination has a run from every model here, so there is no",
+      "like-for-like comparison to rank. Finish the sweep, or report the models separately.",
+    ].join("\n");
+  }
+
   const ranked = models
     .map((model) => {
-      const rows = scores.filter((s) => s.model === model);
+      const rows = aligned.filter((s) => s.model === model);
       const cells = [...groupBy(rows, cellKey).entries()]
         .map(([key, group]) => ({ key, value: mean(group.map((r) => r.normalizedScore)) }))
         .sort((a, b) => b.value - a.value);
       return {
         model,
         rows,
-        interval: clusterBootstrapCI(rows, (r) => r.normalizedScore),
+        interval: clusterBootstrapCI(perCellMeans(rows), (c) => c.value),
         cost: mean(rows.map((r) => r.efficiency.costUsd)),
         priced: rows.every((r) => r.efficiency.pricingKnown),
         best: cells[0],
@@ -504,17 +517,71 @@ function leaderboard(scores: RunScore[], models: string[]): string {
     ]),
   );
 
-  return [
+  const out = [
     "## Leaderboard",
     "",
     "Models ranked by improvement, averaged over every surface and feedback condition in this sweep.",
     "A cell is `surface/feedback`. Overlapping intervals mean the order between two rows is not resolved.",
     "",
     body,
-  ].join("\n");
+  ];
+  if (excluded > 0) {
+    out.push("");
+    out.push(
+      `> Ranked on the ${grid.size} task x surface x feedback combination(s) every model has runs for. ` +
+        `${excluded} run(s) outside that common grid are left out, because a model scored on an easier ` +
+        `subset of the tasks is not comparable with one scored on all of them. Finish the sweep to ` +
+        `bring them in.`,
+    );
+  }
+  return out.join("\n");
 }
 
+/** The condition a run was made under, with the task left out. */
 const cellKey = (s: RunScore) => `${s.surfaceId}/${s.feedbackMode}`;
+
+/** A run's place in the full grid: one condition, on one task. */
+const gridKey = (s: RunScore) => `${s.taskId}|${s.surfaceId}|${s.feedbackMode}`;
+
+/**
+ * The grid cells every model has at least one run for.
+ *
+ * A sweep does not have to be square. Run ids encode the cell, so an
+ * interrupted sweep resumes and a widened one runs only what is new — both
+ * deliberate, and both able to leave one model scored on eighteen tasks and
+ * another on five. Tasks differ enormously in difficulty, which is the whole
+ * reason `pairedDifference` exists, so ranking those two means against each
+ * other compares the task sets rather than the models. Restricting to the
+ * intersection makes the leaderboard like-for-like whatever state the sweep is
+ * in; on a complete one it is every cell and changes nothing.
+ */
+function commonGrid(scores: RunScore[], models: string[]): Set<string> {
+  const perModel = models.map(
+    (model) => new Set<string>(scores.filter((s) => s.model === model).map(gridKey)),
+  );
+  const [first, ...rest] = perModel;
+  const common = new Set<string>();
+  for (const key of first ?? []) {
+    if (rest.every((keys) => keys.has(key))) common.add(key);
+  }
+  return common;
+}
+
+/**
+ * One observation per grid cell, so repeats do not reweight a task's mean.
+ *
+ * `clusterBootstrapCI` averages every row inside a task before resampling. Fed
+ * raw runs, a cell that happens to carry three repeats counts three times
+ * against one that carries a single run — and after an interrupted sweep two
+ * models can carry that imbalance in different places, which is the same
+ * comparison problem one level down.
+ */
+function perCellMeans(rows: RunScore[]): { taskId: string; value: number }[] {
+  return [...groupBy(rows, gridKey).values()].map((group) => ({
+    taskId: group[0]!.taskId,
+    value: mean(group.map((r) => r.normalizedScore)),
+  }));
+}
 
 /**
  * Every (model, surface, feedback) cell, ranked.
