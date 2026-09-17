@@ -6,7 +6,6 @@ import {
   PROVIDER_IDS,
   addUsage,
   costUsd,
-  credentialFor,
   credentialedProviders,
   getModel,
   hasCredentials,
@@ -142,15 +141,13 @@ describe("effort", () => {
 });
 
 /**
- * Every variable in `PROVIDER_ENV`, with nothing else set. The suite inherits
- * the operator's real environment, and a key sitting in it would otherwise
- * decide these results.
+ * One provider's variable, with the others cleared. The suite inherits the
+ * operator's real environment, and a key sitting in it would otherwise decide
+ * these results.
  */
-function onlySet(name: string, value: string): void {
-  for (const names of Object.values(PROVIDER_ENV)) {
-    for (const env of names) vi.stubEnv(env, undefined);
-  }
-  vi.stubEnv(name, value);
+function onlySet(name: string | null, value = ""): void {
+  for (const env of Object.values(PROVIDER_ENV)) vi.stubEnv(env, undefined);
+  if (name !== null) vi.stubEnv(name, value);
 }
 
 /** The auth headers the first request would actually carry. */
@@ -176,53 +173,48 @@ describe("credentials", () => {
     vi.unstubAllGlobals();
   });
 
-  // The reported bug: `GEMINI_API_KEY` is what Google's own genai SDKs and
-  // the `gemini` CLI read, and a machine that had one still reported "no
-  // provider API key found".
-  it("accepts GEMINI_API_KEY for google", () => {
-    onlySet("GEMINI_API_KEY", "k");
+  it("sees one provider's key and not another's", () => {
+    onlySet("GOOGLE_GENERATIVE_AI_API_KEY", "k");
     expect(hasCredentials("google")).toBe(true);
-    expect(credentialFor("google")).toEqual({ env: "GEMINI_API_KEY", value: "k" });
+    expect(hasCredentials("anthropic")).toBe(false);
     expect(credentialedProviders()).toEqual(["google"]);
   });
 
-  it("prefers the adapter's own variable when both are set", () => {
-    onlySet("GOOGLE_GENERATIVE_AI_API_KEY", "native");
-    vi.stubEnv("GEMINI_API_KEY", "alias");
-    expect(credentialFor("google")?.value).toBe("native");
-  });
-
   it("reports no credential when nothing is set", () => {
-    onlySet("GEMINI_API_KEY", "");
-    for (const provider of PROVIDER_IDS) {
-      expect(credentialFor(provider)).toBeNull();
-      expect(hasCredentials(provider)).toBe(false);
-    }
+    onlySet(null);
+    for (const provider of PROVIDER_IDS) expect(hasCredentials(provider)).toBe(false);
     expect(credentialedProviders()).toEqual([]);
   });
 
   /**
-   * The drift guard, and the reason this file resolves credentials itself.
+   * The drift guard.
    *
-   * `hasCredentials` reading a wider list than the adapter does is worse than
-   * not reading it at all: the key reports as found, the run says it is live,
-   * and the first request 401s. So every variable the check accepts has to
-   * reach a request header. Both alias entries — `GEMINI_API_KEY` and
-   * `ANTHROPIC_AUTH_TOKEN` — failed this before.
+   * `hasCredentials` is a local reading of an environment variable, but the
+   * adapter is what authenticates, from a name of its own. Checking a name
+   * the adapter does not read is worse than not checking at all: the key
+   * reports as found, the run says it is live, and the first request 401s.
+   * That is the bug this pair of assertions exists to catch — an adapter
+   * renaming its variable, or an alias being added here that only this file
+   * believes in.
    */
-  describe("every accepted variable reaches the request", () => {
+  describe("PROVIDER_ENV names the variable the adapter authenticates with", () => {
     for (const provider of PROVIDER_IDS) {
-      for (const env of PROVIDER_ENV[provider]) {
-        it(`${env} authenticates ${provider}`, async () => {
-          const secret = `secret-via-${env}`;
-          onlySet(env, secret);
-          const headers = await authHeaders(`${provider}:some-model-id`);
-          // Which header and which scheme is the adapter's business — an
-          // `x-api-key`, an `x-goog-api-key` or a bearer token. That the
-          // secret is in one of them at all is this layer's business.
-          expect(Object.values(headers).some((v) => v.includes(secret))).toBe(true);
-        });
-      }
+      const env = PROVIDER_ENV[provider];
+      it(`${provider} authenticates from ${env}`, async () => {
+        const secret = `secret-via-${env}`;
+        onlySet(env, secret);
+        const headers = await authHeaders(`${provider}:some-model-id`);
+        // Which header and which scheme is the adapter's business — an
+        // `x-api-key`, an `x-goog-api-key` or a bearer token. That the secret
+        // reaches one of them at all is what this file is claiming.
+        expect(Object.values(headers).some((v) => v.includes(secret))).toBe(true);
+      });
+
+      it(`${provider} sends no stale credential without ${env}`, async () => {
+        onlySet(null);
+        // The adapter raises its own missing-key error, so no request is made.
+        await expect(authHeaders(`${provider}:some-model-id`)).rejects.toThrow(/No request/);
+      });
     }
   });
 });

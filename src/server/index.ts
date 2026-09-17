@@ -267,7 +267,7 @@ function replayReason(): string {
   const configured = credentialedProviders();
   if (configured.length === 0) {
     const recognized = Object.entries(PROVIDER_ENV)
-      .map(([provider, names]) => `${provider} (${names.join(" or ")})`)
+      .map(([provider, name]) => `${provider} (${name})`)
       .join(", ");
     return `No provider API key found. Recognized: ${recognized}.`;
   }

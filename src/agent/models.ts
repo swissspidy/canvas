@@ -18,9 +18,9 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
+import { openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -148,48 +148,19 @@ export const MODEL_SWEEP = [
  * Environment variable each provider reads, so a missing key fails with
  * something useful instead of a 401 from three turns into a sweep.
  *
- * This is also the list the credential is *taken* from — see
- * `credentialFor` — and the two cannot be allowed to drift. A variable that
- * `hasCredentials` accepts but the adapter does not read is the worst of both
- * worlds: the key reports as found, the run announces itself as live, and the
- * first request 401s. Two of the entries below are exactly that case, so none
- * of them is left to the adapter's own lookup:
- *
- *   - `GEMINI_API_KEY` is Google's own convention — its `genai` SDKs and the
- *     `gemini` CLI both read it — but the AI SDK adapter reads only
- *     `GOOGLE_GENERATIVE_AI_API_KEY`.
- *   - `ANTHROPIC_AUTH_TOKEN` is documented by the Anthropic adapter as an
- *     `authToken` default, but that adapter only reads the constructor
- *     argument; nothing falls back to the environment.
+ * Exactly the variable the AI SDK adapter reads, one per provider, because
+ * the adapter is what actually authenticates: it resolves the key itself, per
+ * request, from this name alone. Anything else listed here would be checked
+ * and then ignored — the key would report as found, the run would announce
+ * itself as live, and the first request would 401. So an alias such as
+ * Google's own `GEMINI_API_KEY` is deliberately *not* accepted; point the
+ * variable below at it instead. `models.test.ts` holds the adapters to this.
  */
-export const PROVIDER_ENV: Record<ProviderId, string[]> = {
-  anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-  google: ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
-  openai: ["OPENAI_API_KEY"],
+export const PROVIDER_ENV: Record<ProviderId, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  openai: "OPENAI_API_KEY",
 };
-
-/** A credential, and the variable it came from. */
-export interface Credential {
-  env: string;
-  value: string;
-}
-
-/**
- * The credential a provider will actually be driven with: the first variable
- * in `PROVIDER_ENV` that is set, or null when none is.
- */
-export function credentialFor(provider: ProviderId): Credential | null {
-  for (const env of PROVIDER_ENV[provider]) {
-    const value = process.env[env];
-    if (value) return { env, value };
-  }
-  return null;
-}
-
-/** Providers that have a credential set, in registry order. */
-export function credentialedProviders(): ProviderId[] {
-  return PROVIDER_IDS.filter((p) => credentialFor(p) !== null);
-}
 
 export function parseModelSpec(spec: string): { provider: ProviderId; modelId: string } {
   const at = spec.indexOf(":");
@@ -209,7 +180,12 @@ export function parseModelSpec(spec: string): { provider: ProviderId; modelId: s
 }
 
 export function hasCredentials(provider: ProviderId): boolean {
-  return credentialFor(provider) !== null;
+  return Boolean(process.env[PROVIDER_ENV[provider]]);
+}
+
+/** Providers that have a key set, in registry order. */
+export function credentialedProviders(): ProviderId[] {
+  return PROVIDER_IDS.filter(hasCredentials);
 }
 
 /**
@@ -227,27 +203,19 @@ export function getModel(id: string): ModelSpec {
 /**
  * The language model behind a spec. Throws when the provider is unknown.
  *
- * The credential is passed to the adapter rather than left to it, so that
- * every variable `PROVIDER_ENV` accepts is a variable that actually drives a
- * request. With nothing set, the adapter keeps its own lookup and raises its
- * own missing-key error, which names the variable it wanted — better than
- * anything this layer would say about an empty string.
+ * Authentication is left entirely to the adapter, which reads
+ * `PROVIDER_ENV`'s variable itself and raises its own missing-key error
+ * naming it.
  */
 export function resolveLanguageModel(spec: string): LanguageModel {
   const { provider, modelId } = parseModelSpec(spec);
-  const credential = credentialFor(provider);
-  const auth = credential === null ? {} : { apiKey: credential.value };
   switch (provider) {
     case "anthropic":
-      // An auth token goes in `Authorization: Bearer`, not `x-api-key`; the
-      // adapter has a separate slot for it, and rejects both at once.
-      return createAnthropic(
-        credential?.env === "ANTHROPIC_AUTH_TOKEN" ? { authToken: credential.value } : auth,
-      )(modelId);
+      return anthropic(modelId);
     case "google":
-      return createGoogleGenerativeAI(auth)(modelId);
+      return google(modelId);
     case "openai":
-      return createOpenAI(auth)(modelId);
+      return openai(modelId);
   }
 }
 
