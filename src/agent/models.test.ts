@@ -80,6 +80,22 @@ describe("usage accounting", () => {
     ).toEqual({ input: 900, output: 50, cacheRead: 200, cacheWrite: 100 });
   });
 
+  // Falling straight back to the total would bill the cached part twice: at the
+  // full input rate inside the total, and again at the cache rate.
+  it("derives uncached input when a provider reports only the total", () => {
+    expect(
+      tokenUsage({
+        inputTokens: 1200,
+        outputTokens: 50,
+        inputTokenDetails: { cacheReadTokens: 200, cacheWriteTokens: 100 },
+      }),
+    ).toEqual({ input: 900, output: 50, cacheRead: 200, cacheWrite: 100 });
+  });
+
+  it("never reports negative input, however a provider adds up", () => {
+    expect(tokenUsage({ inputTokens: 100, inputTokenDetails: { cacheReadTokens: 500 } }).input).toBe(0);
+  });
+
   it("falls back to the total when a provider reports no breakdown", () => {
     expect(tokenUsage({ inputTokens: 1200, outputTokens: 50 })).toEqual({
       input: 1200,

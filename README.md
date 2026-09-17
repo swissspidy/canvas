@@ -82,7 +82,7 @@ spread a finding nobody measured. The comparison lives in
 Models are named `provider:model-id`:
 
 ```bash
-npm run cli -- run --models anthropic:claude-opus-5,google:<id>,openai:<id>
+npm run cli -- run --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
 ```
 
 That single path is the point. A second, hand-written Anthropic loop used to

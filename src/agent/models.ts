@@ -88,7 +88,7 @@ export const DEFAULT_MODEL = "anthropic:claude-opus-5";
  * different model than the write-up claims. The cross-provider comparison
  * therefore takes explicit ids:
  *
- *   npm run cli -- run --models anthropic:claude-opus-5,google:<id>,openai:<id>
+ *   npm run cli -- run --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
  */
 export const MODEL_SWEEP = [
   "anthropic:claude-opus-5",
@@ -210,11 +210,19 @@ export interface UsageReport {
  * multiples — so they are tracked apart rather than summed.
  */
 export function tokenUsage(usage: UsageReport): TokenUsage {
+  const cacheRead = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+  const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
   return {
-    input: usage.inputTokenDetails?.noCacheTokens ?? usage.inputTokens ?? 0,
+    // Falling straight back to the total would bill the cached tokens twice —
+    // once at the full input rate inside the total, and again at their own
+    // rate below. The three providers here all report `noCacheTokens`; a model
+    // adapted from an older spec version may report only the total.
+    input:
+      usage.inputTokenDetails?.noCacheTokens ??
+      Math.max(0, (usage.inputTokens ?? 0) - cacheRead - cacheWrite),
     output: usage.outputTokens ?? 0,
-    cacheRead: usage.inputTokenDetails?.cacheReadTokens ?? 0,
-    cacheWrite: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
+    cacheRead,
+    cacheWrite,
   };
 }
 

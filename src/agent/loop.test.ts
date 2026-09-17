@@ -434,6 +434,32 @@ describe("switching surface mid-session", () => {
 });
 
 describe("transcripts", () => {
+  // The saved transcript is the artifact a later read of a run works from, and
+  // the model's own account of what it did is the first thing that read wants.
+  it("keeps the model's closing message", async () => {
+    const { result } = run("none", [
+      { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+      { text: "Straightened the column and stopped." },
+    ]);
+    const r = await result;
+    expect(JSON.stringify(r.transcript)).toContain("Straightened the column and stopped.");
+  });
+
+  // A turn cut off at the output limit is half-written by definition. Storing
+  // it would make an abandoned turn read like a finished one.
+  it("leaves a truncated turn's content out", async () => {
+    const { result } = run("none", [
+      {
+        finish: "length",
+        text: "I was halfway through saying",
+        tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }],
+      },
+    ]);
+    const r = await result;
+    expect(r.stopReason).toBe("max_tokens");
+    expect(JSON.stringify(r.transcript)).not.toContain("I was halfway through saying");
+  });
+
   it("elides base64 image payloads", async () => {
     const { result } = run("screenshot", [
       { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },

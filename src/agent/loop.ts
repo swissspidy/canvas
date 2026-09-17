@@ -316,6 +316,13 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
       }
 
       if (result.toolCalls.length === 0) {
+        // The sign-off goes into the conversation before the run ends: it is
+        // the model saying what it thinks it did, which is the first thing
+        // anyone reading a saved transcript looks for. The branches above
+        // deliberately do not — a filtered or truncated turn's content is
+        // unusable or half-written, and storing it would make an abandoned
+        // turn read like a finished one.
+        messages.push(...(result.responseMessages as ModelMessage[]));
         stopReason = "completed";
         record(0);
         emit({ type: "turn_end", turn, usage: turnUsage, stopReason: result.finishReason });

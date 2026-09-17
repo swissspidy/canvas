@@ -83,7 +83,7 @@ Commands
   agreement --dir <sweepDir>  Compare human ratings against the judge.
 
 Cross-provider runs
-  --models anthropic:claude-opus-5,google:<id>,openai:<id>
+  --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
   Every model runs through one loop on the Vercel AI SDK, so a difference
   between two models is not a difference between two harnesses. Prices live
   in MODELS in src/agent/models.ts; an unpriced model still runs, with cost
@@ -197,6 +197,28 @@ const RETIRED_FLAGS: Record<string, string> = {
   "eager-input": "eager input streaming was an Anthropic-only knob, and went with the native loop.",
 };
 
+/**
+ * Everything that has to hold for a model before a sweep starts spending.
+ *
+ * The spec is always parsed — a typo should not wait for the first request —
+ * while credentials are only required of a run that will actually make one.
+ */
+function checkModel(spec: string, label: string, live: boolean): void {
+  const { provider } = parseModelSpec(spec);
+  if (!getModel(spec).priced) {
+    console.warn(
+      `Note: no pricing for ${label} '${spec}', so its cost is reported as unknown. ` +
+        `Add it to MODELS in src/agent/models.ts to include it in cost comparisons.`,
+    );
+  }
+  if (live && !hasCredentials(provider)) {
+    throw new Error(
+      `No credentials for provider '${provider}', needed for ${label} '${spec}'. ` +
+        `Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
+    );
+  }
+}
+
 function buildSweepConfig(args: Args): SweepConfig {
   for (const [flag, why] of Object.entries(RETIRED_FLAGS)) {
     if (flag in args.flags) throw new Error(`--${flag} no longer exists: ${why}`);
@@ -216,20 +238,16 @@ function buildSweepConfig(args: Args): SweepConfig {
       throw new Error(`Unknown feedback mode '${f}'. Known: ${FEEDBACK_MODES.join(", ")}`);
     }
   }
-  for (const m of models) {
-    const { provider } = parseModelSpec(m);
-    if (!getModel(m).priced) {
-      console.warn(
-        `Note: no pricing for '${m}', so its cost is reported as unknown. ` +
-          `Add it to MODELS in src/agent/models.ts to include it in cost comparisons.`,
-      );
-    }
-    if (!bool(args.flags, "dry-run") && !hasCredentials(provider)) {
-      throw new Error(
-        `No credentials for provider '${provider}'. Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
-      );
-    }
-  }
+  const dryRun = bool(args.flags, "dry-run");
+  const judge = !bool(args.flags, "no-judge");
+  const judgeModel = str(args.flags, "judge-model", DEFAULT_SWEEP.judgeModel);
+
+  for (const m of models) checkModel(m, "model", !dryRun);
+  // The judge is called once per cell, *after* that cell's agent turns. An
+  // unparseable spec or a missing key for its provider would therefore surface
+  // only once every cell had been paid for, as a failed judgement on every run
+  // in the sweep. It costs nothing to find out now.
+  if (judge) checkModel(judgeModel, "judge model", !dryRun);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return {
@@ -241,9 +259,9 @@ function buildSweepConfig(args: Args): SweepConfig {
     models,
     repeats: num(args.flags, "repeats", DEFAULT_SWEEP.repeats),
     concurrency: num(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
-    judge: !bool(args.flags, "no-judge"),
-    judgeModel: str(args.flags, "judge-model", DEFAULT_SWEEP.judgeModel),
-    dryRun: bool(args.flags, "dry-run"),
+    judge,
+    judgeModel,
+    dryRun,
     force: bool(args.flags, "force"),
     // Cast rather than parsed, a typo'd --effort reached the API and failed the
     // whole sweep on its first request.
