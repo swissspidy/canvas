@@ -43,9 +43,17 @@ function rotatePolygon(poly: Polygon, about: Point, deg: number): Polygon {
 }
 
 /**
- * The polygons an element actually paints, in canvas space.
- * An element whose opacity is below `minOpacity` paints nothing that can
- * meaningfully hide what is under it.
+ * Where an element's ink lands, in canvas space.
+ *
+ * Geometry, not visibility: this lays the glyphs out and says where they would
+ * be, without asking whether anyone can see them. Transparent text and an
+ * element at zero opacity both come back with a full set of polygons.
+ *
+ * Callers that mean "what does a reader see" want `paintedPolygons`, and
+ * callers that mean "what can hide what is under it" want `occluderPolygons`;
+ * both gate on colour and opacity before coming here. Reading this one
+ * directly as though it answered either question is a mistake that has been
+ * made — it let invisible text count as occluded, and as occluding.
  */
 export function inkPolygons(el: Element): Polygon[] {
   const c = center(el);

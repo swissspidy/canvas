@@ -104,10 +104,20 @@ function check(id: string, label: string, weight: number, run: (doc: Doc) => Che
 
 // --- universal checks ------------------------------------------------------
 
-/** Text hidden behind something painted above it. */
+/**
+ * Text hidden behind something painted above it.
+ *
+ * Visible text only, and for both of the usual reasons. `inkPolygons` is pure
+ * geometry — it lays out the glyphs and does not ask whether anyone can see
+ * them — so invisible text arrived here carrying real ink. Under a visible
+ * shape that ink read as a total occlusion failure for text nobody can see;
+ * anywhere else it padded the denominator, and three invisible text elements
+ * lifted a genuine 17% occlusion from 0% to 72%, with the detail line still
+ * naming the element that was covered.
+ */
 export function noTextOcclusion(weight = 1): Check {
   return check("no_text_occlusion", "Text is not covered by anything above it", weight, (doc) => {
-    const texts = doc.elements.filter(isText);
+    const texts = visible(doc.elements).filter(isText);
     if (texts.length === 0) return { score: 1, detail: "No text elements." };
     const worst: string[] = [];
     let totalHidden = 0;

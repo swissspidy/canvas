@@ -11,6 +11,7 @@ import { coordinateSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
 import { coverage, marginAtLeast, noTextOcclusion } from "./checks.js";
+import { describeDoc } from "../render/describe.js";
 import type { RunScore } from "./score.js";
 import type { Doc, Element } from "../doc/types.js";
 
@@ -756,6 +757,77 @@ describe("the occlusion check", () => {
       style: { fill: "#000000" },
     };
     expect(noTextOcclusion().run(doc(heading, rule)).score).toBe(1);
+  });
+
+  /**
+   * Text nobody can see is neither covered nor covering. `inkPolygons` is pure
+   * geometry, so invisible text used to arrive here carrying real ink: under a
+   * shape it read as a total failure, and anywhere else it padded the
+   * denominator.
+   *
+   * The dilution case is graded rather than saturated on purpose. The
+   * cross-task property test in `tasks.test.ts` missed this because every
+   * occlusion in a task's starting document is already far past the check's
+   * budget, where diluting a 70% failure to 45% still scores zero.
+   */
+  describe("text that paints nothing", () => {
+    const headline = (id: string, y: number, style: Element["style"] = {}): Element => ({
+      id,
+      type: "text",
+      text: "Ridgeline Festival",
+      x: 100,
+      y,
+      width: 800,
+      height: 120,
+      rotation: 0,
+      z: 0,
+      style: { fontSize: 60, ...style },
+    });
+    // Clips the first word only, so the check lands inside its grading ramp
+    // (8% of the glyph area, against a budget of 15%) rather than bottoming
+    // out — which is the whole point: a saturated score hides dilution.
+    const nick: Element = {
+      id: "nick",
+      type: "rect",
+      x: 100,
+      y: 140,
+      width: 70,
+      height: 40,
+      rotation: 0,
+      z: 5,
+      style: { fill: "#000000" },
+    };
+
+    it("does not dilute a real occlusion failure", () => {
+      const real = [headline("headline", 100), nick];
+      const before = noTextOcclusion().run(doc(...real));
+      expect(before.score).toBeGreaterThan(0);
+      expect(before.score).toBeLessThan(1);
+
+      for (const hidden of [{ opacity: 0 }, { color: "transparent" }] as Element["style"][]) {
+        const ghosts = [1, 2, 3].map((i) => headline(`ghost${i}`, 300 + i * 130, hidden));
+        expect(noTextOcclusion().run(doc(...real, ...ghosts)).score, JSON.stringify(hidden)).toBeCloseTo(
+          before.score,
+          10,
+        );
+      }
+    });
+
+    it("is not itself reported as covered", () => {
+      const outcome = noTextOcclusion().run(doc(headline("ghost", 100, { opacity: 0 }), { ...nick, y: 100, width: 800, height: 120 }));
+      expect(outcome.score).toBe(1);
+      expect(outcome.detail).not.toMatch(/ghost/);
+    });
+
+    // The structured feedback channel is one of the variables under study, so
+    // what it tells a model has to be true.
+    it("is not reported as covered to the model either", () => {
+      const d = doc(headline("ghost", 100, { opacity: 0 }), { ...nick, y: 100, width: 800, height: 120 });
+      expect(describeDoc(d, { level: "analysis" })).not.toMatch(/ghost's text is/);
+      // A visible one in the same place still is.
+      const visible = doc(headline("real", 100), { ...nick, y: 100, width: 800, height: 120 });
+      expect(describeDoc(visible, { level: "analysis" })).toMatch(/real's text is .* covered by nick/);
+    });
   });
 
   it("still reports a rule laid across the letters themselves", () => {

@@ -18,7 +18,7 @@
 
 import type { Doc, Element } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
-import { occlusions } from "../doc/occlusion.js";
+import { occlusions, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
 import { getAsset } from "../doc/assets.js";
 import { contrastRatio, effectiveBackdrop } from "../eval/color.js";
@@ -110,6 +110,11 @@ function analysisNotes(doc: Doc): string[] {
   for (const occ of occlusions(doc)) {
     if (occ.hiddenArea <= 0.5) continue;
     const el = byId.get(occ.id)!;
+    // An element that paints nothing cannot be covered. `occlusionOf` works in
+    // geometry and will happily report a zero-opacity headline as 100% buried,
+    // which is a false fact to hand a model — and this channel is one of the
+    // variables the study is measuring, so it has to be true.
+    if (!paintsAnything(el)) continue;
     if (el.type === "text") {
       notes.push(
         `${occ.id}'s text is ${fmt(occ.hiddenFraction * 100)}% covered by ${occ.occludedBy.join(", ")}` +
