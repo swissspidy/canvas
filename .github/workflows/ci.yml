@@ -50,8 +50,14 @@ jobs:
 
       # The whole pipeline end to end against a scripted model — no API key, no
       # spending, but it exercises the matrix, the loop, scoring and the report.
+      # Every surface and feedback condition, and more than one model, so the
+      # axis shorthands and the cross-model report sections are covered too.
       - name: Dry-run the sweep
-        run: npm run cli -- run --dry-run --tasks arrange --repeats 1 --out "$RUNNER_TEMP/dry"
+        run: >
+          npm run cli -- run --dry-run --tasks arrange --repeats 1
+          --surfaces all --feedback all
+          --models 'anthropic:claude-opus-5,google:gemini-3.8-flash'
+          --out "$RUNNER_TEMP/dry"
 
       # Catches the browser bundle breaking, which is the main regression risk
       # for the WebMCP host.

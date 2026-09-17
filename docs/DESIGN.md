@@ -56,9 +56,9 @@ avoid stacking things".
 
 So the defect is defined as **ink that something painted above it covers**:
 
-- For text, ink is the glyph envelope of each laid-out line, clipped to the
-  element box. Text already clipped away by its own box is a *text overflow*
-  problem, counted separately.
+- For text, ink is the bounding box of the glyphs each laid-out line actually
+  draws, clipped to the element box. Text already clipped away by its own box
+  is a *text overflow* problem, counted separately.
 - For images and rects, ink is the whole box.
 
 A card behind a headline occludes nothing, because it is painted below. A rect
@@ -71,6 +71,24 @@ span, which is neither what a reader sees nor a defect anyone would fix. The
 exception is a text element with its own block fill, which really does cover
 its whole box. Text that paints nothing — empty, or a fully transparent colour
 — occludes nothing.
+
+**Ink is the glyphs, not the line box.** A line box runs from the ascender to
+the descender whatever the line contains — 1.12em in Liberation Sans — and a
+row of capitals and digits inks 0.69em of it. Measuring the line box counted
+that blank third as painted, and reported a heading as covered by a rule laid
+in the air beneath its letters. So `src/text/ttf.ts` reads glyph bounding
+boxes out of `loca`/`glyf` and `src/text/layout.ts` walks the same advances
+the line was measured with, giving each line the box its letters occupy. A
+face whose outlines this reader cannot bound — a CFF/OTTO face — falls back to
+the line box, which is too generous rather than too tight.
+
+The same box answers a different question for `marginAtLeast`: *does this
+element crowd the canvas edge?* Measured on boxes, the most natural way to
+centre a headline — a full-width text box set to `align: center` — scored zero
+on every margin check in the suite, because the box touches both edges while
+the letters sit hundreds of units from either. Measured on ink it scores what
+a reader would say. An element whose paint runs from one side of the canvas to
+the other is exempt: that is a bleed, which is a decision, not a crowded edge.
 
 The structured feedback channel applies the same rule, and reports occlusion
 for **text** only — covering text destroys the only thing it carries, while a
@@ -102,7 +120,23 @@ hoping two shaping engines match.
 Deliberately simple, and worth knowing about: no kerning, no hyphenation, no
 bidi, no shaping. Words never break mid-word — a word wider than its box
 overflows horizontally, which is what a real canvas editor does and what the
-`overflowX` check looks for.
+`overflowX` check looks for. A newline *is* honoured, as a hard break.
+
+### One form for a line break
+
+Every text payload is normalized on the way in, on every surface: `\r\n` and a
+bare `\r` become `\n`, and so do the two characters backslash-`n`. Models send
+that pair constantly — a tool description reading "`\n` is a hard line break"
+says, once the JSON is decoded, *emit these two characters*, and they oblige by
+escaping the backslash. It rendered as a visible `\n` in the middle of a
+poster. The models bright enough to notice split the copy into two elements
+instead, which is worse: it turns a line break into a placement problem, on a
+bench that is measuring placement.
+
+The cost is that a document cannot hold a literal backslash followed by an `n`.
+On a task set of posters, flyers and quote cards that is a trade worth making,
+and it is the same trade on all four surfaces — which is what matters, since
+they are meant to differ only in how elements get arranged.
 
 Text is clipped to its element box when rendered, so the screenshot the agent
 sees shows the same truncation the scorer measures.

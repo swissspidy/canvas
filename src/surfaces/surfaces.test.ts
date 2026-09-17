@@ -542,3 +542,105 @@ describe("set_style", () => {
     expect(s.doc.elements[0]!.text).toBe("Changed");
   });
 });
+
+/**
+ * A hard line break has to mean the same thing on every surface: the surfaces
+ * differ in how elements get *arranged*, and nothing else.
+ */
+describe("hard line breaks", () => {
+  // What models actually send. A tool description reading "\n is a hard line
+  // break" invites the two characters, not the one.
+  const escaped = "September 12-14\\nAlpine Meadow, Colorado";
+  const lines = ["September 12-14", "Alpine Meadow, Colorado"];
+
+  function linesOf(doc: Doc, id: string): string[] {
+    return layoutTextElement(find(doc, id)).lines.map((l) => l.text);
+  }
+
+  it("breaks the line on coordinate's create", () => {
+    const s = session();
+    const r = executeToolCall(s, coordinateSurface, "create", {
+      type: "text",
+      text: escaped,
+      x: 50,
+      y: 50,
+      width: 900,
+      height: 300,
+      style: { fontSize: 40 },
+    });
+    expect(r.ok).toBe(true);
+    expect(linesOf(s.doc, s.doc.elements[0]!.id)).toEqual(lines);
+  });
+
+  it("breaks the line on relational's create", () => {
+    const s = session();
+    const r = executeToolCall(s, relationalSurface, "create", {
+      type: "text",
+      text: escaped,
+      width: 900,
+      height: 300,
+      relation: "canvas_center",
+      style: { fontSize: 40 },
+    });
+    expect(r.ok).toBe(true);
+    expect(linesOf(s.doc, s.doc.elements[0]!.id)).toEqual(lines);
+  });
+
+  it("breaks the line on write_document", () => {
+    const s = session();
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: {
+        ...emptyDoc(1000, 1000),
+        elements: [
+          {
+            id: "t",
+            type: "text",
+            x: 50,
+            y: 50,
+            width: 900,
+            height: 300,
+            rotation: 0,
+            z: 1,
+            text: escaped,
+            style: { fontSize: 40 },
+          },
+        ],
+      },
+    });
+    expect(r.ok).toBe(true);
+    expect(linesOf(s.doc, "t")).toEqual(lines);
+  });
+
+  it("breaks the line on set_style", () => {
+    const s = session(
+      docWith(el("t", { type: "text", text: "one line", width: 900, height: 300, style: { fontSize: 40 } })),
+    );
+    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: escaped });
+    expect(r.ok).toBe(true);
+    expect(linesOf(s.doc, "t")).toEqual(lines);
+  });
+
+  // A real newline is the form the layout engine wants, and has to survive
+  // untouched — otherwise a document read back and written out again would
+  // pick up breaks it never had.
+  it("leaves a real newline alone, and round-trips it", () => {
+    const s = session();
+    const real = lines.join("\n");
+    executeToolCall(s, coordinateSurface, "create", {
+      type: "text",
+      text: real,
+      x: 50,
+      y: 50,
+      width: 900,
+      height: 300,
+      style: { fontSize: 40 },
+    });
+    const id = s.doc.elements[0]!.id;
+    expect(find(s.doc, id).text).toBe(real);
+
+    const again = session();
+    const r = executeToolCall(again, documentSurface, "write_document", { document: s.doc });
+    expect(r.ok).toBe(true);
+    expect(find(again.doc, id).text).toBe(real);
+  });
+});

@@ -12,9 +12,9 @@
  * afford to treat them as one.
  */
 
-import type { Doc, Element, ElementType } from "../doc/types.js";
+import type { Doc, Element, ElementType, Rect } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
-import { occlusionOf } from "../doc/occlusion.js";
+import { occlusionOf, paintedPolygons } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
@@ -310,22 +310,46 @@ export function evenlySpaced(axis: "horizontal" | "vertical", selector: Selector
   });
 }
 
-/** Nothing crowds the canvas edge. */
+/**
+ * Nothing crowds the canvas edge.
+ *
+ * Measured on what each element *paints*, not on the box it was declared in.
+ * The two differ most for the single most natural way to centre a headline:
+ * a full-width text box with `align: center`. Its glyphs sit in the middle of
+ * the canvas with hundreds of units of air either side, and its box touches
+ * both edges — so a box-measured check scored a perfectly composed poster at
+ * zero, and did it on every task that asked for a margin. The box is a layout
+ * frame; a reader sees the letters.
+ *
+ * `paintedPolygons` also settles what a text element's fill means here: a text
+ * block with an opaque background really does paint its whole box, so that box
+ * is measured, while an unfilled one is measured on its glyphs alone.
+ */
 export function marginAtLeast(margin: number, weight = 1, selector?: Selector): Check {
   return check("margin", `Elements keep a ${margin} unit margin`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter(
-      // A full-bleed background is a deliberate choice, not a margin violation.
-      (el) => !isFullBleed(el, doc),
-    );
-    if (els.length === 0) return { score: 1, detail: "Nothing to check." };
+    const els = selector ? select(doc, selector) : doc.elements;
     let worst = Infinity;
     const offenders: string[] = [];
+    let measured = 0;
     for (const el of els) {
-      const b = aabb(el);
-      const m = Math.min(b.x, b.y, doc.width - (b.x + b.width), doc.height - (b.y + b.height));
+      const painted = paintedBounds(el);
+      // Paints nothing, so it crowds nothing.
+      if (!painted) continue;
+      // Running from one side of the canvas to the other is a bleed — a
+      // background, a banner, a full-width rule — and bleeding is a decision,
+      // not a crowded edge.
+      if (bleeds(painted, doc)) continue;
+      measured++;
+      const m = Math.min(
+        painted.x,
+        painted.y,
+        doc.width - (painted.x + painted.width),
+        doc.height - (painted.y + painted.height),
+      );
       worst = Math.min(worst, m);
       if (m < margin) offenders.push(`${el.id} (${round(m)})`);
     }
+    if (measured === 0) return { score: 1, detail: "Nothing to check." };
     return {
       score: gradeDefect(Math.max(0, margin - worst), 0, margin),
       detail: offenders.length ? `Tight margins: ${offenders.join(", ")}` : `Smallest margin ${round(worst)} units.`,
@@ -333,9 +357,22 @@ export function marginAtLeast(margin: number, weight = 1, selector?: Selector): 
   });
 }
 
-function isFullBleed(el: Element, doc: Doc): boolean {
-  const b = aabb(el);
-  return b.x <= 1 && b.y <= 1 && b.width >= doc.width - 1 && b.height >= doc.height - 1;
+/** The axis-aligned box around everything an element paints, or null if nothing. */
+function paintedBounds(el: Element): Rect | null {
+  const points = paintedPolygons(el).flat();
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/** Painted edge to edge on either axis: a deliberate full-bleed surface. */
+function bleeds(b: Rect, doc: Doc): boolean {
+  const spansWidth = b.x <= 1 && b.x + b.width >= doc.width - 1;
+  const spansHeight = b.y <= 1 && b.y + b.height >= doc.height - 1;
+  return spansWidth || spansHeight;
 }
 
 /** An image keeps its intrinsic aspect ratio, within a tolerance. */

@@ -205,7 +205,12 @@ export const repairTasks = [
       containsText(["Field Notes"], 1),
       // "without deleting the shape or the text" — and shortening the note is
       // deleting the text by other means.
-      textUnchanged(buriedText(), ["title", "note"], 3),
+      //
+      // Weighted one above the occlusion check it defends, rather than level
+      // with it. Gutting the copy clears every occlusion outright, so at equal
+      // weight the two cancel exactly: deleting the text scored the same as
+      // leaving the card untouched. It has to cost more than it pays.
+      textUnchanged(buriedText(), ["title", "note"], 4),
       noTextOcclusion(3),
       marginAtLeast(24, 1),
     ],

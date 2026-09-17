@@ -10,9 +10,14 @@
  *
  * So the defect is defined as *ink that something painted above it covers*:
  *
- *   - For text, ink is the glyph envelope of each laid-out line, clipped to
- *     the element box (text already clipped away by its own box is a text
- *     overflow problem, counted separately).
+ *   - For text, ink is the bounding box of the glyphs each laid-out line
+ *     actually draws, clipped to the element box (text already clipped away by
+ *     its own box is a text overflow problem, counted separately). Not the
+ *     line box: that runs from the ascender to the descender whether or not
+ *     the line has an ascender or a descender in it, and a row of capitals
+ *     leaves a third of it blank. Counting that blank band as ink reported
+ *     headlines as covered by things that pass through the air above and
+ *     below the letters.
  *   - For images and rects, ink is the whole box.
  *
  * A card behind a headline occludes nothing, because it is painted below. A
@@ -20,7 +25,7 @@
  * That matches what a reader sees.
  */
 
-import type { Doc, Element, Point, Polygon } from "./types.js";
+import type { Doc, Element, Point, Polygon, Rect } from "./types.js";
 import { corners, degToRad, EPS, polygonArea, visibleAreaAfterSubtracting, convexClip } from "./geometry.js";
 import { layoutTextElement } from "../text/layout.js";
 import { rectToPolygon, center } from "./geometry.js";
@@ -55,15 +60,27 @@ export function inkPolygons(el: Element): Polygon[] {
 
   for (const line of layout.lines) {
     if (line.width <= 0 || line.text.length === 0) continue;
-    const glyphBox = rectToPolygon({
-      x: line.x,
-      y: line.baseline - layout.ascent,
-      width: line.width,
-      height: layout.ascent + layout.descent,
-    });
+    let box: Rect;
+    if (line.ink) {
+      box = line.ink;
+    } else if (layout.inkMeasured) {
+      // Measured, and the line draws nothing: whitespace only.
+      continue;
+    } else {
+      // A face whose outlines this project cannot bound. Fall back to the line
+      // box, which is what this check used before glyph bounds were read: too
+      // generous, never too tight.
+      box = {
+        x: line.x,
+        y: line.baseline - layout.ascent,
+        width: line.width,
+        height: layout.ascent + layout.descent,
+      };
+    }
+    if (box.width <= 0 || box.height <= 0) continue;
     // Text is painted clipped to its own box, so ink outside the box is not
     // ink at all — it is overflow, which `textOverflow` in the checks counts.
-    const clipped = convexClip(glyphBox, boxPoly);
+    const clipped = convexClip(rectToPolygon(box), boxPoly);
     if (polygonArea(clipped) > EPS) out.push(rotatePolygon(clipped, c, el.rotation));
   }
   return out;
@@ -102,6 +119,39 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
   if (fill && opaqueEnough(fill, minOpacity)) return [corners(el)];
   if (!el.text) return [];
   if (!opaqueEnough(el.style.color ?? "#111111", minOpacity)) return [];
+  return inkPolygons(el);
+}
+
+/**
+ * Everything an element puts on the canvas, as polygons in canvas space.
+ *
+ * The sibling of `occluderPolygons`, asked from the other side. That one asks
+ * "what does this hide?", so it drops anything too faint to hide with; this
+ * asks "what does this show?", so a half-opaque band still counts — a reader
+ * sees it, and it still crowds an edge. Only a fully transparent element
+ * paints nothing.
+ *
+ * A stroke counts, which is the other place the two differ: an outline is too
+ * thin to hide much, and perfectly visible sitting against a canvas edge.
+ */
+export function paintedPolygons(el: Element): Polygon[] {
+  if ((el.style.opacity ?? 1) <= 0) return [];
+
+  const stroked =
+    el.style.strokeColor !== undefined &&
+    opaqueEnough(el.style.strokeColor, EPS) &&
+    (el.style.strokeWidth ?? 1) > 0;
+  const filled = el.style.fill !== undefined && opaqueEnough(el.style.fill, EPS);
+
+  if (el.type === "image") return [corners(el)];
+  // An undeclared fill is not no fill: the renderer paints a rect grey.
+  if (el.type === "rect") {
+    return el.style.fill === undefined || filled || stroked ? [corners(el)] : [];
+  }
+  // A text block's fill and its stroke are both painted on the element box,
+  // which already contains every glyph — they are clipped to it.
+  if (filled || stroked) return [corners(el)];
+  if (!el.text || !opaqueEnough(el.style.color ?? "#111111", EPS)) return [];
   return inkPolygons(el);
 }
 

@@ -197,6 +197,39 @@ describe("buildReport", () => {
     const md = buildReport(syntheticScores(0.2));
     expect(md).not.toContain("## By feedback condition");
     expect(md).not.toContain("## By model");
+    // One model is not a leaderboard; the surface table already is one.
+    expect(md).not.toContain("## Leaderboard");
+    expect(md).not.toContain("## Every cell");
+  });
+
+  it("ranks models, and every cell, once the sweep is cross-model", () => {
+    // Two models, one clearly stronger, across two surfaces and two feedback
+    // conditions: the smallest sweep that is actually a leaderboard.
+    const crossModel = [
+      ...scores,
+      ...scores.map((s) => ({
+        ...s,
+        runId: `${s.runId}-m2`,
+        model: "google:gemini-3.8-flash",
+        normalizedScore: s.normalizedScore - 0.15,
+        efficiency: { ...s.efficiency, costUsd: 0.002 },
+      })),
+    ];
+    const md = buildReport(crossModel);
+
+    expect(md).toContain("## Leaderboard");
+    expect(md).toContain("## Model x feedback");
+    expect(md).toContain("## Every cell");
+
+    const leaderboard = md.slice(md.indexOf("## Leaderboard"), md.indexOf("## By tool surface"));
+    const order = [...leaderboard.matchAll(/^\| \d+ \| (\S+) \|/gm)].map((m) => m[1]);
+    expect(order).toEqual(["anthropic:claude-opus-5", "google:gemini-3.8-flash"]);
+    // The best cell names a surface and a feedback condition, not just one.
+    expect(leaderboard).toMatch(/relational\/(none|both)/);
+
+    // Every model x surface x feedback combination gets a row.
+    const cells = md.slice(md.indexOf("## Every cell"));
+    expect([...cells.matchAll(/^\| \d+ \|/gm)]).toHaveLength(2 * 2 * 2);
   });
 
   it("produces machine-readable aggregates keyed by every dimension", () => {
@@ -206,6 +239,9 @@ describe("buildReport", () => {
     };
     expect(json.runs).toBe(scores.length);
     expect(Object.keys(json.aggregates)).toContain("surfaceByFeedback");
+    // The full grid, so a plot can slice it without re-reading scores.jsonl.
+    expect(Object.keys(json.aggregates)).toContain("modelByFeedback");
+    expect(Object.keys(json.aggregates.cell!)).toContain("anthropic:claude-opus-5|relational|both");
     expect(json.aggregates.surface!.relational!.improvement.mean).toBeGreaterThan(
       json.aggregates.surface!.coordinate!.improvement.mean,
     );

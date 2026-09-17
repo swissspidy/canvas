@@ -39,9 +39,17 @@ describe("model specs", () => {
   });
 
   it("resolves a model for every known provider", () => {
-    for (const spec of ["anthropic:claude-opus-5", "google:some-model", "openai:some-model"]) {
-      expect(resolveLanguageModel(spec)).toBeTruthy();
+    for (const provider of PROVIDER_IDS) {
+      expect(resolveLanguageModel(`${provider}:some-model-id`)).toBeTruthy();
     }
+  });
+
+  // Together's own ids carry a slash, and only the first colon may split.
+  it("keeps a model id containing a slash intact", () => {
+    expect(parseModelSpec("togetherai:deepseek-ai/DeepSeek-V4.1-Flash")).toEqual({
+      provider: "togetherai",
+      modelId: "deepseek-ai/DeepSeek-V4.1-Flash",
+    });
   });
 
   it("every listed model names a provider it can be resolved through", () => {
@@ -71,6 +79,36 @@ describe("pricing", () => {
   // A dry run and a test name no real provider at all, and must not throw.
   it("tolerates a spec that names no known provider", () => {
     expect(getModel("scripted").priced).toBe(false);
+  });
+
+  // The whole table used to inherit Anthropic's cache-write surcharge, which
+  // is a real charge on one provider and an invented one on the rest.
+  it("charges a cache write only where the provider charges for one", () => {
+    const write = { input: 0, output: 0, cacheRead: 0, cacheWrite: 1e6 };
+    expect(costUsd(write, getModel("anthropic:claude-sonnet-5"))).toBeCloseTo(2.5, 9);
+    for (const id of ["google:gemini-3.8-flash", "openai:gpt-5.6-terra", "xai:grok-4.6", "zai:glm-5.3"]) {
+      expect(costUsd(write, getModel(id)), id).toBe(0);
+    }
+  });
+
+  // Each of these is the cached-input rate straight off the provider's page.
+  it("reads cached input at the published rate", () => {
+    const read = { input: 0, output: 0, cacheRead: 1e6, cacheWrite: 0 };
+    expect(costUsd(read, getModel("google:gemini-3.8-flash"))).toBeCloseTo(0.075, 9);
+    expect(costUsd(read, getModel("openai:gpt-5.6-luna"))).toBeCloseTo(0.02, 9);
+    expect(costUsd(read, getModel("xai:grok-4.6"))).toBeCloseTo(0.5, 9);
+    expect(costUsd(read, getModel("zai:glm-5.3"))).toBeCloseTo(0.26, 9);
+    // Together publishes no cached rate, so a read costs what an input costs.
+    expect(costUsd(read, getModel("togetherai:deepseek-ai/DeepSeek-V4.1-Flash"))).toBeCloseTo(0.3, 9);
+  });
+
+  it("prices every model in the registry, and labels it", () => {
+    for (const [id, spec] of Object.entries(MODELS)) {
+      if (!spec.priced) continue;
+      expect(spec.inputPerMTok, id).toBeGreaterThan(0);
+      expect(spec.outputPerMTok, id).toBeGreaterThan(0);
+      expect(spec.label, id).not.toBe(id);
+    }
   });
 });
 
@@ -247,13 +285,10 @@ describe("operator-named models", () => {
 
   it("leaves the registry alone when unset, and tolerates stray commas", async () => {
     const { MODELS: bare } = await reload(undefined);
-    // Spelled out rather than compared against the imported `MODELS`, which
-    // would already carry extras on a machine that has the variable set.
-    expect(Object.keys(bare)).toEqual([
-      "anthropic:claude-opus-5",
-      "anthropic:claude-sonnet-5",
-      "anthropic:claude-haiku-4-5",
-    ]);
+    // An extra is unpriced by construction, so "every entry is priced" is the
+    // claim, rather than a spelled-out list that goes stale with the table.
+    expect(Object.values(bare).length).toBeGreaterThan(0);
+    expect(Object.values(bare).every((m) => m.priced)).toBe(true);
     const { MODELS: spaced } = await reload(" google:a , , openai:b ");
     expect(Object.hasOwn(spaced, "google:a")).toBe(true);
     expect(Object.hasOwn(spaced, "openai:b")).toBe(true);

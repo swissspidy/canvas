@@ -22,6 +22,9 @@
     "@ai-sdk/anthropic": "^4.0.56",
     "@ai-sdk/google": "^4.0.74",
     "@ai-sdk/openai": "^4.0.69",
+    "@ai-sdk/togetherai": "^3.0.52",
+    "@ai-sdk/xai": "^5.0.2",
+    "@ai-sdk/zai": "^3.0.13",
     "@resvg/resvg-js": "^2.6.2",
     "ai": "^7.0.105",
     "zod": "^4.6.5"

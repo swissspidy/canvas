@@ -17,6 +17,44 @@ import { round } from "./geometry.js";
 /** `#rgb`, `#rrggbb`, `#rrggbbaa`, or the keyword `transparent`. */
 export const COLOR_RE = /^(#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|transparent)$/;
 
+/**
+ * Bring a text payload to the one form the layout engine breaks lines on.
+ *
+ * Two repairs, both of things a model sends when it means "new line here":
+ *
+ * `\r\n` and a bare `\r` become `\n`, because a line ending is a line ending.
+ *
+ * The two characters backslash-n become one newline. Models write that
+ * constantly — a tool description saying "\n is a hard line break" reads, once
+ * the JSON is decoded, as an instruction to emit those two characters, and
+ * models oblige by escaping the backslash. The result rendered as a visible
+ * `\n` in the middle of a poster. Models clever enough to notice worked around
+ * it by splitting the copy into two elements, which is worse: it turns a
+ * wrapping decision the surfaces are being compared on into a layout the agent
+ * has to place by hand.
+ *
+ * The cost is that a document cannot hold a literal backslash followed by an
+ * `n`. On a task set of posters, flyers and quote cards, that is a trade worth
+ * making, and it is the same trade on every surface — which is what matters
+ * here, since the surfaces have to differ only in how elements get arranged.
+ */
+export function normalizeTextContent(text: string): string {
+  return text.replace(/\r\n?/g, "\n").replace(/\\n/g, "\n");
+}
+
+/**
+ * A text payload, normalized on the way in. Shared by every surface so a hard
+ * line break means the same thing in `create`, `set_style` and a whole
+ * document.
+ */
+export function zTextContent(maxLength: number, description: string) {
+  return z.string().max(maxLength).transform(normalizeTextContent).describe(description);
+}
+
+/** What every surface tells the model about line breaks. Held identical. */
+export const TEXT_FIELD_NOTE =
+  "A newline in the string is a hard line break; otherwise the text wraps at the box width.";
+
 export const zColor = z
   .string()
   .regex(COLOR_RE, "must be a hex color like #1a1a2e, or 'transparent'");
@@ -60,7 +98,7 @@ export const zElement = z
     height: z.number().min(1),
     rotation: z.number().min(-360).max(360).default(0).describe("Clockwise degrees about the box center."),
     z: z.number().int().describe("Paint order. Higher is nearer the viewer."),
-    text: z.string().max(4000).optional().describe("Text content (text elements). \\n is a hard line break."),
+    text: zTextContent(4000, `Text content (text elements). ${TEXT_FIELD_NOTE}`).optional(),
     src: z.string().optional().describe(`Asset key (image elements). One of: ${ASSET_KEYS.join(", ")}`),
     alt: z.string().max(300).optional(),
     style: zStyle.default({}),

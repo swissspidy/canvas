@@ -227,6 +227,11 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
   );
   out.push("");
 
+  if (models.length > 1) {
+    out.push(leaderboard(scores, models));
+    out.push("");
+  }
+
   // --- headline: by surface ---
   out.push("## By tool surface");
   out.push("");
@@ -390,6 +395,32 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
       ),
     );
     out.push("");
+
+    if (feedbacks.length > 1) {
+      out.push("## Model x feedback");
+      out.push("");
+      out.push(
+        "Improvement. A model that only pulls ahead once it can see its own work is making a different " +
+          "claim from one that is ahead with no feedback at all.",
+      );
+      out.push("");
+      out.push(
+        table(
+          ["Model", ...feedbacks.map((f) => feedbackLabel(f as FeedbackMode))],
+          models.map((model) => [
+            model,
+            ...feedbacks.map((feedback) => {
+              const rows = scores.filter((s) => s.model === model && s.feedbackMode === feedback);
+              return rows.length ? ci(clusterBootstrapCI(rows, (r) => r.normalizedScore)) : "—";
+            }),
+          ]),
+        ),
+      );
+      out.push("");
+    }
+
+    out.push(cellRanking(scores));
+    out.push("");
   }
 
   // --- what agents reached for ---
@@ -425,6 +456,112 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
   out.push("");
 
   return out.join("\n");
+}
+
+/**
+ * The leaderboard: models ranked, with the condition each one did best under.
+ *
+ * Ranked on improvement rather than the composite, for the same reason the
+ * rest of the report leads with it — the raw scale has a high floor and
+ * flattens exactly the differences a cross-model sweep is run to find.
+ *
+ * The "best" and "worst" columns are the point of running the whole grid:
+ * a model's headline number is an average over conditions it was never going
+ * to be used in, and the spread between its best and worst cell is often
+ * larger than the gap between two models' averages. Both are single cells with
+ * no interval, so they are a place to look rather than a result.
+ */
+function leaderboard(scores: RunScore[], models: string[]): string {
+  const ranked = models
+    .map((model) => {
+      const rows = scores.filter((s) => s.model === model);
+      const cells = [...groupBy(rows, cellKey).entries()]
+        .map(([key, group]) => ({ key, value: mean(group.map((r) => r.normalizedScore)) }))
+        .sort((a, b) => b.value - a.value);
+      return {
+        model,
+        rows,
+        interval: clusterBootstrapCI(rows, (r) => r.normalizedScore),
+        cost: mean(rows.map((r) => r.efficiency.costUsd)),
+        priced: rows.every((r) => r.efficiency.pricingKnown),
+        best: cells[0],
+        worst: cells[cells.length - 1],
+      };
+    })
+    .sort((a, b) => b.interval.mean - a.interval.mean);
+
+  const body = table(
+    ["#", "Model", "Improvement", "Best cell", "Worst cell", "Cost/run", "Improvement per $", "n"],
+    ranked.map((row, i) => [
+      String(i + 1),
+      row.model,
+      ci(row.interval),
+      row.best ? `${row.best.key} (${pct(row.best.value)})` : "—",
+      row.worst && row.worst !== row.best ? `${row.worst.key} (${pct(row.worst.value)})` : "—",
+      row.priced ? usd(row.cost) : "unknown",
+      row.priced && row.cost > 0 ? pct(row.interval.mean / row.cost) : "—",
+      String(row.rows.length),
+    ]),
+  );
+
+  return [
+    "## Leaderboard",
+    "",
+    "Models ranked by improvement, averaged over every surface and feedback condition in this sweep.",
+    "A cell is `surface/feedback`. Overlapping intervals mean the order between two rows is not resolved.",
+    "",
+    body,
+  ].join("\n");
+}
+
+const cellKey = (s: RunScore) => `${s.surfaceId}/${s.feedbackMode}`;
+
+/**
+ * Every (model, surface, feedback) cell, ranked.
+ *
+ * The grid itself, for reading down rather than across. Deliberately means
+ * without intervals: one cell of a full sweep is a handful of runs over the
+ * task set, and dressing that up with a bootstrap would imply a precision the
+ * cell does not have. The tables above are where a difference gets resolved;
+ * this is where you find the combination worth looking at.
+ */
+function cellRanking(scores: RunScore[]): string {
+  const rows = [...groupBy(scores, (s) => `${s.model}|${cellKey(s)}`).entries()]
+    .map(([key, group]) => {
+      const [model, cell] = key.split("|") as [string, string];
+      return {
+        model,
+        cell,
+        improvement: mean(group.map((r) => r.normalizedScore)),
+        composite: mean(group.map((r) => r.composite)),
+        turns: mean(group.map((r) => r.efficiency.turns)),
+        cost: mean(group.map((r) => r.efficiency.costUsd)),
+        priced: group.every((r) => r.efficiency.pricingKnown),
+        n: group.length,
+      };
+    })
+    .sort((a, b) => b.improvement - a.improvement);
+
+  return [
+    "## Every cell",
+    "",
+    `All ${rows.length} model x surface x feedback combinations in this sweep, best first. Means only — see`,
+    "the tables above for what is resolved.",
+    "",
+    table(
+      ["#", "Model", "Cell", "Improvement", "Composite", "Turns", "Cost/run", "n"],
+      rows.map((r, i) => [
+        String(i + 1),
+        r.model,
+        r.cell,
+        pct(r.improvement),
+        pct(r.composite),
+        r.turns.toFixed(1),
+        r.priced ? usd(r.cost) : "unknown",
+        String(r.n),
+      ]),
+    ),
+  ].join("\n");
 }
 
 /**
@@ -522,6 +659,11 @@ export function buildReportJson(scores: RunScore[]): unknown {
     surfaceByFeedback: (s: RunScore) => `${s.surfaceId}|${s.feedbackMode}`,
     surfaceByFamily: (s: RunScore) => `${s.surfaceId}|${s.taskFamily}`,
     surfaceByModel: (s: RunScore) => `${s.surfaceId}|${s.model}`,
+    modelByFeedback: (s: RunScore) => `${s.model}|${s.feedbackMode}`,
+    // The full grid, one entry per cell. Every other dimension here is a
+    // marginal of this one, so a plot that wants to slice differently — or to
+    // facet the whole leaderboard — can do it without re-reading scores.jsonl.
+    cell: (s: RunScore) => `${s.model}|${s.surfaceId}|${s.feedbackMode}`,
   };
 
   const aggregates: Record<string, Record<string, unknown>> = {};

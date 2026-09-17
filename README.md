@@ -39,17 +39,27 @@ The live page runs a recorded replay without an API key, so you can see the
 interface immediately. Set `ANTHROPIC_API_KEY` (or run `ant auth login`) and
 restart to drive a real model.
 
-Other providers work too — `GOOGLE_GENERATIVE_AI_API_KEY` for Google,
-`OPENAI_API_KEY` for OpenAI. These are the names the AI SDK reads, and the
-only ones checked; if your key lives somewhere else, such as Google's own
-`GEMINI_API_KEY`, point the variable above at it:
+Five other providers work too, one variable each:
+
+| Provider | Variable |
+| --- | --- |
+| `anthropic` | `ANTHROPIC_API_KEY` |
+| `google` | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| `openai` | `OPENAI_API_KEY` |
+| `xai` | `XAI_API_KEY` |
+| `zai` | `ZAI_API_KEY` |
+| `togetherai` | `TOGETHER_API_KEY` |
+
+These are the names the AI SDK itself reads, and the only ones checked — a
+test drives a real request through each adapter to prove it. If your key lives
+somewhere else, such as Google's own `GEMINI_API_KEY`, point the variable
+above at it:
 
 ```bash
 export GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY"
 ```
 
-Their model ids change on their own schedule, so this repo hardcodes none;
-name the one you want and it joins the page's model menu:
+A model id newer than this checkout joins the page's menu without an edit:
 
 ```bash
 CANVAS_EXTRA_MODELS='google:<model-id>' npm run serve
@@ -69,6 +79,38 @@ npm run cli -- run --estimate               # matrix size, no spending
 npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted model, no API calls
 npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot
 ```
+
+### The whole grid
+
+Each axis takes `all`; models and feedback also take `available`, which drops
+what this machine cannot run — a provider with no key, an image condition with
+no rasterizer:
+
+```bash
+npm run cli -- run \
+  --surfaces all --feedback all --models available \
+  --repeats 3 --concurrency 12 --out runs/leaderboard
+```
+
+That is 18 tasks x 4 surfaces x 6 feedback conditions x however many models,
+so price it before starting it. Run one task into the same `--out`, then ask:
+
+```bash
+npm run cli -- run --tasks compose.quote-card --repeats 1 --out runs/leaderboard
+npm run cli -- run --surfaces all --feedback all --models available \
+  --repeats 3 --out runs/leaderboard --estimate
+```
+
+`--estimate` extrapolates per model from the runs already in that directory
+rather than guessing, and names any model it has no data for instead of
+leaving it silently out of the total. Widening an axis later re-runs only the
+cells that are new, because a run id encodes its cell.
+
+A cross-model sweep adds three sections to `report.md` — a **Leaderboard** of
+models, with the best and worst condition each one found; **Model x feedback**;
+and **Every cell**, the full grid ranked. `report.json` carries that grid under
+`aggregates.cell`, keyed `model|surface|feedback`, which is the shape to plot
+from: every other aggregate in the file is a marginal of it.
 
 A sweep writes to `runs/<timestamp>/`: `report.md`, `report.json`,
 `scores.jsonl`, a full record per run under `runs/`, and a PNG and SVG per run
@@ -102,7 +144,7 @@ spread a finding nobody measured. The comparison lives in
 Models are named `provider:model-id`:
 
 ```bash
-npm run cli -- run --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
+npm run cli -- run --models 'anthropic:claude-opus-5,google:gemini-3.8-flash,xai:grok-4.6'
 ```
 
 That single path is the point. A second, hand-written Anthropic loop used to
@@ -110,10 +152,11 @@ run alongside it, and two near-identical loops meant every cross-model number
 carried a question: is this the model, or the harness? One loop cannot answer
 that question wrongly, and there is nothing left to keep in step.
 
-Note the explicit ids. `--models sweep` is one model per Claude tier, not one
-per provider: Google's and OpenAI's ids change on their own schedule, and a
-shorthand pointing at a retired one would either fail a sweep three turns in or
-quietly run a different model than the write-up claims.
+`--models sweep` is one model per Claude tier — a capability ladder inside one
+family, which is the comparison that isolates "does a weaker model need a
+better tool surface?" from every other way two models differ. `--models all` is
+the whole registry; `--models available` is the part of it this machine holds a
+key for.
 
 Reasoning effort uses the AI SDK's **provider-neutral `reasoning` scale**
 (`none`…`xhigh`), which each provider maps itself. Matching effort across
@@ -168,6 +211,15 @@ sitting on a card overlaps it by 100%, and that is good design. Scoring raw
 overlap would reward scattering elements across the canvas — the metric would
 be measuring "did the agent avoid stacking things", which is not what anyone
 means by *fix this overlapping layout*.
+
+**Ink means the glyphs, and the checks read them off the font.** A line box
+runs from the ascender to the descender — 1.12em in Liberation Sans — whether
+or not the line has either in it; a row of capitals inks 0.69em of that. The
+glyph bounding boxes come out of `glyf`, so a rule tucked into the blank band
+under a heading is not reported as covering it, and a headline centred in a
+full-width box is measured on where its letters sit rather than on the box,
+which spans the canvas by construction and used to fail every margin check on
+the board.
 
 **Scores are normalized against the starting document.** A run that changes
 nothing already scores ~68% raw, because most checks measure defects it never
