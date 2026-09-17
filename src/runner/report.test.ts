@@ -86,6 +86,47 @@ describe("clusterBootstrapCI", () => {
   });
 });
 
+describe("every reported interval is task-clustered", () => {
+  // Repeats within a task disagree; task means are all identical. A clustered
+  // bootstrap therefore collapses to a point, and a run-level one does not —
+  // so a zero-width interval here is proof the clustering is being applied.
+  const scores: RunScore[] = [];
+  for (let t = 0; t < 5; t++) {
+    for (const surface of ["coordinate", "relational"]) {
+      for (const offset of [-0.2, 0, 0.2]) {
+        scores.push(
+          score({
+            taskId: `task-${t}`,
+            surfaceId: surface,
+            feedbackMode: offset === 0 ? "none" : "structured",
+            normalizedScore: 0.5 + offset,
+            composite: 0.5 + offset,
+            constraintScore: 0.5 + offset,
+            judgeCriteriaScore: 0.5 + offset,
+          }),
+        );
+      }
+    }
+  }
+
+  it("clusters improvement, composite, constraint and judge alike", () => {
+    const json = buildReportJson(scores) as {
+      aggregates: Record<string, Record<string, Record<string, { low: number; high: number } | null>>>;
+    };
+    // `feedback` splits the offsets apart, so only look at dimensions where
+    // each group still holds a whole task.
+    for (const dimension of ["surface", "task", "model"]) {
+      for (const group of Object.values(json.aggregates[dimension]!)) {
+        for (const key of ["improvement", "composite", "constraint", "judge"]) {
+          const interval = group[key];
+          expect(interval, `${dimension}.${key}`).not.toBeUndefined();
+          if (interval) expect(interval.high - interval.low, `${dimension}.${key}`).toBeCloseTo(0, 9);
+        }
+      }
+    }
+  });
+});
+
 describe("pairedDifference", () => {
   it("recovers a planted effect and calls it resolved", () => {
     const diff = pairedDifference(syntheticScores(0.2), (s) => s.surfaceId, "relational", "coordinate");

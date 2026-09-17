@@ -63,6 +63,20 @@ describe("wrapText", () => {
     for (const l of lines) expect(l.text).not.toMatch(/^\s|\s$/);
   });
 
+  // The separator between two words is the whitespace that followed the
+  // earlier one. Reading it off the later token collapsed every multi-space
+  // run to one space, so the laid-out text stopped matching the element's.
+  it("preserves the exact whitespace between words", () => {
+    const lines = wrapText("a  b   c", { fontSize: 20, maxWidth: 1000, font });
+    expect(lines.map((l) => l.text)).toEqual(["a  b   c"]);
+    expect(lines[0]!.width).toBeCloseTo(measureText(font, "a  b   c", 20), 6);
+  });
+
+  it("keeps tab-separated words intact", () => {
+    const lines = wrapText("a\tb", { fontSize: 20, maxWidth: 1000, font });
+    expect(lines.map((l) => l.text)).toEqual(["a\tb"]);
+  });
+
   it("honours hard line breaks", () => {
     const lines = wrapText("a\nb\nc", { fontSize: 20, maxWidth: 1000, font });
     expect(lines.map((l) => l.text)).toEqual(["a", "b", "c"]);

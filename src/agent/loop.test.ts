@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { runAgent } from "./loop.js";
+import { runAgent, thinkingBudget } from "./loop.js";
 import { createScriptedClient, fixedScript } from "./scripted.js";
 import { coordinateSurface, documentSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
@@ -297,6 +297,19 @@ describe("model configuration", () => {
   });
 });
 
+describe("budgeted thinking", () => {
+  // `budget_tokens` has to be >= 1024 and < max_tokens, so a small
+  // --max-tokens has no valid budget at all and must not invent one.
+  it("never asks for a budget the API would reject", () => {
+    for (const maxTokens of [0, 1, 512, 1024, 1500, 2047]) {
+      expect(thinkingBudget(maxTokens)).toEqual({ thinking: { type: "disabled" } });
+    }
+    expect(thinkingBudget(2048)).toEqual({ thinking: { type: "enabled", budget_tokens: 1024 } });
+    expect(thinkingBudget(3000)).toEqual({ thinking: { type: "enabled", budget_tokens: 1976 } });
+    expect(thinkingBudget(16_000)).toEqual({ thinking: { type: "enabled", budget_tokens: 4000 } });
+  });
+});
+
 describe("switching surface mid-session", () => {
   it("swaps the tool list and keeps the document", async () => {
     let surface = coordinateSurface;
@@ -335,54 +348,40 @@ describe("switching surface mid-session", () => {
     expect(toolNames).not.toContain("move");
   });
 
-  it("announces the switch as an operator instruction where the model allows it", async () => {
-    let surface = coordinateSurface;
-    const client = createScriptedClient(
-      fixedScript([
-        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
-        { text: "Done." },
-      ]),
-    );
-    await runAgent({
-      runId: "switch",
-      task: trivialTask,
-      surface: coordinateSurface,
-      surfaceProvider: () => surface,
-      feedback: createFeedbackChannel("none"),
-      model: "claude-opus-5",
-      client,
-      onEvent: (e) => {
-        if (e.type === "tool_result") surface = relationalSurface;
-      },
-    });
-    const messages = client.requests.at(-1)!.messages as { role: string }[];
-    expect(messages.some((m) => m.role === "system")).toBe(true);
-  });
-
-  it("falls back to a user message on models that reject a system role in messages", async () => {
-    let surface = coordinateSurface;
-    const client = createScriptedClient(
-      fixedScript([
-        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
-        { text: "Done." },
-      ]),
-    );
-    await runAgent({
-      runId: "switch",
-      task: trivialTask,
-      surface: coordinateSurface,
-      surfaceProvider: () => surface,
-      feedback: createFeedbackChannel("none"),
-      model: "claude-sonnet-5",
-      client,
-      onEvent: (e) => {
-        if (e.type === "tool_result") surface = relationalSurface;
-      },
-    });
-    const messages = client.requests.at(-1)!.messages as { role: string }[];
-    expect(messages.some((m) => m.role === "system")).toBe(false);
-    expect(JSON.stringify(messages)).toContain("Your tools have been replaced");
-  });
+  // `messages` on the Messages API takes user and assistant roles only; a
+  // system entry needs a beta, and means different things to different
+  // providers on the AI SDK loop. The switch is the one thing this study puts
+  // in front of every model, so it goes in as a user turn on every model.
+  it.each(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"])(
+    "announces the switch as a labelled user turn on %s",
+    async (model) => {
+      let surface = coordinateSurface;
+      const client = createScriptedClient(
+        fixedScript([
+          { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+          { text: "Done." },
+        ]),
+      );
+      await runAgent({
+        runId: "switch",
+        task: trivialTask,
+        surface: coordinateSurface,
+        surfaceProvider: () => surface,
+        feedback: createFeedbackChannel("none"),
+        model,
+        client,
+        onEvent: (e) => {
+          if (e.type === "tool_result") surface = relationalSurface;
+        },
+      });
+      for (const request of client.requests) {
+        const messages = request.messages as { role: string }[];
+        expect(messages.every((m) => m.role === "user" || m.role === "assistant")).toBe(true);
+      }
+      const last = client.requests.at(-1)!.messages as { role: string }[];
+      expect(JSON.stringify(last)).toContain("[operator notice] Your tools have been replaced");
+    },
+  );
 
   it("does nothing when the provider returns the same surface", async () => {
     const { client, result } = run("none", [{ text: "done" }]);

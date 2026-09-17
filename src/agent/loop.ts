@@ -204,9 +204,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         surface = requested;
         tools = toolDefinitions(surface, config.eagerInputStreaming === true);
         surfacesUsed.push(surface.id);
-        // The last message here is always a user turn (tool results), which is
-        // where a mid-conversation system message is allowed to sit.
-        messages.push(switchNotice(surface, spec.supportsMidConversationSystem));
+        messages.push(switchNotice(surface));
         emit({ type: "surface_switch", turn, from, to: surface.id });
       }
 
@@ -218,9 +216,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         system: [{ type: "text", text: systemPrompt(surface), cache_control: { type: "ephemeral" } }],
         tools,
         messages,
-        ...(spec.thinking === "adaptive"
-          ? { thinking: { type: "adaptive" as const } }
-          : { thinking: { type: "enabled" as const, budget_tokens: Math.min(4000, maxTokens - 1024) } }),
+        ...(spec.thinking === "adaptive" ? { thinking: { type: "adaptive" as const } } : thinkingBudget(maxTokens)),
         ...(effort ? { output_config: { effort } } : {}),
       };
 
@@ -392,25 +388,47 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
   return result;
 }
 
+/** The API's floor for `thinking.budget_tokens`. */
+const MIN_THINKING_BUDGET = 1024;
+
+/**
+ * Budgeted thinking, for models that predate the adaptive form.
+ *
+ * `budget_tokens` must be at least 1024 and strictly below `max_tokens`, so a
+ * small `--max-tokens` cannot be squeezed into a valid budget at all. Ask for
+ * no thinking there rather than sending an out-of-range budget and having the
+ * whole run rejected.
+ */
+export function thinkingBudget(maxTokens: number): { thinking: Anthropic.ThinkingConfigParam } {
+  const room = maxTokens - MIN_THINKING_BUDGET;
+  if (room < MIN_THINKING_BUDGET) return { thinking: { type: "disabled" } };
+  return { thinking: { type: "enabled", budget_tokens: Math.min(4000, room) } };
+}
+
 /**
  * Tell the model its tools just changed.
  *
- * As an operator instruction where the model accepts one — that is what a
- * mid-conversation system message is for, and it keeps the switch clearly
- * distinct from anything the user said. Models that reject a system role
- * inside `messages` get the same text as a user turn.
+ * A `role: "system"` entry inside `messages` is not portable: on the Messages
+ * API it needs a beta, and across the providers the AI SDK loop talks to it is
+ * accepted, ignored or rejected depending on the provider. Since the surface
+ * switch is the one thing this study puts in front of every model, it goes in
+ * as a plain user turn on both loops — one path, no provider-specific
+ * behaviour on the axis being measured. `switchNoticeText` is shared with
+ * `aisdk-loop.ts` so the two loops deliver byte-identical wording, and the
+ * text labels itself as an operator notice to keep it distinct from the brief.
  */
-function switchNotice(surface: ToolSurface, asSystem: boolean): Anthropic.MessageParam {
-  const text = [
-    `Your tools have been replaced. From now on you have the ${surface.title.toLowerCase()} tool set.`,
+export function switchNoticeText(surface: ToolSurface): string {
+  return [
+    `[operator notice] Your tools have been replaced. From now on you have the ${surface.title.toLowerCase()} tool set.`,
     "",
     surface.briefing,
     "",
     "The document is unchanged. Carry on from where you are with the tools you now have.",
   ].join("\n");
-  return asSystem
-    ? ({ role: "system", content: text } as unknown as Anthropic.MessageParam)
-    : { role: "user", content: [{ type: "text", text }] };
+}
+
+function switchNotice(surface: ToolSurface): Anthropic.MessageParam {
+  return { role: "user", content: [{ type: "text", text: switchNoticeText(surface) }] };
 }
 
 function describeError(err: unknown): string {

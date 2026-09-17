@@ -47,7 +47,15 @@ export interface Interval {
   sd: number;
 }
 
-/** Percentile bootstrap of the mean. */
+/**
+ * Percentile bootstrap of the mean, resampling the values it is given.
+ *
+ * Only correct when those values are already independent — one per task, as in
+ * `pairedDifference`'s per-task deltas. Handing it a list of *runs* treats
+ * three repeats of one task as three independent observations and returns an
+ * interval that is too narrow. Anything reported over runs goes through
+ * `clusterBootstrapCI`, which is what `docs/PREREGISTRATION.md` specifies.
+ */
 export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS, alpha = 0.05): Interval {
   const n = values.length;
   const m = mean(values);
@@ -242,9 +250,9 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
         return [
           surface,
           ci(clusterBootstrapCI(rows, (s) => s.normalizedScore)),
-          ci(bootstrapCI(rows.map((s) => s.composite))),
-          ci(bootstrapCI(rows.map((s) => s.constraintScore))),
-          judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
+          ci(clusterBootstrapCI(rows, (s) => s.composite)),
+          ci(clusterBootstrapCI(rows, (s) => s.constraintScore)),
+          judged.length ? ci(clusterBootstrapCI(judged, (s) => s.judgeCriteriaScore!)) : "—",
           mean(rows.map((s) => s.efficiency.turns)).toFixed(1),
           mean(rows.map((s) => s.efficiency.toolCalls)).toFixed(1),
           `${pct(mean(rows.map((s) => s.efficiency.failureRate)))}%`,
@@ -303,9 +311,9 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
           return [
             feedbackLabel(feedback as FeedbackMode),
             ci(clusterBootstrapCI(rows, (s) => s.normalizedScore)),
-            ci(bootstrapCI(rows.map((s) => s.composite))),
-            ci(bootstrapCI(rows.map((s) => s.constraintScore))),
-            judged.length ? ci(bootstrapCI(judged.map((s) => s.judgeCriteriaScore!))) : "—",
+            ci(clusterBootstrapCI(rows, (s) => s.composite)),
+            ci(clusterBootstrapCI(rows, (s) => s.constraintScore)),
+            judged.length ? ci(clusterBootstrapCI(judged, (s) => s.judgeCriteriaScore!)) : "—",
             mean(rows.map((s) => s.efficiency.turns)).toFixed(1),
             usd(mean(rows.map((s) => s.efficiency.costUsd))),
             String(rows.length),
@@ -332,7 +340,7 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
           feedbackLabel(feedback as FeedbackMode),
           ...surfaces.map((surface) => {
             const rows = scores.filter((s) => s.feedbackMode === feedback && s.surfaceId === surface);
-            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+            return rows.length ? ci(clusterBootstrapCI(rows, (r) => r.normalizedScore)) : "—";
           }),
         ]),
       ),
@@ -357,7 +365,7 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
           family,
           ...surfaces.map((surface) => {
             const rows = scores.filter((s) => s.taskFamily === family && s.surfaceId === surface);
-            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+            return rows.length ? ci(clusterBootstrapCI(rows, (r) => r.normalizedScore)) : "—";
           }),
         ]),
       ),
@@ -376,7 +384,7 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
           model,
           ...surfaces.map((surface) => {
             const rows = scores.filter((s) => s.model === model && s.surfaceId === surface);
-            return rows.length ? ci(bootstrapCI(rows.map((r) => r.normalizedScore))) : "—";
+            return rows.length ? ci(clusterBootstrapCI(rows, (r) => r.normalizedScore)) : "—";
           }),
           usd(mean(scores.filter((s) => s.model === model).map((s) => s.efficiency.costUsd))),
         ]),
@@ -526,9 +534,9 @@ export function buildReportJson(scores: RunScore[]): unknown {
         n: rows.length,
         improvement: clusterBootstrapCI(rows, (r) => r.normalizedScore),
         baseline: mean(rows.map((r) => r.baselineScore)),
-        composite: bootstrapCI(rows.map((r) => r.composite)),
-        constraint: bootstrapCI(rows.map((r) => r.constraintScore)),
-        judge: judged.length ? bootstrapCI(judged.map((r) => r.judgeCriteriaScore!)) : null,
+        composite: clusterBootstrapCI(rows, (r) => r.composite),
+        constraint: clusterBootstrapCI(rows, (r) => r.constraintScore),
+        judge: judged.length ? clusterBootstrapCI(judged, (r) => r.judgeCriteriaScore!) : null,
         turns: mean(rows.map((r) => r.efficiency.turns)),
         toolCalls: mean(rows.map((r) => r.efficiency.toolCalls)),
         failureRate: mean(rows.map((r) => r.efficiency.failureRate)),

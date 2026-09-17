@@ -259,9 +259,9 @@ near-copies — same turn budget, same feedback attachment, same stop reasons,
 same `RunResult` — and a test asserts they reach an identical document from
 identical tool calls.
 
-The duplication is deliberate. The native loop has prompt caching, adaptive
-thinking and mid-conversation system messages, and carries the confirmatory
-grid. The AI SDK loop exists so that a cross-model comparison runs every model
+The duplication is deliberate. The native loop has prompt caching and adaptive
+thinking, and carries the confirmatory grid. The AI SDK loop exists so that a
+cross-model comparison runs every model
 through *one* code path; splitting Claude and Gemini across two harnesses would
 make any difference between them ambiguous. The cost of keeping both is that
 they can drift, which the parity test and the pre-registered cross-loop check
@@ -276,9 +276,17 @@ of riding on the tool result.
 
 `surfaceProvider` is consulted at the start of every turn. A change swaps the
 tool list while keeping the document and the conversation, and is announced as
-a mid-conversation system message on models that accept one — an operator
-instruction, clearly distinct from anything the user said — falling back to a
-user turn elsewhere.
+a user turn labelled `[operator notice]`, with wording shared between the two
+loops.
+
+A `{role: "system"}` entry inside `messages` would have been the more natural
+way to say *this came from the harness, not from the user*, and it was the
+first implementation. It is not portable: the Messages API takes it only under
+a beta, and across the providers the AI SDK loop reaches it is variously
+accepted, hoisted into the system prompt, or rejected. The switch is the one
+manipulation this study performs mid-run, so it cannot be the thing that
+behaves differently per provider. A labelled user turn is worse prose and
+better experimental hygiene.
 
 It costs a prompt-cache miss, because tools render before the system prompt.
 That is unavoidable and not worth working around for a demo.

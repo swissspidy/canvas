@@ -69,20 +69,47 @@ export function inkPolygons(el: Element): Polygon[] {
   return out;
 }
 
-/** Elements painted above `el`, opaque enough to hide what is beneath them. */
+/** True for `transparent` and for any `#rrggbbaa` whose alpha is below `min`. */
+function opaqueEnough(color: string, min: number): boolean {
+  const s = color.trim().toLowerCase();
+  if (s === "transparent") return false;
+  const m = /^#[0-9a-f]{6}([0-9a-f]{2})$/.exec(s);
+  return m ? parseInt(m[1]!, 16) / 255 >= min : true;
+}
+
+/**
+ * What `el` paints densely enough to hide whatever is under it, as polygons in
+ * canvas space. Empty when it hides nothing.
+ *
+ * The distinction that matters is between an element's *box* and its *ink*. A
+ * headline painted over another headline hides only the glyphs it actually
+ * covers; treating it as a solid rectangle would report a caption as buried
+ * because a line of large type passes near it. Text therefore occludes through
+ * its glyph envelope, plus its own block fill where it has one.
+ */
+export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
+  if ((el.style.opacity ?? 1) < minOpacity) return [];
+
+  if (el.type === "image") return [corners(el)];
+
+  if (el.type === "rect") {
+    // A rect with no fill (or a transparent one) paints only its stroke.
+    return opaqueEnough(el.style.fill ?? "#cccccc", minOpacity) ? [corners(el)] : [];
+  }
+
+  // A text block's fill covers the whole box, so it hides everything beneath.
+  const fill = el.style.fill;
+  if (fill && opaqueEnough(fill, minOpacity)) return [corners(el)];
+  if (!el.text) return [];
+  if (!opaqueEnough(el.style.color ?? "#111111", minOpacity)) return [];
+  return inkPolygons(el);
+}
+
+/** Elements painted above `el` that hide any part of what is beneath them. */
 export function occludersAbove(doc: Doc, el: Element, minOpacity = 0.5): Element[] {
   const index = doc.elements.findIndex((e) => e.id === el.id);
   if (index === -1) return [];
-  return doc.elements.slice(index + 1).filter((other) => {
-    if ((other.style.opacity ?? 1) < minOpacity) return false;
-    if (other.type === "rect") {
-      // A rect with no fill (or a transparent one) paints only its stroke.
-      const fill = other.style.fill ?? "#cccccc";
-      if (fill === "transparent" || /^#[0-9a-fA-F]{6}00$/.test(fill)) return false;
-    }
-    if (other.type === "text" && !other.text) return false;
-    return true;
-  });
+  return doc.elements.slice(index + 1).filter((other) => occluderPolygons(other, minOpacity).length > 0);
 }
 
 export interface Occlusion {
@@ -101,15 +128,15 @@ export interface Occlusion {
 export function occlusionOf(doc: Doc, el: Element): Occlusion {
   const ink = inkPolygons(el);
   const inkArea = ink.reduce((s, p) => s + polygonArea(p), 0);
-  const above = occludersAbove(doc, el);
-  const clips = above.map((o) => corners(o));
+  const above = occludersAbove(doc, el).map((o) => ({ id: o.id, polygons: occluderPolygons(o) }));
+  const clips = above.flatMap((o) => o.polygons);
 
   let visibleArea = 0;
   for (const piece of ink) visibleArea += visibleAreaAfterSubtracting(piece, clips);
   visibleArea = Math.min(visibleArea, inkArea);
 
   const occludedBy = above
-    .filter((o) => ink.some((p) => polygonArea(convexClip(p, corners(o))) > EPS))
+    .filter((o) => o.polygons.some((c) => ink.some((p) => polygonArea(convexClip(p, c)) > EPS)))
     .map((o) => o.id);
 
   const hiddenArea = Math.max(0, inkArea - visibleArea);

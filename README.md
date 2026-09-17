@@ -60,8 +60,10 @@ the same `--out`.
 
 Type a brief, watch it build, and **switch the tool surface while the run is in
 flight**. The document and the conversation carry over; only the vocabulary
-changes from that turn on. On models that accept one, the switch arrives as a
-mid-conversation system message rather than as something the user said.
+changes from that turn on. The switch arrives the same way on every model and
+through both loops — a turn labelled `[operator notice]` — because a
+manipulation this study performs mid-run must not be the thing that varies by
+provider.
 
 That toggle is the shareable part. It is also the part most likely to be
 misread, so: **the page measures nothing.** Its replay mode deliberately builds

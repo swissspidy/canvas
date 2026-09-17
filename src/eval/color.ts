@@ -3,14 +3,14 @@
  *
  * Contrast is scored against the *effective backdrop*: the thing a reader
  * actually sees behind the text. Computing that exactly would mean sampling
- * rendered pixels; this takes the cheaper route of finding the topmost opaque
- * thing under the text's center. The approximation and its failure modes are
+ * rendered pixels; this takes the cheaper route of compositing the stack of
+ * layers under the text's center. The approximation and its failure modes are
  * written up in `docs/DESIGN.md` — it is wrong for text straddling a hard edge
  * between two fills, and `docs/TASKS.md` notes which tasks avoid that case.
  */
 
 import type { Doc, Element } from "../doc/types.js";
-import { aabb, containsPoint } from "../doc/geometry.js";
+import { center, corners, polygonContainsPoint } from "../doc/geometry.js";
 import { getAsset } from "../doc/assets.js";
 
 export interface Rgba {
@@ -93,40 +93,68 @@ function assetAverageColor(el: Element): string | null {
   return toHex({ r: (from.r + to.r) / 2, g: (from.g + to.g) / 2, b: (from.b + to.b) / 2, a: 1 });
 }
 
+const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 };
+
+/** The flat color an element paints behind whatever sits on top of it. */
+function layerColor(el: Element): Rgba | null {
+  if (el.type === "image") {
+    const avg = assetAverageColor(el);
+    return avg ? parseColor(avg) : null;
+  }
+  // A rect with no declared fill still paints: the renderer defaults it to
+  // #cccccc, so the scorer has to see the same grey the reader does.
+  const fill = el.type === "rect" ? (el.style.fill ?? "#cccccc") : el.style.fill;
+  return fill ? parseColor(fill) : null;
+}
+
+function withOpacity(c: Rgba, opacity: number | undefined): Rgba {
+  const o = opacity ?? 1;
+  return o >= 1 ? c : { ...c, a: c.a * Math.max(0, o) };
+}
+
 /**
- * The color a reader perceives behind `el`: the topmost element painted below
- * it that covers its center and is not effectively transparent, falling back
- * to the canvas background.
+ * The color a reader perceives behind `el`.
+ *
+ * Every layer under `el` that covers its center is composited, bottom-up, onto
+ * the canvas background — stopping at the first fully opaque one, since nothing
+ * below that shows through. Two things this deliberately does *not* do:
+ *
+ * - Treat a translucent fill as if it sat directly on `doc.background`. A 40%
+ *   white scrim over a dark photo is a common way to make text legible, and
+ *   compositing it onto the page background instead of onto the photo reports
+ *   a contrast ratio for a layout nobody is looking at.
+ * - Round an element's coverage up to its bounding box. A rotated card is asked
+ *   whether it really covers the point, using its actual corners.
+ *
+ * It is still an approximation — one sample at the center — and it is still
+ * wrong for text straddling a hard edge between two fills. `docs/DESIGN.md`
+ * writes that up and `docs/TASKS.md` notes which tasks avoid the case.
  */
 export function effectiveBackdrop(doc: Doc, el: Element): string {
-  const box = aabb(el);
-  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const point = center(el);
 
-  // A text element paints its own fill behind its own glyphs, so that is the
-  // backdrop whenever it is opaque enough to hide what is under it.
+  // Nearest layer first. A text element's own fill is painted behind its own
+  // glyphs, so it joins the stack above everything else.
+  const stack: Rgba[] = [];
   const own = parseColor(el.style.fill ?? "transparent");
-  if (own && own.a >= 0.5) {
-    const base = parseColor(doc.background) ?? { r: 255, g: 255, b: 255, a: 1 };
-    return toHex(own.a < 1 ? composite(own, base) : own);
-  }
+  if (own && own.a > 0) stack.push(withOpacity(own, el.style.opacity));
 
   // Paint order is bottom-first; walk down from just below `el`.
   const index = doc.elements.findIndex((e) => e.id === el.id);
   for (let i = (index === -1 ? doc.elements.length : index) - 1; i >= 0; i--) {
     const other = doc.elements[i]!;
-    if (!containsPoint(aabb(other), center)) continue;
-    if ((other.style.opacity ?? 1) < 0.5) continue;
-
-    if (other.type === "image") {
-      const avg = assetAverageColor(other);
-      if (avg) return avg;
-      continue;
-    }
-    const fill = other.style.fill;
-    if (!fill) continue;
-    const parsed = parseColor(fill);
-    if (!parsed || parsed.a < 0.5) continue;
-    return toHex(parsed.a < 1 ? composite(parsed, parseColor(doc.background) ?? { r: 255, g: 255, b: 255, a: 1 }) : parsed);
+    if (!polygonContainsPoint(corners(other), point)) continue;
+    const layer = layerColor(other);
+    if (!layer || layer.a <= 0) continue;
+    const withAlpha = withOpacity(layer, other.style.opacity);
+    if (withAlpha.a <= 0) continue;
+    stack.push(withAlpha);
+    if (withAlpha.a >= 1) break;
   }
-  return doc.background;
+
+  if (stack.length === 0) return doc.background;
+  let out = parseColor(doc.background) ?? WHITE;
+  if (out.a < 1) out = composite(out, WHITE);
+  for (let i = stack.length - 1; i >= 0; i--) out = composite(stack[i]!, out);
+  return toHex(out);
 }

@@ -28,7 +28,7 @@ import { addUsage, ZERO_USAGE, type Effort, type TokenUsage } from "./models.js"
 import { noopSink, type AgentEvent, type EventSink, type StopReason } from "./events.js";
 import { initialUserBlocks, systemPrompt } from "./prompt.js";
 import { PRICING, reasoningFor, resolveModel, type ResolvedModel } from "./providers.js";
-import type { RunResult, TurnRecord } from "./loop.js";
+import { switchNoticeText, type RunResult, type TurnRecord } from "./loop.js";
 
 export interface AiSdkRunConfig {
   runId: string;
@@ -171,7 +171,7 @@ export async function runAgentViaAiSdk(config: AiSdkRunConfig): Promise<RunResul
         surface = requested;
         tools = buildToolSet(surface);
         surfacesUsed.push(surface.id);
-        messages.push({ role: "system", content: switchNotice(surface) });
+        messages.push({ role: "user", content: switchNoticeText(surface) });
         emit({ type: "surface_switch", turn, from, to: surface.id });
       }
 
@@ -184,9 +184,6 @@ export async function runAgentViaAiSdk(config: AiSdkRunConfig): Promise<RunResul
         // One provider-neutral scale, mapped per provider by the SDK rather
         // than by a mapping invented here. See `src/agent/providers.ts`.
         reasoning: reasoningFor(effort),
-        // A system message may appear mid-conversation, to announce a surface
-        // switch as an operator instruction rather than as user speech.
-        allowSystemInMessages: true,
         ...(config.signal ? { abortSignal: config.signal } : {}),
       });
 
@@ -383,16 +380,6 @@ export async function runAgentViaAiSdk(config: AiSdkRunConfig): Promise<RunResul
     costUsd: result.costUsd,
   });
   return result;
-}
-
-function switchNotice(surface: ToolSurface): string {
-  return [
-    `Your tools have been replaced. From now on you have the ${surface.title.toLowerCase()} tool set.`,
-    "",
-    surface.briefing,
-    "",
-    "The document is unchanged. Carry on from where you are with the tools you now have.",
-  ].join("\n");
 }
 
 /** Never used to name a document; exported so the runner can label a sweep. */

@@ -142,9 +142,14 @@ export function convexDifference(subject: Polygon, clip: Polygon): Polygon[] {
  * Subtracting convex polygons can split a piece up to four ways per clip, so
  * the piece list is capped. Element counts here are small (a document holds
  * tens of elements, and only those painted above a given one can occlude it),
- * so the cap is a guard rather than a routine path; when it trips, the result
- * is a lower bound on visible area, which errs toward reporting *more*
- * occlusion rather than silently missing it.
+ * so the cap is a guard rather than a routine path.
+ *
+ * When it does trip, abandoning the remaining clips would leave their area
+ * *un*subtracted and overstate what is visible — the wrong direction for a
+ * metric that is supposed to catch hidden text. Fall back instead on the union
+ * bound: covered area never exceeds the sum of the individual intersections,
+ * so `subject − Σ intersections` is a true lower bound on visible area. It errs
+ * toward reporting more occlusion, which is the safe way to be wrong here.
  */
 export function visibleAreaAfterSubtracting(subject: Polygon, clips: Polygon[], maxPieces = 512): number {
   let pieces: Polygon[] = [subject];
@@ -159,9 +164,15 @@ export function visibleAreaAfterSubtracting(subject: Polygon, clips: Polygon[], 
       next.push(...convexDifference(piece, clip));
     }
     pieces = next.filter((p) => polygonArea(p) > EPS);
-    if (pieces.length > maxPieces) break;
+    if (pieces.length > maxPieces) return unionBoundVisibleArea(subject, clips);
   }
   return pieces.reduce((sum, p) => sum + polygonArea(p), 0);
+}
+
+/** Lower bound on visible area: subject area less every intersection, summed. */
+function unionBoundVisibleArea(subject: Polygon, clips: Polygon[]): number {
+  const covered = clips.reduce((sum, clip) => sum + polygonArea(convexClip(subject, clip)), 0);
+  return Math.max(0, polygonArea(subject) - covered);
 }
 
 function lineIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | null {
@@ -213,6 +224,26 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
 
 export function containsPoint(r: Rect, p: Point): boolean {
   return p.x >= r.x - EPS && p.x <= r.x + r.width + EPS && p.y >= r.y - EPS && p.y <= r.y + r.height + EPS;
+}
+
+/**
+ * Point-in-convex-polygon, orientation-agnostic. Needed wherever a rotated box
+ * is asked "do you cover this point?" — its bounding box says yes over as much
+ * as 2x the area it actually paints, which at 45 degrees is most of a corner.
+ */
+export function polygonContainsPoint(poly: Polygon, p: Point): boolean {
+  if (poly.length < 3) return false;
+  let positive = false;
+  let negative = false;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (cross > EPS) positive = true;
+    if (cross < -EPS) negative = true;
+    if (positive && negative) return false;
+  }
+  return true;
 }
 
 /**

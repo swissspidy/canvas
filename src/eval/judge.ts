@@ -136,8 +136,20 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       };
     }
 
-    const scores = judgement.criteria.map((c) => c.score);
-    const mean = scores.length ? scores.reduce((s, v) => s + v, 0) / scores.length : 1;
+    const aligned = alignCriteria(input.criteria, judgement.criteria);
+    if ("error" in aligned) {
+      return {
+        criteriaScore: 0,
+        overallScore: 0,
+        judgement,
+        model,
+        usage,
+        costUsd: costUsd(usage, spec),
+        error: aligned.error,
+      };
+    }
+
+    const mean = aligned.scores.reduce((s, v) => s + v, 0) / aligned.scores.length;
     return {
       criteriaScore: toUnit(mean),
       overallScore: toUnit(judgement.overall),
@@ -162,4 +174,72 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
 /** Map a 1..5 rating onto 0..1. */
 export function toUnit(score: number): number {
   return Math.max(0, Math.min(1, (score - 1) / 4));
+}
+
+function normalizeCriterion(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").replace(/[.?!]+$/, "").trim();
+}
+
+/**
+ * Line the judge's returned scores up with the criteria that were asked for.
+ *
+ * The prompt says to copy each criterion verbatim, and the schema cannot
+ * enforce that: nothing stops a model returning four of five criteria, the
+ * same one twice, or a paraphrase. Any of those quietly changes what the mean
+ * is a mean *of*, and `judgeCriteriaScore` is 40% of the composite — a run
+ * scored against three criteria is not comparable with one scored against
+ * five, and neither the score nor the report would show the difference.
+ *
+ * So: match on normalized text, fall back to position only when the counts
+ * agree (a model that paraphrases usually keeps the order), and refuse
+ * anything else. A refusal sets `error`, which keeps the judge out of the
+ * composite entirely rather than blending in a number built on the wrong set.
+ */
+export function alignCriteria(
+  requested: string[],
+  returned: { criterion: string; score: number }[],
+): { scores: number[] } | { error: string } {
+  if (requested.length === 0) return { error: "No criteria were given to the judge." };
+  if (returned.length === 0) return { error: "Judge returned no criterion scores." };
+  if (returned.length !== requested.length) {
+    return { error: `Judge scored ${returned.length} criteria; ${requested.length} were asked for.` };
+  }
+
+  const byText = new Map<string, number[]>();
+  requested.forEach((c, i) => {
+    const key = normalizeCriterion(c);
+    byText.set(key, [...(byText.get(key) ?? []), i]);
+  });
+
+  // `.fill` matters: `flatMap` and `forEach` skip the holes in a sparse array.
+  const scores = new Array<number | undefined>(requested.length).fill(undefined);
+  const unmatched: { criterion: string; score: number }[] = [];
+
+  for (const entry of returned) {
+    const key = normalizeCriterion(entry.criterion);
+    const slots = byText.get(key);
+    const slot = slots?.find((i) => scores[i] === undefined);
+    if (slot !== undefined) {
+      scores[slot] = entry.score;
+      continue;
+    }
+    // An entry that names a criterion already scored is a duplicate, not a
+    // paraphrase, and there is no honest slot left to put it in.
+    if (slots) return { error: `Judge scored "${entry.criterion}" more than once.` };
+    unmatched.push(entry);
+  }
+
+  // Counts already agree, so every remaining entry — a paraphrase of something
+  // nobody else claimed — pairs with exactly one unfilled slot, in order.
+  const openSlots = scores.flatMap((v, i) => (v === undefined ? [i] : []));
+  openSlots.forEach((slot, i) => {
+    const entry = unmatched[i];
+    if (entry) scores[slot] = entry.score;
+  });
+
+  const missing = scores.flatMap((v, i) => (v === undefined ? [requested[i]!] : []));
+  if (missing.length > 0) {
+    return { error: `Judge did not score: ${missing.join("; ")}` };
+  }
+  return { scores: scores as number[] };
 }

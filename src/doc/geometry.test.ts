@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { aabb, corners, convexClip, outOfBoundsArea, overlapArea, polygonArea, rectToPolygon } from "./geometry.js";
+import {
+  aabb,
+  corners,
+  convexClip,
+  outOfBoundsArea,
+  overlapArea,
+  polygonArea,
+  polygonContainsPoint,
+  rectToPolygon,
+  visibleAreaAfterSubtracting,
+} from "./geometry.js";
 import type { Element } from "./types.js";
 
 function el(partial: Partial<Element>): Element {
@@ -121,5 +131,48 @@ describe("convexClip", () => {
     const subject = rectToPolygon({ x: 20, y: 20, width: 2, height: 2 });
     const clip = rectToPolygon({ x: 0, y: 0, width: 10, height: 10 });
     expect(polygonArea(convexClip(subject, clip))).toBeCloseTo(0, 9);
+  });
+});
+
+describe("visibleAreaAfterSubtracting", () => {
+  const subject = rectToPolygon({ x: 0, y: 0, width: 100, height: 100 });
+  // Five disjoint 10-wide bars: exactly half the subject survives.
+  const bars = [10, 30, 50, 70, 90].map((x) => rectToPolygon({ x, y: 0, width: 10, height: 100 }));
+
+  it("subtracts every clip when the piece cap is not reached", () => {
+    expect(visibleAreaAfterSubtracting(subject, bars)).toBeCloseTo(5000, 6);
+  });
+
+  // Abandoning the remaining clips when the cap trips would report 9000 here —
+  // an *upper* bound, which hides occlusion instead of over-reporting it.
+  it("stays a lower bound when the piece cap trips", () => {
+    const capped = visibleAreaAfterSubtracting(subject, bars, 1);
+    expect(capped).toBeLessThanOrEqual(5000 + 1e-6);
+    expect(capped).toBeCloseTo(5000, 6);
+  });
+
+  it("clamps to zero when the clips more than cover the subject", () => {
+    const overlapping = [
+      rectToPolygon({ x: 0, y: 0, width: 60, height: 100 }),
+      rectToPolygon({ x: 40, y: 0, width: 60, height: 100 }),
+    ];
+    expect(visibleAreaAfterSubtracting(subject, overlapping, 1)).toBe(0);
+  });
+});
+
+describe("polygonContainsPoint", () => {
+  it("excludes the corners a rotated box's bounding box would claim", () => {
+    const square = corners(el({ x: 0, y: 0, width: 100, height: 100, rotation: 45 }));
+    expect(polygonContainsPoint(square, { x: 50, y: 50 })).toBe(true);
+    // Inside the AABB (which spans roughly -21..121 on both axes), outside the
+    // diamond the element actually paints.
+    expect(polygonContainsPoint(square, { x: 0, y: 0 })).toBe(false);
+    expect(polygonContainsPoint(square, { x: 100, y: 100 })).toBe(false);
+  });
+
+  it("holds for an unrotated box", () => {
+    const square = corners(el({ x: 10, y: 10, width: 20, height: 20 }));
+    expect(polygonContainsPoint(square, { x: 20, y: 20 })).toBe(true);
+    expect(polygonContainsPoint(square, { x: 9, y: 20 })).toBe(false);
   });
 });

@@ -91,23 +91,30 @@ export function wrapText(text: string, opts: WrapOptions): { text: string; width
     }
     let current = "";
     let currentWidth = 0;
+    // The whitespace that joins two words is the run that *followed* the
+    // earlier one, so it has to be carried across from the previous token. A
+    // token's own `trailing` sits to its right and belongs to the next join.
+    let pendingSeparator = "";
 
     for (const { word, trailing } of tokens) {
       const wordWidth = measureText(font, word, fontSize);
       if (current === "") {
         current = word;
         currentWidth = wordWidth;
+        pendingSeparator = trailing;
         continue;
       }
-      const sepWidth = measureText(font, trailing || " ", fontSize);
+      const separator = pendingSeparator || " ";
+      const sepWidth = measureText(font, separator, fontSize);
       if (currentWidth + sepWidth + wordWidth <= maxWidth) {
-        current += (trailing || " ") + word;
+        current += separator + word;
         currentWidth += sepWidth + wordWidth;
       } else {
         lines.push({ text: current, width: currentWidth });
         current = word;
         currentWidth = wordWidth;
       }
+      pendingSeparator = trailing;
     }
     lines.push({ text: current, width: currentWidth });
   }

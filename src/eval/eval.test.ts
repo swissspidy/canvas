@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { baselineFor, normalize, scoreDocument, scoreRun, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
 import { computeAgreement, pearson, sampleForRating, spearman } from "./human.js";
-import { toUnit } from "./judge.js";
+import { alignCriteria, toUnit } from "./judge.js";
 import { bootstrapCI, mean, stdev } from "../runner/report.js";
 import { getTask, TASKS } from "../tasks/index.js";
 import { runAgent } from "../agent/loop.js";
@@ -84,6 +84,140 @@ describe("colour", () => {
       ],
     };
     expect(effectiveBackdrop(doc, doc.elements[1]!)).toBe("#101010");
+  });
+
+  // A scrim over a photo is the standard way to make a headline legible.
+  // Compositing it onto the page background instead of onto what it actually
+  // sits on reports the contrast of a layout nobody is looking at.
+  it("composites a translucent scrim onto the layer below it, not onto the page", () => {
+    const rect = (id: string, z: number, fill: string, opacity?: number) => ({
+      id,
+      type: "rect" as const,
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 500,
+      rotation: 0,
+      z,
+      style: { fill, ...(opacity === undefined ? {} : { opacity }) },
+    });
+    const label = {
+      id: "label",
+      type: "text" as const,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 60,
+      rotation: 0,
+      z: 2,
+      text: "Hi",
+      style: { color: "#ffffff" },
+    };
+    const doc: Doc = {
+      width: 500,
+      height: 500,
+      background: "#ffffff",
+      elements: [rect("photo", 0, "#000000"), rect("scrim", 1, "#ffffff80"), label],
+    };
+    // 50% white over black is mid grey. Over the *page* it would have been
+    // white, and the white label would have scored a contrast ratio of 1.
+    const backdrop = effectiveBackdrop(doc, label);
+    expect(parseColor(backdrop)!.r).toBeGreaterThan(100);
+    expect(parseColor(backdrop)!.r).toBeLessThan(155);
+    expect(contrastRatio("#ffffff", backdrop)).toBeGreaterThan(3);
+
+    // The same fill expressed as element opacity resolves identically.
+    const viaOpacity: Doc = {
+      ...doc,
+      elements: [rect("photo", 0, "#000000"), rect("scrim", 1, "#ffffff", 0.5), label],
+    };
+    expect(effectiveBackdrop(viaOpacity, label)).toBe(backdrop);
+  });
+
+  it("stops at the first opaque layer", () => {
+    const doc: Doc = {
+      width: 500,
+      height: 500,
+      background: "#ffffff",
+      elements: [
+        { id: "a", type: "rect", x: 0, y: 0, width: 500, height: 500, rotation: 0, z: 0, style: { fill: "#ff0000" } },
+        { id: "b", type: "rect", x: 0, y: 0, width: 500, height: 500, rotation: 0, z: 1, style: { fill: "#0000ff" } },
+        {
+          id: "t",
+          type: "text",
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 60,
+          rotation: 0,
+          z: 2,
+          text: "Hi",
+          style: { color: "#ffffff" },
+        },
+      ],
+    };
+    expect(effectiveBackdrop(doc, doc.elements[2]!)).toBe("#0000ff");
+  });
+
+  // A rotated card's bounding box claims up to twice the area it paints.
+  it("asks whether a rotated card really covers the text, not its bounding box", () => {
+    const card = {
+      id: "card",
+      type: "rect" as const,
+      x: 200,
+      y: 200,
+      width: 100,
+      height: 100,
+      rotation: 45,
+      z: 0,
+      style: { fill: "#101010" },
+    };
+    const label = (x: number, y: number) => ({
+      id: "label",
+      type: "text" as const,
+      x,
+      y,
+      width: 20,
+      height: 20,
+      rotation: 0,
+      z: 1,
+      text: "Hi",
+      style: { color: "#ffffff" },
+    });
+    const at = (x: number, y: number): Doc => ({
+      width: 500,
+      height: 500,
+      background: "#ffffff",
+      elements: [card, label(x, y)],
+    });
+    // Centred on the card: covered.
+    expect(effectiveBackdrop(at(240, 240), at(240, 240).elements[1]!)).toBe("#101010");
+    // In the bounding box's top-left corner, well outside the diamond.
+    expect(effectiveBackdrop(at(160, 160), at(160, 160).elements[1]!)).toBe("#ffffff");
+  });
+
+  it("sees the grey the renderer paints for a rect with no declared fill", () => {
+    const doc: Doc = {
+      width: 500,
+      height: 500,
+      background: "#ffffff",
+      elements: [
+        { id: "plate", type: "rect", x: 0, y: 0, width: 500, height: 500, rotation: 0, z: 0, style: {} },
+        {
+          id: "t",
+          type: "text",
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 60,
+          rotation: 0,
+          z: 1,
+          text: "Hi",
+          style: { color: "#ffffff" },
+        },
+      ],
+    };
+    expect(effectiveBackdrop(doc, doc.elements[1]!)).toBe("#cccccc");
   });
 });
 
@@ -374,5 +508,45 @@ describe("scoreDocument", () => {
     const clipping = results.find((r) => r.id === "no_text_clipping" && r.weight > 1);
     expect(clipping?.passed).toBe(false);
     expect(clipping?.detail).toMatch(/headline/);
+  });
+});
+
+describe("judge criterion alignment", () => {
+  const asked = ["Is it legible?", "Is the hierarchy clear?", "Does it read as a poster?"];
+  const entry = (criterion: string, score: number) => ({ criterion, score });
+
+  it("lines up verbatim criteria in any order", () => {
+    const aligned = alignCriteria(asked, [entry(asked[2]!, 5), entry(asked[0]!, 3), entry(asked[1]!, 4)]);
+    expect(aligned).toEqual({ scores: [3, 4, 5] });
+  });
+
+  it("ignores case, punctuation and whitespace drift", () => {
+    const aligned = alignCriteria(asked, [
+      entry("is it legible", 3),
+      entry("Is  the   hierarchy clear?", 4),
+      entry("DOES IT READ AS A POSTER?", 5),
+    ]);
+    expect(aligned).toEqual({ scores: [3, 4, 5] });
+  });
+
+  it("falls back to position when the judge paraphrases", () => {
+    const aligned = alignCriteria(asked, [entry("Legibility", 3), entry("Hierarchy", 4), entry("Poster-ness", 5)]);
+    expect(aligned).toEqual({ scores: [3, 4, 5] });
+  });
+
+  // Each of these changes what the mean is a mean *of*, and the judge is 40%
+  // of the composite — so none of them may quietly produce a number.
+  it("refuses a short, long, empty or duplicated set", () => {
+    expect(alignCriteria(asked, [entry(asked[0]!, 5), entry(asked[1]!, 5)])).toMatchObject({
+      error: expect.stringContaining("2 criteria"),
+    });
+    expect(alignCriteria(asked, [...asked.map((c) => entry(c, 5)), entry("Bonus", 5)])).toMatchObject({
+      error: expect.stringContaining("4 criteria"),
+    });
+    expect(alignCriteria(asked, [])).toMatchObject({ error: expect.stringContaining("no criterion scores") });
+    expect(alignCriteria([], [])).toMatchObject({ error: expect.stringContaining("No criteria") });
+    expect(
+      alignCriteria(asked, [entry(asked[0]!, 5), entry(asked[0]!, 5), entry(asked[1]!, 1)]),
+    ).toMatchObject({ error: expect.stringContaining("more than once") });
   });
 });

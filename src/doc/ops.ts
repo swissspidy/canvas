@@ -109,10 +109,23 @@ export function emptyDoc(width = 1080, height = 1350, background = "#ffffff"): D
  * transcripts stay unambiguous.
  */
 export function nextElementId(everUsed: Iterable<string>): string {
+  const used = new Set(everUsed);
   let max = 0;
-  for (const id of everUsed) {
+  for (const id of used) {
     const m = /^el_(\d+)$/.exec(id);
-    if (m) max = Math.max(max, Number(m[1]));
+    if (!m) continue;
+    const n = Number(m[1]);
+    // A suffix past 2^53 does not round-trip through a double, so `n + 1` can
+    // equal `n` and hand out an id that already exists. Such a suffix cannot
+    // have come from this allocator anyway — ignore it rather than let it
+    // poison the counter. `write_document` accepts arbitrary ids, so this is
+    // reachable from a tool call, not only from a hand-written fixture.
+    if (Number.isSafeInteger(n) && n < Number.MAX_SAFE_INTEGER) max = Math.max(max, n);
   }
-  return `el_${max + 1}`;
+  // Ids outside the `el_N` shape can still collide with the next number, so
+  // step past anything already taken. Terminates: each step consumes one id
+  // from a finite set.
+  let candidate = max + 1;
+  while (used.has(`el_${candidate}`)) candidate++;
+  return `el_${candidate}`;
 }
