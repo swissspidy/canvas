@@ -31,6 +31,11 @@ import { blank } from "../tasks/helpers.js";
 import { universalChecks } from "../eval/checks.js";
 import { scoreDocument } from "../eval/score.js";
 import { renderSvg } from "../render/svg.js";
+// Imported for its side effect: registering the resvg backend. The feedback
+// channel asks a registry rather than importing a rasterizer itself, so the
+// process that serves runs is the one that has to put a backend in it — and
+// `/api/run` defaults to a mode that needs one.
+import "../render/raster.js";
 import { FONT_DIR, FONT_FILES } from "../text/fonts.js";
 import { demoPolicy, DEMO_NOTICE } from "./demo.js";
 import type { AgentEvent } from "../agent/events.js";
