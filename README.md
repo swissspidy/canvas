@@ -39,6 +39,19 @@ The live page runs a recorded replay without an API key, so you can see the
 interface immediately. Set `ANTHROPIC_API_KEY` (or run `ant auth login`) and
 restart to drive a real model.
 
+Other providers work too — `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY`
+for Google, `OPENAI_API_KEY` for OpenAI. Their model ids change on their own
+schedule, so this repo does not hardcode any; name the one you want and it
+joins the page's model menu:
+
+```bash
+GEMINI_API_KEY=... CANVAS_EXTRA_MODELS='google:<model-id>' npm run serve
+```
+
+Models named that way are costed at zero and reported as unpriced — add a
+checked price to `MODELS` in `src/agent/models.ts` to include them in cost
+comparisons.
+
 ```bash
 npm run cli -- tasks                        # the 18 tasks
 npm run cli -- surfaces                     # the surfaces and their tools

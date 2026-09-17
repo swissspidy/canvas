@@ -78,10 +78,14 @@ async function loadMeta() {
 
   if (!state.meta.hasCredentials) {
     el.notice.hidden = false;
+    // The server knows which of the two replay cases this is — no key at all,
+    // or a key for a provider no listed model names — and names the variables
+    // it actually reads. Repeating one provider's variable here got that
+    // wrong for anyone using another.
     text(
       el.notice,
-      "No API key configured, so the page runs a recorded replay instead of a model. " +
-        "Set ANTHROPIC_API_KEY and restart to run for real.",
+      "This page is running a recorded replay instead of a model. " +
+        (state.meta.replayReason ?? "No API key configured; set one and restart to run for real."),
     );
   }
 }

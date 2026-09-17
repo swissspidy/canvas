@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateText } from "ai";
 import {
   MODELS,
+  PROVIDER_ENV,
+  PROVIDER_IDS,
   addUsage,
   costUsd,
+  credentialFor,
+  credentialedProviders,
   getModel,
+  hasCredentials,
   parseEffort,
   parseModelSpec,
   reasoningFor,
@@ -132,5 +138,140 @@ describe("effort", () => {
   it("refuses a level nobody defined", () => {
     expect(parseEffort("high")).toBe("high");
     expect(() => parseEffort("highest")).toThrow(/Unknown effort/);
+  });
+});
+
+/**
+ * Every variable in `PROVIDER_ENV`, with nothing else set. The suite inherits
+ * the operator's real environment, and a key sitting in it would otherwise
+ * decide these results.
+ */
+function onlySet(name: string, value: string): void {
+  for (const names of Object.values(PROVIDER_ENV)) {
+    for (const env of names) vi.stubEnv(env, undefined);
+  }
+  vi.stubEnv(name, value);
+}
+
+/** The auth headers the first request would actually carry. */
+async function authHeaders(spec: string): Promise<Record<string, string>> {
+  let seen: Headers | null = null;
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+    seen = new Headers(init?.headers ?? {});
+    return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  await generateText({ model: resolveLanguageModel(spec), prompt: "hi" }).catch(() => {});
+  if (seen === null) throw new Error(`No request was sent for '${spec}'.`);
+  return Object.fromEntries(
+    [...(seen as Headers).entries()].filter(([k]) => /key|authorization/i.test(k)),
+  );
+}
+
+describe("credentials", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  // The reported bug: `GEMINI_API_KEY` is what Google's own genai SDKs and
+  // the `gemini` CLI read, and a machine that had one still reported "no
+  // provider API key found".
+  it("accepts GEMINI_API_KEY for google", () => {
+    onlySet("GEMINI_API_KEY", "k");
+    expect(hasCredentials("google")).toBe(true);
+    expect(credentialFor("google")).toEqual({ env: "GEMINI_API_KEY", value: "k" });
+    expect(credentialedProviders()).toEqual(["google"]);
+  });
+
+  it("prefers the adapter's own variable when both are set", () => {
+    onlySet("GOOGLE_GENERATIVE_AI_API_KEY", "native");
+    vi.stubEnv("GEMINI_API_KEY", "alias");
+    expect(credentialFor("google")?.value).toBe("native");
+  });
+
+  it("reports no credential when nothing is set", () => {
+    onlySet("GEMINI_API_KEY", "");
+    for (const provider of PROVIDER_IDS) {
+      expect(credentialFor(provider)).toBeNull();
+      expect(hasCredentials(provider)).toBe(false);
+    }
+    expect(credentialedProviders()).toEqual([]);
+  });
+
+  /**
+   * The drift guard, and the reason this file resolves credentials itself.
+   *
+   * `hasCredentials` reading a wider list than the adapter does is worse than
+   * not reading it at all: the key reports as found, the run says it is live,
+   * and the first request 401s. So every variable the check accepts has to
+   * reach a request header. Both alias entries — `GEMINI_API_KEY` and
+   * `ANTHROPIC_AUTH_TOKEN` — failed this before.
+   */
+  describe("every accepted variable reaches the request", () => {
+    for (const provider of PROVIDER_IDS) {
+      for (const env of PROVIDER_ENV[provider]) {
+        it(`${env} authenticates ${provider}`, async () => {
+          const secret = `secret-via-${env}`;
+          onlySet(env, secret);
+          const headers = await authHeaders(`${provider}:some-model-id`);
+          // Which header and which scheme is the adapter's business — an
+          // `x-api-key`, an `x-goog-api-key` or a bearer token. That the
+          // secret is in one of them at all is this layer's business.
+          expect(Object.values(headers).some((v) => v.includes(secret))).toBe(true);
+        });
+      }
+    }
+  });
+});
+
+describe("operator-named models", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function reload(extra: string | undefined) {
+    vi.resetModules();
+    vi.stubEnv("CANVAS_EXTRA_MODELS", extra);
+    return import("./models.js");
+  }
+
+  // Without this, a machine holding only a Google or OpenAI key has no model
+  // on the page's list that its key can drive, so the key is unusable.
+  it("adds a named model to the registry, unpriced", async () => {
+    const { MODELS: withExtra, getModel: get } = await reload("google:some-gemini-id");
+    expect(Object.hasOwn(withExtra, "google:some-gemini-id")).toBe(true);
+    expect(get("google:some-gemini-id").priced).toBe(false);
+  });
+
+  it("keeps the checked price when an extra names a listed model", async () => {
+    const { getModel: get } = await reload("anthropic:claude-opus-5");
+    expect(get("anthropic:claude-opus-5").priced).toBe(true);
+    expect(get("anthropic:claude-opus-5").inputPerMTok).toBe(5);
+  });
+
+  it("leaves the registry alone when unset, and tolerates stray commas", async () => {
+    const { MODELS: bare } = await reload(undefined);
+    // Spelled out rather than compared against the imported `MODELS`, which
+    // would already carry extras on a machine that has the variable set.
+    expect(Object.keys(bare)).toEqual([
+      "anthropic:claude-opus-5",
+      "anthropic:claude-sonnet-5",
+      "anthropic:claude-haiku-4-5",
+    ]);
+    const { MODELS: spaced } = await reload(" google:a , , openai:b ");
+    expect(Object.hasOwn(spaced, "google:a")).toBe(true);
+    expect(Object.hasOwn(spaced, "openai:b")).toBe(true);
+  });
+
+  // A typo here would otherwise surface as a 400 from the page, long after
+  // the operator set it.
+  it("refuses a malformed entry at startup, naming the variable", async () => {
+    await expect(reload("gemini-2.5-pro")).rejects.toThrow(
+      /CANVAS_EXTRA_MODELS lists 'gemini-2.5-pro'.*missing a provider/s,
+    );
   });
 });

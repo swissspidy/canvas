@@ -18,9 +18,9 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -55,6 +55,11 @@ export interface ModelSpec {
 
 const CACHE = { cacheWriteMultiplier: 1.25, cacheReadMultiplier: 0.1 };
 
+/** A model with no checked price: costed at zero, and flagged as such. */
+function unpriced(id: string): ModelSpec {
+  return { id, label: id, inputPerMTok: 0, outputPerMTok: 0, ...CACHE, priced: false };
+}
+
 type PriceEntry = Pick<ModelSpec, "label" | "inputPerMTok" | "outputPerMTok">;
 
 function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
@@ -64,18 +69,61 @@ function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
 }
 
 /**
+ * Extra models the operator names at run time, comma-separated:
+ *
+ *   CANVAS_EXTRA_MODELS='google:<model-id>,openai:<model-id>'
+ *
+ * The priced table below is Anthropic-only on purpose, for the reason
+ * `MODEL_SWEEP` gives. But the table is not only a price list: it is also the
+ * live page's model menu and the allowlist `/api/run` checks against. So on a
+ * machine with a Google or OpenAI key and no Anthropic one, every model the
+ * page can offer belongs to a provider that has no key — and a perfectly good
+ * key reports as "no provider API key found" and drops to replay.
+ *
+ * Naming the id here fixes that without this file guessing one: the operator
+ * knows which id is current, and the allowlist stays operator-controlled
+ * rather than caller-controlled. Extras are unpriced, so their runs cost zero
+ * and say so — add a checked price to the table to cost them for real.
+ */
+export const EXTRA_MODELS_ENV = "CANVAS_EXTRA_MODELS";
+
+function extraModels(): Record<string, ModelSpec> {
+  const raw = process.env[EXTRA_MODELS_ENV];
+  if (!raw) return {};
+  const out: Record<string, ModelSpec> = {};
+  for (const spec of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+    try {
+      parseModelSpec(spec);
+    } catch (err) {
+      throw new Error(
+        `${EXTRA_MODELS_ENV} lists '${spec}', which is not a usable model spec: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    out[spec] = unpriced(spec);
+  }
+  return out;
+}
+
+/**
  * Prices, in USD per million tokens.
  *
  * Only models whose prices have been checked are listed. An unlisted model
  * still runs — it is reported with `pricingKnown: false` and costed at zero,
  * which the report footnotes, rather than being silently priced wrong. Add
  * entries here from the provider's own pricing page; nothing infers them.
+ *
+ * The priced table is spread last so that naming a listed model in
+ * `CANVAS_EXTRA_MODELS` cannot quietly drop it to unpriced.
  */
-export const MODELS: Record<string, ModelSpec> = table({
-  "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, outputPerMTok: 25 },
-  "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, outputPerMTok: 10 },
-  "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5 },
-});
+export const MODELS: Record<string, ModelSpec> = {
+  ...extraModels(),
+  ...table({
+    "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, outputPerMTok: 25 },
+    "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, outputPerMTok: 10 },
+    "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5 },
+  }),
+};
 
 export const DEFAULT_MODEL = "anthropic:claude-opus-5";
 
@@ -99,12 +147,49 @@ export const MODEL_SWEEP = [
 /**
  * Environment variable each provider reads, so a missing key fails with
  * something useful instead of a 401 from three turns into a sweep.
+ *
+ * This is also the list the credential is *taken* from — see
+ * `credentialFor` — and the two cannot be allowed to drift. A variable that
+ * `hasCredentials` accepts but the adapter does not read is the worst of both
+ * worlds: the key reports as found, the run announces itself as live, and the
+ * first request 401s. Two of the entries below are exactly that case, so none
+ * of them is left to the adapter's own lookup:
+ *
+ *   - `GEMINI_API_KEY` is Google's own convention — its `genai` SDKs and the
+ *     `gemini` CLI both read it — but the AI SDK adapter reads only
+ *     `GOOGLE_GENERATIVE_AI_API_KEY`.
+ *   - `ANTHROPIC_AUTH_TOKEN` is documented by the Anthropic adapter as an
+ *     `authToken` default, but that adapter only reads the constructor
+ *     argument; nothing falls back to the environment.
  */
 export const PROVIDER_ENV: Record<ProviderId, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-  google: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+  google: ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
   openai: ["OPENAI_API_KEY"],
 };
+
+/** A credential, and the variable it came from. */
+export interface Credential {
+  env: string;
+  value: string;
+}
+
+/**
+ * The credential a provider will actually be driven with: the first variable
+ * in `PROVIDER_ENV` that is set, or null when none is.
+ */
+export function credentialFor(provider: ProviderId): Credential | null {
+  for (const env of PROVIDER_ENV[provider]) {
+    const value = process.env[env];
+    if (value) return { env, value };
+  }
+  return null;
+}
+
+/** Providers that have a credential set, in registry order. */
+export function credentialedProviders(): ProviderId[] {
+  return PROVIDER_IDS.filter((p) => credentialFor(p) !== null);
+}
 
 export function parseModelSpec(spec: string): { provider: ProviderId; modelId: string } {
   const at = spec.indexOf(":");
@@ -124,7 +209,7 @@ export function parseModelSpec(spec: string): { provider: ProviderId; modelId: s
 }
 
 export function hasCredentials(provider: ProviderId): boolean {
-  return PROVIDER_ENV[provider].some((name) => Boolean(process.env[name]));
+  return credentialFor(provider) !== null;
 }
 
 /**
@@ -136,21 +221,33 @@ export function hasCredentials(provider: ProviderId): boolean {
  * rather than being refused or invented a price for.
  */
 export function getModel(id: string): ModelSpec {
-  return (
-    MODELS[id] ?? { id, label: id, inputPerMTok: 0, outputPerMTok: 0, ...CACHE, priced: false }
-  );
+  return MODELS[id] ?? unpriced(id);
 }
 
-/** The language model behind a spec. Throws when the provider is unknown. */
+/**
+ * The language model behind a spec. Throws when the provider is unknown.
+ *
+ * The credential is passed to the adapter rather than left to it, so that
+ * every variable `PROVIDER_ENV` accepts is a variable that actually drives a
+ * request. With nothing set, the adapter keeps its own lookup and raises its
+ * own missing-key error, which names the variable it wanted — better than
+ * anything this layer would say about an empty string.
+ */
 export function resolveLanguageModel(spec: string): LanguageModel {
   const { provider, modelId } = parseModelSpec(spec);
+  const credential = credentialFor(provider);
+  const auth = credential === null ? {} : { apiKey: credential.value };
   switch (provider) {
     case "anthropic":
-      return anthropic(modelId);
+      // An auth token goes in `Authorization: Bearer`, not `x-api-key`; the
+      // adapter has a separate slot for it, and rejects both at once.
+      return createAnthropic(
+        credential?.env === "ANTHROPIC_AUTH_TOKEN" ? { authToken: credential.value } : auth,
+      )(modelId);
     case "google":
-      return google(modelId);
+      return createGoogleGenerativeAI(auth)(modelId);
     case "openai":
-      return openai(modelId);
+      return createOpenAI(auth)(modelId);
   }
 }
 
