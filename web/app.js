@@ -37,6 +37,9 @@ const state = {
   surface: "coordinate",
   runId: null,
   stream: null,
+  // Set when the server sends something that means the run is over. Without
+  // it there is no way to tell a clean close from a dropped connection.
+  terminal: false,
   actions: 0,
   usage: { turns: 0, cost: 0 },
 };
@@ -152,6 +155,7 @@ function reset() {
   el.checks.innerHTML = "";
   el.stats.hidden = true;
   state.actions = 0;
+  state.terminal = false;
   state.usage = { turns: 0, cost: 0 };
   text(el.logChip, "0 actions");
   el.canvas.innerHTML = '<p class="placeholder">Waiting for the first action…</p>';
@@ -178,8 +182,18 @@ function startRun() {
 
   stream.addEventListener("message", (event) => handleEvent(JSON.parse(event.data)));
   stream.addEventListener("error", () => {
-    // EventSource fires `error` on a clean server-side close too, so treat it
-    // as the end of the run rather than as a failure.
+    // EventSource fires `error` for a clean server-side close *and* for a
+    // dropped connection, and then reconnects on its own. Reconnecting here
+    // would hit /api/run again and start a second run against a real API key,
+    // so close either way — but only claim the run finished if the server
+    // said so, rather than reporting a lost connection as a completed run.
+    if (!state.terminal) {
+      addLog("fail", (li) => {
+        li.textContent = "Connection to the server was lost before the run finished.";
+      });
+      text(el.status, "error");
+      text(el.canvasChip, "interrupted");
+    }
     finish();
   });
 }
@@ -259,11 +273,13 @@ function handleEvent(event) {
       break;
 
     case "scored":
+      state.terminal = true;
       paint(event.svg);
       showChecks(event);
       break;
 
     case "error":
+      if (event.fatal) state.terminal = true;
       addLog("fail", (li) => {
         li.textContent = event.message;
       });
@@ -314,7 +330,10 @@ function finish() {
 
 el.task.addEventListener("change", onTaskChange);
 el.run.addEventListener("click", startRun);
-el.stop.addEventListener("click", finish);
+el.stop.addEventListener("click", () => {
+  state.terminal = true;
+  finish();
+});
 
 loadMeta().catch((err) => {
   el.notice.hidden = false;

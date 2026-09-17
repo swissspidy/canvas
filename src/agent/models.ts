@@ -12,7 +12,13 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type Effort = (typeof EFFORTS)[number];
+
+export function parseEffort(value: string): Effort {
+  if ((EFFORTS as readonly string[]).includes(value)) return value as Effort;
+  throw new Error(`Unknown effort '${value}'. Use one of: ${EFFORTS.join(", ")}.`);
+}
 
 export interface ModelSpec {
   id: string;

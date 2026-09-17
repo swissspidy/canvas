@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildReport, buildReportJson, clusterBootstrapCI, pairedDifference } from "./report.js";
 import type { RunScore } from "../eval/score.js";
+import { fingerprintConflicts, runFingerprint } from "./run.js";
 
 function score(partial: Partial<RunScore> & { taskId: string; surfaceId: string }): RunScore {
   return {
@@ -209,5 +210,45 @@ describe("buildReport", () => {
     expect(json.aggregates.surface!.relational!.improvement.mean).toBeGreaterThan(
       json.aggregates.surface!.coordinate!.improvement.mean,
     );
+  });
+});
+
+describe("resume fingerprint", () => {
+  const base = {
+    outDir: "runs/x",
+    taskIds: ["a"],
+    surfaces: ["coordinate" as const],
+    feedback: ["none" as const],
+    models: ["claude-opus-5"],
+    repeats: 1,
+    concurrency: 1,
+    runner: "anthropic" as const,
+    judge: true,
+    judgeModel: "claude-opus-5",
+    dryRun: false,
+    force: false,
+  };
+
+  it("ignores changes the run id already encodes", () => {
+    // Adding a task or a repeat gives new ids, so the finished cells are still
+    // comparable and the sweep should extend rather than refuse.
+    const extended = { ...base, taskIds: ["a", "b"], repeats: 3, models: ["claude-opus-5", "claude-sonnet-5"] };
+    expect(fingerprintConflicts(runFingerprint(base), runFingerprint(extended))).toEqual([]);
+  });
+
+  it("names the settings a run id does not encode", () => {
+    for (const changed of [
+      { effort: "low" as const },
+      { maxTokens: 4000 },
+      { eagerInputStreaming: true },
+      { judge: false },
+      { judgeModel: "claude-sonnet-5" },
+      { runner: "aisdk" as const },
+      { dryRun: true },
+    ]) {
+      const conflicts = fingerprintConflicts(runFingerprint(base), runFingerprint({ ...base, ...changed }));
+      expect(conflicts, JSON.stringify(changed)).toHaveLength(1);
+      expect(conflicts[0]).toContain(Object.keys(changed)[0]!);
+    }
   });
 });

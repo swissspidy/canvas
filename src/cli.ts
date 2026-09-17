@@ -10,11 +10,11 @@ import { join } from "node:path";
 import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
 import { FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "./feedback/index.js";
-import { MODELS, MODEL_SWEEP, DEFAULT_MODEL, type Effort } from "./agent/models.js";
+import { MODELS, MODEL_SWEEP, DEFAULT_MODEL, parseEffort } from "./agent/models.js";
 import { CROSS_PROVIDER_SWEEP, parseModelSpec, PRICING, PROVIDER_ENV, hasCredentials } from "./agent/providers.js";
 import { DEFAULT_SWEEP, loadExistingScores, runSweep, sweepPaths, expandMatrix, type SweepConfig } from "./runner/run.js";
 import { buildReport, buildReportJson } from "./runner/report.js";
-import { renderSvg } from "./render/svg.js";
+import { renderStandaloneSvg } from "./render/svg.js";
 import { rasterize } from "./render/raster.js";
 import { describeDoc } from "./render/describe.js";
 import { scoreDocument } from "./eval/score.js";
@@ -170,7 +170,8 @@ function cmdRender(args: Args): void {
   const doc = task.initial();
   const svgPath = join(outDir, `${task.id}.svg`);
   const pngPath = join(outDir, `${task.id}.png`);
-  writeFileSync(svgPath, renderSvg(doc));
+  // Standalone: a file opened outside the page cannot reach its stylesheets.
+  writeFileSync(svgPath, renderStandaloneSvg(doc));
   writeFileSync(pngPath, rasterize(doc, { pixelWidth: num(args.flags, "width", 540) }));
   console.log(`Wrote ${svgPath}\nWrote ${pngPath}`);
 }
@@ -237,7 +238,9 @@ function buildSweepConfig(args: Args): SweepConfig {
     judgeModel: str(args.flags, "judge-model", DEFAULT_SWEEP.judgeModel),
     dryRun: bool(args.flags, "dry-run"),
     force: bool(args.flags, "force"),
-    ...(typeof args.flags.effort === "string" ? { effort: args.flags.effort as Effort } : {}),
+    // Cast rather than parsed, a typo'd --effort reached the API and failed the
+    // whole sweep on its first request.
+    ...(typeof args.flags.effort === "string" ? { effort: parseEffort(args.flags.effort) } : {}),
     ...(args.flags["max-tokens"] ? { maxTokens: num(args.flags, "max-tokens", 16000) } : {}),
     ...(bool(args.flags, "eager-input") ? { eagerInputStreaming: true } : {}),
   };

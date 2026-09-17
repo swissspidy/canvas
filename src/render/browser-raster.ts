@@ -15,19 +15,10 @@
  */
 
 import type { Doc } from "../doc/types.js";
-import { renderSvg } from "./svg.js";
-import { inlineFontCss } from "./svg.js";
-import { getFontBytes } from "../text/font-registry.js";
-import { DEFAULT_SCREENSHOT_WIDTH, setRasterizer, type RasterOptions } from "./rasterizer.js";
+import { renderSvg, standaloneFontCss } from "./svg.js";
+import { DEFAULT_SCREENSHOT_WIDTH, fitPixelWidth, setRasterizer, type RasterOptions } from "./rasterizer.js";
 
 /** Cached because base64-encoding two font faces per screenshot is wasteful. */
-let fontCss: string | null = null;
-
-function embeddedFontCss(): string {
-  fontCss ??= inlineFontCss(getFontBytes("regular"), getFontBytes("bold"));
-  return fontCss;
-}
-
 export interface BrowserRasterOptions extends RasterOptions {
   /**
    * Inline the font face into the SVG. On by default and effectively always
@@ -38,8 +29,10 @@ export interface BrowserRasterOptions extends RasterOptions {
 }
 
 export async function rasterizeInBrowser(doc: Doc, opts: BrowserRasterOptions = {}): Promise<Uint8Array> {
-  const svg = renderSvg(doc, { ...opts, ...(opts.embedFont === false ? {} : { fontCss: embeddedFontCss() }) });
-  const pixelWidth = Math.max(1, Math.round(opts.pixelWidth ?? DEFAULT_SCREENSHOT_WIDTH));
+  const svg = renderSvg(doc, { ...opts, ...(opts.embedFont === false ? {} : { fontCss: standaloneFontCss() }) });
+  // Reduced if the canvas is tall enough that the full width would blow the
+  // pixel budget; see `fitPixelWidth`.
+  const pixelWidth = fitPixelWidth(doc, opts.pixelWidth);
   const pixelHeight = Math.max(1, Math.round((pixelWidth * doc.height) / doc.width));
 
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));

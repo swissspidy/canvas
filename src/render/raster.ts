@@ -14,7 +14,7 @@ import type { Doc } from "../doc/types.js";
 import { renderSvg } from "./svg.js";
 import { FONT_DIR, FONT_FAMILY, FONT_FILES } from "../text/fonts.js";
 import { join } from "node:path";
-import { DEFAULT_SCREENSHOT_WIDTH, setRasterizer, type RasterOptions } from "./rasterizer.js";
+import { DEFAULT_SCREENSHOT_WIDTH, fitPixelWidth, setRasterizer, type RasterOptions } from "./rasterizer.js";
 
 export { DEFAULT_SCREENSHOT_WIDTH, type RasterOptions };
 
@@ -25,7 +25,9 @@ const fontFiles = [
 
 export function rasterize(doc: Doc, opts: RasterOptions = {}): Buffer {
   const svg = renderSvg(doc, opts);
-  return rasterizeSvg(svg, opts.pixelWidth ?? DEFAULT_SCREENSHOT_WIDTH);
+  // A tall, thin canvas turns a modest width into an enormous height, so the
+  // width is reduced until the output fits the pixel budget.
+  return rasterizeSvg(svg, fitPixelWidth(doc, opts.pixelWidth));
 }
 
 export function rasterizeSvg(svg: string, pixelWidth: number): Buffer {

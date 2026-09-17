@@ -15,7 +15,7 @@
 import type { Doc, Element } from "../doc/types.js";
 import { getAsset } from "../doc/assets.js";
 import { layoutTextElement } from "../text/layout.js";
-import { FONT_FAMILY } from "../text/font-registry.js";
+import { FONT_FAMILY, getFontBytes } from "../text/font-registry.js";
 import { round } from "../doc/geometry.js";
 import { toBase64 } from "./rasterizer.js";
 
@@ -310,4 +310,24 @@ export function inlineFontCss(regular: Uint8Array, bold: Uint8Array): string {
     `@font-face{font-family:'${FONT_FAMILY}';font-style:normal;font-weight:${weight};` +
     `src:url(data:font/ttf;base64,${toBase64(bytes)}) format('truetype');}`;
   return face(regular, "normal") + face(bold, "bold");
+}
+
+let cachedFontCss: string | null = null;
+
+/**
+ * The same CSS, built from the registered faces and memoized.
+ *
+ * Every SVG written to disk goes through here. A file without it renders in
+ * whatever the viewer falls back to, and a line laid out from Liberation Sans
+ * advances but painted in something else is not the document the scorer
+ * measured — which is the one thing the saved artifacts exist to show.
+ */
+export function standaloneFontCss(): string {
+  cachedFontCss ??= inlineFontCss(getFontBytes("regular"), getFontBytes("bold"));
+  return cachedFontCss;
+}
+
+/** A self-contained SVG file: the document, with its faces inlined. */
+export function renderStandaloneSvg(doc: Doc, opts: RenderOptions = {}): string {
+  return renderSvg(doc, { ...opts, fontCss: standaloneFontCss() });
 }

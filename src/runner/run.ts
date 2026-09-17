@@ -28,7 +28,7 @@ import { runAgentViaAiSdk } from "../agent/aisdk-loop.js";
 import { MockLanguageModelV4 } from "ai/test";
 import { judgeRun, DEFAULT_JUDGE_MODEL } from "../eval/judge.js";
 import { scoreRun, type RunScore } from "../eval/score.js";
-import { renderSvg } from "../render/svg.js";
+import { renderStandaloneSvg } from "../render/svg.js";
 import { rasterize } from "../render/raster.js";
 import type { AgentEvent } from "../agent/events.js";
 
@@ -123,6 +123,49 @@ function ensureDirs(paths: SweepPaths): void {
   for (const dir of [paths.root, paths.runs, paths.renders]) mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * The settings a run id does *not* encode, but a result depends on.
+ *
+ * A run id is task, surface, feedback, model and repeat — the matrix. Adding a
+ * task to an existing `--out` is therefore a legitimate extension, and resumes
+ * correctly. Changing the effort, the token ceiling or the judge is not: the
+ * ids are unchanged, so the finished cells are kept and the new ones are run
+ * differently, and the report averages the two without saying so. Extending a
+ * sweep is meant to be cheap, and silently comparing runs made under different
+ * settings is the way that gets expensive.
+ */
+export function runFingerprint(config: SweepConfig): Record<string, unknown> {
+  return {
+    runner: config.runner,
+    effort: config.effort ?? null,
+    maxTokens: config.maxTokens ?? null,
+    eagerInputStreaming: config.eagerInputStreaming ?? false,
+    judge: config.judge,
+    judgeModel: config.judgeModel,
+    dryRun: config.dryRun,
+  };
+}
+
+/** Names the settings that differ between two fingerprints. */
+export function fingerprintConflicts(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): string[] {
+  return Object.keys(current)
+    .filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(current[key]))
+    .map((key) => `${key}: was ${JSON.stringify(previous[key] ?? null)}, now ${JSON.stringify(current[key])}`);
+}
+
+function previousFingerprint(paths: SweepPaths): Record<string, unknown> | null {
+  if (!existsSync(paths.configFile)) return null;
+  try {
+    const previous = JSON.parse(readFileSync(paths.configFile, "utf8")) as SweepConfig;
+    return runFingerprint(previous);
+  } catch {
+    return null;
+  }
+}
+
 /** Scores already on disk, keyed by run id, so a sweep can resume. */
 export function loadExistingScores(paths: SweepPaths): Map<string, RunScore> {
   const map = new Map<string, RunScore>();
@@ -170,6 +213,17 @@ function dryRunLanguageModel() {
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
   const paths = sweepPaths(config.outDir);
   ensureDirs(paths);
+
+  const previous = config.force ? null : previousFingerprint(paths);
+  const conflicts = previous ? fingerprintConflicts(previous, runFingerprint(config)) : [];
+  if (conflicts.length > 0) {
+    throw new Error(
+      `${config.outDir} holds results from a sweep with different settings, and run ids do not encode them:\n` +
+        conflicts.map((c) => `  - ${c}`).join("\n") +
+        `\nResuming would average runs made under both. Use a new --out, or --force to re-run everything here.`,
+    );
+  }
+
   writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
 
   const cells = expandMatrix(config);
@@ -285,7 +339,9 @@ async function runCell(
     ),
   );
 
-  writeFileSync(join(paths.renders, `${cell.runId}.svg`), renderSvg(run.finalDoc));
+  // Standalone, so an artifact opened months later still paints in the face
+  // its line breaks were computed from.
+  writeFileSync(join(paths.renders, `${cell.runId}.svg`), renderStandaloneSvg(run.finalDoc));
   writeFileSync(join(paths.renders, `${cell.runId}.png`), rasterize(run.finalDoc, { pixelWidth: 540 }));
 
   return score;

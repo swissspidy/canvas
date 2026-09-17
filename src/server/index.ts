@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { runAgent } from "../agent/loop.js";
 import { createScriptedClient } from "../agent/scripted.js";
-import { getSurface, SURFACES } from "../surfaces/index.js";
+import { getSurface, isSurfaceId, SURFACES } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "../feedback/index.js";
 import { DEFAULT_MODEL, MODELS } from "../agent/models.js";
@@ -38,6 +38,38 @@ interface LiveRun {
 }
 
 const live = new Map<string, LiveRun>();
+
+/**
+ * Limits on what a caller can ask this server for.
+ *
+ * `/api/run` spends real money against whatever key the operator has in the
+ * environment, so a page that anyone can point a loop at is a page that can
+ * empty an account. The three guards below are the cheap ones: a canvas that
+ * cannot be a hundred million pixels, a brief that cannot be a novel, and a
+ * ceiling on how many runs can be in flight at once. Binding to loopback,
+ * below, is the fourth.
+ */
+const MIN_CANVAS = 200;
+const MAX_CANVAS = 4000;
+const MAX_BRIEF = 4000;
+const MAX_LIVE_RUNS = Number(process.env.CANVAS_MAX_LIVE_RUNS) || 2;
+
+/**
+ * A canvas dimension from a query string.
+ *
+ * `Number(x) || fallback` lets through a negative, a fraction and `Infinity`,
+ * all of which reach the rasterizer as a pixel count.
+ */
+function canvasDimension(raw: string | null, fallback: number): number {
+  if (raw === null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`Canvas dimensions must be numbers; got '${raw}'.`);
+  const rounded = Math.round(n);
+  if (rounded < MIN_CANVAS || rounded > MAX_CANVAS) {
+    throw new Error(`Canvas dimensions must be between ${MIN_CANVAS} and ${MAX_CANVAS}; got ${rounded}.`);
+  }
+  return rounded;
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -89,9 +121,10 @@ function resolveTask(params: URLSearchParams): Task {
   if (taskId && taskId !== "custom") return getTask(taskId);
   const brief = (params.get("brief") ?? "").trim();
   if (!brief) throw new Error("Pass either a known task id or a non-empty brief.");
+  if (brief.length > MAX_BRIEF) throw new Error(`Briefs are limited to ${MAX_BRIEF} characters.`);
   return adHocTask(brief, {
-    width: Number(params.get("width")) || 1080,
-    height: Number(params.get("height")) || 1350,
+    width: canvasDimension(params.get("width"), 1080),
+    height: canvasDimension(params.get("height"), 1350),
   });
 }
 
@@ -110,8 +143,17 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
   const demo = params.get("demo") === "1" || !hasCredentials();
   const runId = `live_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
-  if (!FEEDBACK_MODES.includes(feedbackMode) || !(surfaceId in SURFACES)) {
+  if (!FEEDBACK_MODES.includes(feedbackMode) || !isSurfaceId(surfaceId)) {
     sendJson(res, 400, { error: "Unknown surface or feedback mode." });
+    return;
+  }
+
+  // Replays cost nothing; a real run costs money per turn, so only those are
+  // rationed.
+  if (!demo && live.size >= MAX_LIVE_RUNS) {
+    sendJson(res, 429, {
+      error: `Already running ${live.size} run(s); this server allows ${MAX_LIVE_RUNS} at a time. Try again shortly.`,
+    });
     return;
   }
 
@@ -183,7 +225,7 @@ function handleSwitch(res: ServerResponse, params: URLSearchParams): void {
     sendJson(res, 404, { error: "No such live run. It may have already finished." });
     return;
   }
-  if (!(surface in SURFACES)) {
+  if (!isSurfaceId(surface)) {
     sendJson(res, 400, { error: `Unknown surface '${surface}'.` });
     return;
   }
@@ -235,13 +277,29 @@ export function createApp() {
 }
 
 const port = Number(process.env.PORT) || 5173;
+
+/**
+ * Loopback by default.
+ *
+ * `/api/run` has no authentication and spends the operator's API key, so the
+ * default has to be an address only this machine can reach. Exposing it is a
+ * deliberate act: set `HOST`, and know what you are doing — put it behind
+ * something that authenticates, or run it with no key so it stays in replay
+ * mode.
+ */
+const host = process.env.HOST || "127.0.0.1";
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === normalize(process.argv[1]);
 
 if (isMain) {
-  createApp().listen(port, () => {
-    console.log(`Canvas agent bench: http://localhost:${port}`);
+  createApp().listen(port, host, () => {
+    console.log(`Canvas agent bench: http://${host === "0.0.0.0" || host === "::" ? "localhost" : host}:${port}`);
     if (!hasCredentials()) {
       console.log("No ANTHROPIC_API_KEY found — the page will run in replay mode.");
+    } else if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
+      console.log(
+        `WARNING: listening on ${host} with an API key set. /api/run is unauthenticated — anyone who can ` +
+          `reach this port can spend your credits. Put it behind a proxy that authenticates, or unset the key.`,
+      );
     }
   });
 }
