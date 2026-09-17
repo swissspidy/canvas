@@ -10,8 +10,10 @@ import { MockLanguageModelV4 } from "ai/test";
 import { coordinateSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
+import { coverage, marginAtLeast, noTextOcclusion } from "./checks.js";
+import { describeDoc } from "../render/describe.js";
 import type { RunScore } from "./score.js";
-import type { Doc } from "../doc/types.js";
+import type { Doc, Element } from "../doc/types.js";
 
 describe("colour", () => {
   it("parses the hex forms", () => {
@@ -627,5 +629,344 @@ describe("judge criterion alignment", () => {
     expect(
       alignCriteria(asked, [entry(asked[0]!, 5), entry(asked[0]!, 5), entry(asked[1]!, 1)]),
     ).toMatchObject({ error: expect.stringContaining("more than once") });
+  });
+});
+
+describe("the margin check", () => {
+  function poster(...elements: Element[]): Doc {
+    return { width: 1000, height: 1000, background: "#ffffff", elements };
+  }
+  const el = (partial: Partial<Element> & { id: string }): Element => ({
+    type: "rect",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    rotation: 0,
+    z: 0,
+    style: {},
+    ...partial,
+  });
+
+  // The bug this check had for its whole life: centring a headline by giving
+  // it a full-width box and `align: center` is the obvious way to do it, and
+  // it scored zero every time, because the *box* touches both edges even
+  // though the letters sit 400 units from either one.
+  it("measures the glyphs of a centred headline, not its full-width box", () => {
+    const headline = el({
+      id: "title",
+      type: "text",
+      text: "Ridgeline",
+      x: 0,
+      y: 400,
+      width: 1000,
+      height: 120,
+      style: { fontSize: 64, align: "center" },
+    });
+    const outcome = marginAtLeast(24).run(poster(headline));
+    expect(outcome.score).toBe(1);
+    expect(outcome.detail).toMatch(/Smallest margin/);
+  });
+
+  it("still catches glyphs that really do crowd the edge", () => {
+    const headline = el({
+      id: "title",
+      type: "text",
+      text: "Ridgeline",
+      x: 0,
+      y: 400,
+      width: 1000,
+      height: 120,
+      style: { fontSize: 64, align: "left" },
+    });
+    const outcome = marginAtLeast(24).run(poster(headline));
+    expect(outcome.score).toBeLessThan(0.3);
+    expect(outcome.detail).toMatch(/title/);
+  });
+
+  // A band that runs the width of the canvas is a bleed, which is a decision.
+  // An element that merely happens to touch one edge is not.
+  it("exempts a full-width band but not an element that just touches an edge", () => {
+    const band = el({ id: "scrim", x: 0, y: 600, width: 1000, height: 400, style: { fill: "#000000" } });
+    expect(marginAtLeast(24).run(poster(band)).score).toBe(1);
+
+    const stray = el({ id: "chip", x: 0, y: 600, width: 200, height: 80, style: { fill: "#000000" } });
+    expect(marginAtLeast(24).run(poster(stray)).score).toBe(0);
+  });
+
+  it("ignores an element that paints nothing", () => {
+    const ghost = el({ id: "ghost", x: 0, y: 0, width: 200, height: 80, style: { fill: "transparent" } });
+    const inset = el({ id: "card", x: 300, y: 300, width: 200, height: 80, style: { fill: "#000000" } });
+    const outcome = marginAtLeast(24).run(poster(ghost, inset));
+    expect(outcome.score).toBe(1);
+    expect(outcome.detail).not.toMatch(/ghost/);
+  });
+
+  // An outline is too thin to hide anything and perfectly visible against an
+  // edge, so it is paint here even though it is not an occluder.
+  it("counts an unfilled but stroked box", () => {
+    const outline = el({
+      id: "frame",
+      x: 0,
+      y: 300,
+      width: 200,
+      height: 80,
+      style: { fill: "transparent", strokeColor: "#000000", strokeWidth: 2 },
+    });
+    const outcome = marginAtLeast(24).run(poster(outline));
+    expect(outcome.score).toBe(0);
+    expect(outcome.detail).toMatch(/frame/);
+  });
+});
+
+describe("the occlusion check", () => {
+  const doc = (...elements: Element[]): Doc => ({
+    width: 1000,
+    height: 1000,
+    background: "#ffffff",
+    elements,
+  });
+
+  // A line of capitals inks about 0.69em; its line box runs 1.12em, from the
+  // ascender to the descender. A rule tucked into that empty band passes
+  // between the letters and the ones below without touching either.
+  it("does not report a rule laid in the empty band under a line of capitals", () => {
+    const heading: Element = {
+      id: "heading",
+      type: "text",
+      text: "RIDGELINE",
+      x: 100,
+      y: 100,
+      width: 800,
+      height: 200,
+      rotation: 0,
+      z: 0,
+      style: { fontSize: 100, valign: "top" },
+    };
+    // The baseline sits at y=201; capitals reach up to y=132 and stop there,
+    // while the line box runs on to y=222.
+    const rule: Element = {
+      id: "rule",
+      type: "rect",
+      x: 100,
+      y: 206,
+      width: 800,
+      height: 8,
+      rotation: 0,
+      z: 1,
+      style: { fill: "#000000" },
+    };
+    expect(noTextOcclusion().run(doc(heading, rule)).score).toBe(1);
+  });
+
+  /**
+   * Text nobody can see is neither covered nor covering. `inkPolygons` is pure
+   * geometry, so invisible text used to arrive here carrying real ink: under a
+   * shape it read as a total failure, and anywhere else it padded the
+   * denominator.
+   *
+   * The dilution case is graded rather than saturated on purpose. The
+   * cross-task property test in `tasks.test.ts` missed this because every
+   * occlusion in a task's starting document is already far past the check's
+   * budget, where diluting a 70% failure to 45% still scores zero.
+   */
+  describe("text that paints nothing", () => {
+    const headline = (id: string, y: number, style: Element["style"] = {}): Element => ({
+      id,
+      type: "text",
+      text: "Ridgeline Festival",
+      x: 100,
+      y,
+      width: 800,
+      height: 120,
+      rotation: 0,
+      z: 0,
+      style: { fontSize: 60, ...style },
+    });
+    // Clips the first word only, so the check lands inside its grading ramp
+    // (8% of the glyph area, against a budget of 15%) rather than bottoming
+    // out — which is the whole point: a saturated score hides dilution.
+    const nick: Element = {
+      id: "nick",
+      type: "rect",
+      x: 100,
+      y: 140,
+      width: 70,
+      height: 40,
+      rotation: 0,
+      z: 5,
+      style: { fill: "#000000" },
+    };
+
+    it("does not dilute a real occlusion failure", () => {
+      const real = [headline("headline", 100), nick];
+      const before = noTextOcclusion().run(doc(...real));
+      expect(before.score).toBeGreaterThan(0);
+      expect(before.score).toBeLessThan(1);
+
+      for (const hidden of [{ opacity: 0 }, { color: "transparent" }] as Element["style"][]) {
+        const ghosts = [1, 2, 3].map((i) => headline(`ghost${i}`, 300 + i * 130, hidden));
+        expect(noTextOcclusion().run(doc(...real, ...ghosts)).score, JSON.stringify(hidden)).toBeCloseTo(
+          before.score,
+          10,
+        );
+      }
+    });
+
+    it("is not itself reported as covered", () => {
+      const outcome = noTextOcclusion().run(doc(headline("ghost", 100, { opacity: 0 }), { ...nick, y: 100, width: 800, height: 120 }));
+      expect(outcome.score).toBe(1);
+      expect(outcome.detail).not.toMatch(/ghost/);
+    });
+
+    // The structured feedback channel is one of the variables under study, so
+    // what it tells a model has to be true.
+    it("is not reported as covered to the model either", () => {
+      const d = doc(headline("ghost", 100, { opacity: 0 }), { ...nick, y: 100, width: 800, height: 120 });
+      expect(describeDoc(d, { level: "analysis" })).not.toMatch(/ghost's text is/);
+      // A visible one in the same place still is.
+      const visible = doc(headline("real", 100), { ...nick, y: 100, width: 800, height: 120 });
+      expect(describeDoc(visible, { level: "analysis" })).toMatch(/real's text is .* covered by nick/);
+    });
+  });
+
+  it("still reports a rule laid across the letters themselves", () => {
+    const heading: Element = {
+      id: "heading",
+      type: "text",
+      text: "RIDGELINE",
+      x: 100,
+      y: 100,
+      width: 800,
+      height: 200,
+      rotation: 0,
+      z: 0,
+      style: { fontSize: 100, valign: "top" },
+    };
+    const bar: Element = {
+      id: "bar",
+      type: "rect",
+      x: 100,
+      y: 150,
+      width: 800,
+      height: 40,
+      rotation: 0,
+      z: 1,
+      style: { fill: "#000000" },
+    };
+    const outcome = noTextOcclusion().run(doc(heading, bar));
+    expect(outcome.score).toBe(0);
+    expect(outcome.detail).toMatch(/heading/);
+  });
+});
+
+describe("the coverage check", () => {
+  const W = 1000;
+  const H = 1000;
+  const page = (...elements: Element[]): Doc => ({
+    width: W,
+    height: H,
+    background: "#ffffff",
+    elements,
+  });
+  const box = (id: string, x: number, y: number, width: number, height: number): Element => ({
+    id,
+    type: "rect",
+    x,
+    y,
+    width,
+    height,
+    rotation: 0,
+    z: 0,
+    style: { fill: "#334455" },
+  });
+  const background = (): Element => ({ ...box("bg", 0, 0, W, H), type: "image", src: "photo/mountains" });
+
+  // A composed page, a bare one and one with everything in a corner — all
+  // behind the same full-bleed photo. Measuring the photo, the check called
+  // them identical, and called all three over-packed.
+  const composed = () => [box("band", 0, 600, W, 400), box("headline", 100, 200, 800, 200)];
+  const bare = () => [box("scrap", 20, 20, 120, 60)];
+
+  it("looks past a full-canvas background at what is composed on top of it", () => {
+    const outcome = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    expect(outcome.score).toBe(1);
+    expect(outcome.detail).toMatch(/excluding 1 full-canvas element/);
+  });
+
+  it("tells a composed page from a bare one behind the same background", () => {
+    const good = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    const empty = coverage(0.3, 0.98).run(page(background(), ...bare()));
+    expect(good.score).toBe(1);
+    expect(empty.score).toBeLessThan(0.3);
+    // The distinction the check exists to draw, and could not draw before.
+    expect(good.score).toBeGreaterThan(empty.score);
+  });
+
+  // The brief asks for a background image. Bleeding it used to score worse
+  // than insetting it, which paid a run to ignore the instruction.
+  it("does not reward insetting a background that the brief wants bled", () => {
+    const bled = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    const inset = coverage(0.3, 0.98).run(
+      page({ ...background(), x: 24, y: 24, width: W - 48, height: H - 48 }, ...composed()),
+    );
+    expect(bled.score).toBeGreaterThanOrEqual(inset.score);
+  });
+
+  // Narrower than `marginAtLeast`'s bleed rule on purpose: a band across the
+  // lower third really does fill that third.
+  it("still counts a full-width band that does not cover the canvas", () => {
+    const withBand = coverage(0.3, 0.98).run(page(box("band", 0, 600, W, 400)));
+    expect(withBand.detail).not.toMatch(/excluding/);
+    expect(withBand.score).toBe(1);
+  });
+
+  it("scores a page that is nothing but a background as bare", () => {
+    expect(coverage(0.3, 0.98).run(page(background())).score).toBeLessThan(0.3);
+  });
+
+  it("leaves a page with no full-canvas element alone", () => {
+    const outcome = coverage(0.3, 0.98).run(page(...composed()));
+    expect(outcome.detail).not.toMatch(/excluding/);
+    expect(outcome.score).toBe(1);
+  });
+
+  // One element nobody can see was the cheapest possible way to look composed
+  // without composing anything: it took a bare page from failing this check to
+  // passing it outright.
+  it("cannot be padded with an element that paints nothing", () => {
+    const ghost = (id: string, style: Element["style"]): Element => ({
+      ...box(id, 40, 40, W - 80, H - 80),
+      style,
+    });
+    const before = coverage(0.3, 0.98).run(page(background(), ...bare()));
+    for (const style of [
+      { fill: "transparent" },
+      { fill: "#33445500" },
+      { fill: "#334455", opacity: 0 },
+    ] as Element["style"][]) {
+      const after = coverage(0.3, 0.98).run(page(background(), ...bare(), ghost("pad", style)));
+      expect(after.score, JSON.stringify(style)).toBe(before.score);
+      expect(after.detail).toMatch(/1 invisible/);
+    }
+  });
+
+  // The other half of that: an outline is faint, not absent.
+  it("still counts a box that is only a stroke", () => {
+    const outline: Element = {
+      ...box("frame", 100, 100, 800, 800),
+      style: { fill: "transparent", strokeColor: "#000000", strokeWidth: 2 },
+    };
+    const outcome = coverage(0.3, 0.98).run(page(outline));
+    expect(outcome.detail).not.toMatch(/invisible/);
+    expect(outcome.score).toBe(1);
+  });
+
+  it("names both exclusions apart, and counts them", () => {
+    const ghost: Element = { ...box("pad", 40, 40, 100, 100), style: { fill: "transparent" } };
+    const outcome = coverage(0.3, 0.98).run(
+      page(background(), ...composed(), ghost, { ...ghost, id: "pad2" }),
+    );
+    expect(outcome.detail).toMatch(/excluding 1 full-canvas and 2 invisible elements/);
   });
 });

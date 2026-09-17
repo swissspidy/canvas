@@ -2,10 +2,12 @@
  * Model registry: naming, resolution and pricing.
  *
  * Models are named `provider:modelId` — `anthropic:claude-opus-5`,
- * `google:<model-id>`, `openai:<model-id>` — and every one of them is reached
- * through the Vercel AI SDK. One name, one adapter, one loop: if Claude ran
- * through a hand-written Anthropic loop and Gemini through the SDK, any
- * difference between them could be the harness rather than the model.
+ * `google:gemini-3.8-flash`, `togetherai:deepseek-ai/DeepSeek-V4.1-Flash` — and
+ * every one of them is reached through the Vercel AI SDK. One name, one
+ * adapter, one loop: if Claude ran through a hand-written Anthropic loop and
+ * Gemini through the SDK, any difference between them could be the harness
+ * rather than the model. Only the first colon splits the name, so a provider
+ * whose own ids contain slashes and colons still fits.
  *
  * Pricing lives here so every run carries a cost, not just a score. Cost is
  * not a footnote in this study: document-as-code spends few turns and many
@@ -21,6 +23,9 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
+import { togetherai } from "@ai-sdk/togetherai";
+import { xai } from "@ai-sdk/xai";
+import { zai } from "@ai-sdk/zai";
 import type { LanguageModel } from "ai";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -31,7 +36,7 @@ export function parseEffort(value: string): Effort {
   throw new Error(`Unknown effort '${value}'. Use one of: ${EFFORTS.join(", ")}.`);
 }
 
-export const PROVIDER_IDS = ["anthropic", "google", "openai"] as const;
+export const PROVIDER_IDS = ["anthropic", "google", "openai", "xai", "zai", "togetherai"] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 /** The AI SDK's provider-neutral reasoning scale. */
@@ -53,18 +58,73 @@ export interface ModelSpec {
   priced: boolean;
 }
 
-const CACHE = { cacheWriteMultiplier: 1.25, cacheReadMultiplier: 0.1 };
+/**
+ * What it costs to *create* a cache entry, as a multiple of the input rate.
+ *
+ * A provider-level billing model rather than a per-model rate. Anthropic
+ * charges a surcharge to write a prompt-cache entry; the others here cache
+ * implicitly at no write cost, or bill cache storage by the hour, which a
+ * per-request token count cannot express either way. Stated per provider
+ * because a single hard-coded pair used to apply Anthropic's surcharge to
+ * every model in the table — harmless while the table was Anthropic-only, and
+ * wrong the moment it was not.
+ */
+const CACHE_WRITE_MULTIPLIER: Record<ProviderId, number> = {
+  anthropic: 1.25,
+  google: 0,
+  openai: 0,
+  xai: 0,
+  zai: 0,
+  togetherai: 0,
+};
 
-/** A model with no checked price: costed at zero, and flagged as such. */
+/**
+ * A model with no checked price: costed at zero, and flagged as such. The
+ * cache multipliers are zero for the same reason the rates are — there is
+ * nothing to be a multiple of.
+ */
 function unpriced(id: string): ModelSpec {
-  return { id, label: id, inputPerMTok: 0, outputPerMTok: 0, ...CACHE, priced: false };
+  return {
+    id,
+    label: id,
+    inputPerMTok: 0,
+    outputPerMTok: 0,
+    cacheWriteMultiplier: 0,
+    cacheReadMultiplier: 0,
+    priced: false,
+  };
 }
 
-type PriceEntry = Pick<ModelSpec, "label" | "inputPerMTok" | "outputPerMTok">;
+type PriceEntry = Pick<ModelSpec, "label" | "inputPerMTok" | "outputPerMTok"> & {
+  /**
+   * USD per million tokens read back from cache, exactly as the provider's
+   * pricing page states it — that is the number published, and deriving the
+   * multiple here keeps the table checkable line by line against the page.
+   * Omitted when a provider publishes no cached rate, which is costed as no
+   * discount: it overstates spend rather than understating it.
+   */
+  cachedInputPerMTok?: number;
+};
 
 function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
   return Object.fromEntries(
-    Object.entries(entries).map(([id, entry]) => [id, { id, ...entry, ...CACHE, priced: true }]),
+    Object.entries(entries).map(([id, entry]) => {
+      const { cachedInputPerMTok, ...rest } = entry;
+      const { provider } = parseModelSpec(id);
+      return [
+        id,
+        {
+          id,
+          ...rest,
+          cacheWriteMultiplier: CACHE_WRITE_MULTIPLIER[provider],
+          cacheReadMultiplier:
+            cachedInputPerMTok !== undefined && rest.inputPerMTok > 0
+              ? cachedInputPerMTok / rest.inputPerMTok
+              : 1,
+          priced: true,
+        },
+      ];
+    }),
   );
 }
 
@@ -73,12 +133,10 @@ function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
  *
  *   CANVAS_EXTRA_MODELS='google:<model-id>,openai:<model-id>'
  *
- * The priced table below is Anthropic-only on purpose, for the reason
- * `MODEL_SWEEP` gives. But the table is not only a price list: it is also the
- * live page's model menu and the allowlist `/api/run` checks against. So on a
- * machine with a Google or OpenAI key and no Anthropic one, every model the
- * page can offer belongs to a provider that has no key — and a perfectly good
- * key reports as "no provider API key found" and drops to replay.
+ * The table below is not only a price list: it is also the live page's model
+ * menu and the allowlist `/api/run` checks against. A model it has never heard
+ * of is therefore unreachable, however good the key sitting in the
+ * environment — and provider ids move faster than this file does.
  *
  * Naming the id here fixes that without this file guessing one: the operator
  * knows which id is current, and the allowlist stays operator-controlled
@@ -113,15 +171,44 @@ function extraModels(): Record<string, ModelSpec> {
  * which the report footnotes, rather than being silently priced wrong. Add
  * entries here from the provider's own pricing page; nothing infers them.
  *
+ * Two entries are priced by prompt length, and both are listed at their
+ * short-context tier: `google:gemini-3.1-pro-preview` and `xai:grok-4.6`
+ * charge double above 200k input tokens. A run here is a brief, a document and
+ * at most a few dozen screenshots, so it sits well inside that tier — but a
+ * task set with far longer context would need the other rate.
+ *
+ * `openai:gpt-5.6-sol` is listed at a promotional rate the page dates to
+ * November 2026. It is the one entry here with a known expiry.
+ *
  * The priced table is spread last so that naming a listed model in
  * `CANVAS_EXTRA_MODELS` cannot quietly drop it to unpriced.
  */
 export const MODELS: Record<string, ModelSpec> = {
   ...extraModels(),
   ...table({
-    "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, outputPerMTok: 25 },
-    "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, outputPerMTok: 10 },
-    "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5 },
+    "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, cachedInputPerMTok: 0.5, outputPerMTok: 25 },
+    "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
+    "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 5 },
+
+    "google:gemini-3.8-flash": { label: "Gemini 3.8 Flash", inputPerMTok: 0.75, cachedInputPerMTok: 0.075, outputPerMTok: 3.75 },
+    "google:gemini-3.7-flash": { label: "Gemini 3.7 Flash", inputPerMTok: 0.75, cachedInputPerMTok: 0.075, outputPerMTok: 3.75 },
+    "google:gemini-3.1-pro-preview": { label: "Gemini 3.1 Pro", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 12 },
+
+    "openai:gpt-5.6-sol": { label: "GPT-5.6 Sol", inputPerMTok: 4, cachedInputPerMTok: 0.4, outputPerMTok: 20 },
+    "openai:gpt-5.6-terra": { label: "GPT-5.6 Terra", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 12 },
+    "openai:gpt-5.6-luna": { label: "GPT-5.6 Luna", inputPerMTok: 0.2, cachedInputPerMTok: 0.02, outputPerMTok: 1.2 },
+
+    "xai:grok-4.6": { label: "Grok 4.6", inputPerMTok: 2, cachedInputPerMTok: 0.5, outputPerMTok: 6 },
+
+    "zai:glm-5.3": { label: "GLM-5.3", inputPerMTok: 1.4, cachedInputPerMTok: 0.26, outputPerMTok: 4.4 },
+
+    // Together publishes no cached-input rate for its serverless endpoints, so
+    // this one is costed with no cache discount.
+    "togetherai:deepseek-ai/DeepSeek-V4.1-Flash": {
+      label: "DeepSeek V4.1 Flash",
+      inputPerMTok: 0.3,
+      outputPerMTok: 1.2,
+    },
   }),
 };
 
@@ -130,19 +217,33 @@ export const DEFAULT_MODEL = "anthropic:claude-opus-5";
 /**
  * What `--models sweep` expands to: one model per Claude tier.
  *
- * Deliberately *not* a cross-provider list. Google's and OpenAI's model ids
- * change on their own schedule, and a shorthand that silently points at a
- * retired id would fail a sweep three turns in — or, worse, quietly run a
- * different model than the write-up claims. The cross-provider comparison
- * therefore takes explicit ids:
- *
- *   npm run cli -- run --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
+ * A capability ladder inside one family, which is the comparison that isolates
+ * "does a weaker model need a better tool surface?" from every other way two
+ * models differ. Kept as its own shorthand now that `--models all` exists,
+ * because the two answer different questions and the full registry is a much
+ * larger bill.
  */
 export const MODEL_SWEEP = [
   "anthropic:claude-opus-5",
   "anthropic:claude-sonnet-5",
   "anthropic:claude-haiku-4-5",
 ];
+
+/** Every model in the registry, in table order. What `--models all` expands to. */
+export function allModels(): string[] {
+  return Object.keys(MODELS);
+}
+
+/**
+ * Every registry model whose provider has a key set here.
+ *
+ * `--models all` on a machine with one key is a sweep that dies on its first
+ * cell; this is the same list narrowed to what can actually run, which is what
+ * anyone wants from a leaderboard on a laptop with two keys in the shell.
+ */
+export function runnableModels(): string[] {
+  return allModels().filter((id) => hasCredentials(parseModelSpec(id).provider));
+}
 
 /**
  * Environment variable each provider reads, so a missing key fails with
@@ -160,6 +261,11 @@ export const PROVIDER_ENV: Record<ProviderId, string> = {
   anthropic: "ANTHROPIC_API_KEY",
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   openai: "OPENAI_API_KEY",
+  xai: "XAI_API_KEY",
+  zai: "ZAI_API_KEY",
+  // Not `TOGETHER_AI_API_KEY`: the adapter still reads that one, but warns
+  // that it is deprecated, and this list has to name what it prefers.
+  togetherai: "TOGETHER_API_KEY",
 };
 
 export function parseModelSpec(spec: string): { provider: ProviderId; modelId: string } {
@@ -167,7 +273,8 @@ export function parseModelSpec(spec: string): { provider: ProviderId; modelId: s
   if (at < 1) {
     throw new Error(
       `Model '${spec}' is missing a provider. Use 'provider:model-id', for example ` +
-        `anthropic:claude-opus-5, google:<model-id> or openai:<model-id>.`,
+        `anthropic:claude-opus-5, google:gemini-3.8-flash or xai:grok-4.6. ` +
+        `Known providers: ${PROVIDER_IDS.join(", ")}.`,
     );
   }
   const provider = spec.slice(0, at) as ProviderId;
@@ -216,6 +323,12 @@ export function resolveLanguageModel(spec: string): LanguageModel {
       return google(modelId);
     case "openai":
       return openai(modelId);
+    case "xai":
+      return xai(modelId);
+    case "zai":
+      return zai(modelId);
+    case "togetherai":
+      return togetherai(modelId);
   }
 }
 

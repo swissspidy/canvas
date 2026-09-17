@@ -197,6 +197,98 @@ describe("buildReport", () => {
     const md = buildReport(syntheticScores(0.2));
     expect(md).not.toContain("## By feedback condition");
     expect(md).not.toContain("## By model");
+    // One model is not a leaderboard; the surface table already is one.
+    expect(md).not.toContain("## Leaderboard");
+    expect(md).not.toContain("## Every cell");
+  });
+
+  it("ranks models, and every cell, once the sweep is cross-model", () => {
+    // Two models, one clearly stronger, across two surfaces and two feedback
+    // conditions: the smallest sweep that is actually a leaderboard.
+    const crossModel = [
+      ...scores,
+      ...scores.map((s) => ({
+        ...s,
+        runId: `${s.runId}-m2`,
+        model: "google:gemini-3.8-flash",
+        normalizedScore: s.normalizedScore - 0.15,
+        efficiency: { ...s.efficiency, costUsd: 0.002 },
+      })),
+    ];
+    const md = buildReport(crossModel);
+
+    expect(md).toContain("## Leaderboard");
+    expect(md).toContain("## Model x feedback");
+    expect(md).toContain("## Every cell");
+
+    const leaderboard = md.slice(md.indexOf("## Leaderboard"), md.indexOf("## By tool surface"));
+    const order = [...leaderboard.matchAll(/^\| \d+ \| (\S+) \|/gm)].map((m) => m[1]);
+    expect(order).toEqual(["anthropic:claude-opus-5", "google:gemini-3.8-flash"]);
+    // The best cell names a surface and a feedback condition, not just one.
+    expect(leaderboard).toMatch(/relational\/(none|both)/);
+
+    // Every model x surface x feedback combination gets a row.
+    const cells = md.slice(md.indexOf("## Every cell"));
+    expect([...cells.matchAll(/^\| \d+ \|/gm)]).toHaveLength(2 * 2 * 2);
+  });
+
+  /**
+   * A sweep does not have to be square: run ids encode the cell, so an
+   * interrupted sweep resumes and a widened one runs only what is new. Ranking
+   * a model scored on the easy tasks against one scored on all of them
+   * compares the task sets rather than the models.
+   */
+  it("ranks only on the cells every model has, and says what it left out", () => {
+    const full = syntheticScores(0.2).map((s) => ({ ...s, model: "model-a" }));
+    // The second model only ever reached the two easiest tasks. Its raw mean
+    // is higher for that reason alone.
+    const partial = syntheticScores(0.2)
+      .filter((s) => s.taskId === "task-0" || s.taskId === "task-1")
+      .map((s) => ({ ...s, runId: `${s.runId}-b`, model: "model-b" }));
+
+    const md = buildReport([...full, ...partial]);
+    const section = md.slice(md.indexOf("## Leaderboard"), md.indexOf("## By tool surface"));
+
+    expect(section).toMatch(/Ranked on the 4 task x surface x feedback combination\(s\)/);
+    // 42 runs in all; the 24 inside the shared four cells are what rank.
+    expect(section).toMatch(/18 run\(s\) outside that common grid are left out/);
+
+    // Both models are now measured on the same two tasks, so the surface
+    // effect they share leaves them level rather than ranked by coverage.
+    const means = [...section.matchAll(/^\| \d+ \| (\S+) \| ([\d.]+) /gm)].map((m) => [m[1], Number(m[2])]);
+    expect(means).toHaveLength(2);
+    expect(Math.abs((means[0]![1] as number) - (means[1]![1] as number))).toBeLessThan(0.001);
+  });
+
+  it("says so when no cell is shared, rather than ranking anyway", () => {
+    const a = syntheticScores(0.2)
+      .filter((s) => s.taskId === "task-0")
+      .map((s) => ({ ...s, model: "model-a" }));
+    const b = syntheticScores(0.2)
+      .filter((s) => s.taskId === "task-1")
+      .map((s) => ({ ...s, runId: `${s.runId}-b`, model: "model-b" }));
+    const md = buildReport([...a, ...b]);
+    expect(md).toMatch(/No task, surface and feedback combination has a run from every model/);
+  });
+
+  // Repeats are not evidence: a cell carrying eight runs must not outweigh one
+  // carrying three inside a task's mean. The extra runs below score exactly
+  // what their cell already scored, so nothing but the *count* changes — and a
+  // raw row average would still drag the task mean toward the fuller cell.
+  it("gives each cell one vote whatever its repeat count", () => {
+    const base = syntheticScores(0.2).map((s) => ({ ...s, model: "model-a" }));
+    const oneCell = base.filter((s) => s.taskId === "task-0" && s.surfaceId === "coordinate");
+    const lopsided = [
+      ...base,
+      ...oneCell.map((s, i) => ({ ...s, runId: `extra-${i}` })),
+      ...oneCell.map((s, i) => ({ ...s, runId: `extra2-${i}` })),
+    ];
+    const meanOf = (rows: typeof base) => {
+      const md = buildReport([...rows, ...rows.map((s) => ({ ...s, runId: `${s.runId}-m2`, model: "model-b" }))]);
+      const section = md.slice(md.indexOf("## Leaderboard"), md.indexOf("## By tool surface"));
+      return Number([...section.matchAll(/^\| 1 \| \S+ \| ([\d.]+) /gm)][0]![1]);
+    };
+    expect(meanOf(lopsided)).toBeCloseTo(meanOf(base), 6);
   });
 
   it("produces machine-readable aggregates keyed by every dimension", () => {
@@ -206,6 +298,9 @@ describe("buildReport", () => {
     };
     expect(json.runs).toBe(scores.length);
     expect(Object.keys(json.aggregates)).toContain("surfaceByFeedback");
+    // The full grid, so a plot can slice it without re-reading scores.jsonl.
+    expect(Object.keys(json.aggregates)).toContain("modelByFeedback");
+    expect(Object.keys(json.aggregates.cell!)).toContain("anthropic:claude-opus-5|relational|both");
     expect(json.aggregates.surface!.relational!.improvement.mean).toBeGreaterThan(
       json.aggregates.surface!.coordinate!.improvement.mean,
     );

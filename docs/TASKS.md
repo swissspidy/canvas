@@ -150,7 +150,7 @@ Task-specific checks:
 | `outerMarginsBalanced` | The gap at each end of a row or column matches the other |
 | `typeBudget` | Per-type element caps, for a brief that says "no images" |
 | `typeHierarchy` | Ratio of largest to smallest font size, id-free |
-| `coverage` | Fraction of canvas occupied, via a 60×60 occupancy grid |
+| `coverage` | Fraction of canvas occupied, via a 60×60 occupancy grid, ignoring a full-canvas background and anything invisible |
 | `usesImage` | An image element from a named set |
 | `usesPalette` | Colours drawn from a given palette |
 | `aspectPreserved` | Images not stretched (`objectFit: cover` exempt — it crops) |

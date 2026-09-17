@@ -28,6 +28,16 @@ export interface LaidLine {
   baseline: number;
   /** Top of this line's line box. */
   top: number;
+  /**
+   * The box the glyphs of this line actually ink, in the element's unrotated
+   * frame. Tighter than the line box in both directions, and much tighter
+   * vertically: the line box spans ascender to descender whatever the line
+   * says, while a line of capitals and digits inks barely two thirds of it.
+   *
+   * `null` when the line draws nothing (it is empty or all spaces), or when
+   * the face carries no outlines this reader can bound — see `inkMeasured`.
+   */
+  ink: Rect | null;
 }
 
 export interface TextLayout {
@@ -52,6 +62,12 @@ export interface TextLayout {
   /** Number of lines whose box fits entirely inside the content box. */
   visibleLines: number;
   clipped: boolean;
+  /**
+   * True when `LaidLine.ink` was measured from real outlines. False for a face
+   * without them, where a `null` ink means "unknown" rather than "draws
+   * nothing", and callers fall back to the line box.
+   */
+  inkMeasured: boolean;
 }
 
 export function measureText(font: FontMetrics, s: string, fontSize: number): number {
@@ -144,6 +160,52 @@ function alignY(box: Rect, blockHeight: number, valign: VAlign): number {
 }
 
 /**
+ * Where a laid-out line's glyphs actually land.
+ *
+ * Walks the same advances the line was measured with, so the pen positions
+ * here are exactly the ones the renderer paints at — it pins each run to this
+ * width with `textLength`. Whitespace contributes advance but no outline, so a
+ * line that is all spaces returns `null`.
+ */
+function inkOfLine(
+  text: string,
+  font: FontMetrics,
+  fontSize: number,
+  x: number,
+  baseline: number,
+): Rect | null {
+  if (!font.hasOutlines) return null;
+  let pen = 0;
+  let left = Infinity;
+  let right = -Infinity;
+  // Font space is y-up and canvas space is y-down, so the glyph's `yMax`
+  // becomes the smaller (higher) canvas coordinate.
+  let top = Infinity;
+  let bottom = -Infinity;
+
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const bounds = font.inkOf(cp);
+    if (bounds) {
+      left = Math.min(left, pen + bounds.xMin);
+      right = Math.max(right, pen + bounds.xMax);
+      top = Math.min(top, -bounds.yMax);
+      bottom = Math.max(bottom, -bounds.yMin);
+    }
+    pen += font.advanceOf(cp);
+  }
+  if (left > right) return null;
+
+  const scale = fontSize / font.unitsPerEm;
+  return {
+    x: x + left * scale,
+    y: baseline + top * scale,
+    width: (right - left) * scale,
+    height: (bottom - top) * scale,
+  };
+}
+
+/**
  * Lay out a text element. Returns positions in the element's *unrotated*
  * coordinate frame; rotation is applied by the renderer as a transform about
  * the element center, so layout never has to think about it.
@@ -171,12 +233,15 @@ export function layoutTextElement(el: Element, fontOverride?: FontMetrics): Text
 
   const lines: LaidLine[] = wrapped.map((l, i) => {
     const top = blockTop + i * lineHeightPx;
+    const x = alignX(box, l.width, align);
+    const baseline = top + halfLeading + ascent;
     return {
       text: l.text,
       width: l.width,
-      x: alignX(box, l.width, align),
+      x,
       top,
-      baseline: top + halfLeading + ascent,
+      baseline,
+      ink: inkOfLine(l.text, font, fontSize, x, baseline),
     };
   });
 
@@ -200,6 +265,7 @@ export function layoutTextElement(el: Element, fontOverride?: FontMetrics): Text
     overflowY,
     visibleLines,
     clipped: overflowX > 0.01 || overflowY > 0.01,
+    inkMeasured: font.hasOutlines,
   };
 }
 

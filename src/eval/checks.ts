@@ -12,9 +12,9 @@
  * afford to treat them as one.
  */
 
-import type { Doc, Element, ElementType } from "../doc/types.js";
+import type { Doc, Element, ElementType, Rect } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
-import { occlusionOf } from "../doc/occlusion.js";
+import { occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
@@ -55,6 +55,40 @@ export const isText = (el: Element) => el.type === "text";
 export const isImage = (el: Element) => el.type === "image";
 
 /**
+ * The elements a reader can see, for the checks that ask what is *on the page*.
+ *
+ * The checks here split into two kinds, and the split decides whether they get
+ * this filter:
+ *
+ * **What is on the page** — how many elements there are, whether the required
+ * copy appears, whether an image was used, whether the type has a hierarchy,
+ * what colours are in play. All of those were counting elements that paint
+ * nothing, and every one of them was gameable for it. The worst: a poster
+ * missing half its required copy and set in one size scored 100% by carrying
+ * the missing phrases in a text element at `opacity: 0`. An image at
+ * `opacity: 0` satisfied "use the photo/mountains asset as a background image".
+ * Invisible rects bought an "at least five elements" floor.
+ *
+ * **What is in the document** — whether an element was kept, whether its box
+ * was held still, whether anything hangs off the canvas. Those ask about the
+ * document rather than the render, and most of them name their elements by id,
+ * so they read every element and are deliberately left alone.
+ *
+ * `inBounds` is the one that could have gone either way, and stays unfiltered
+ * deliberately: it can only ever *add* a penalty, so there is nothing to gain
+ * by hiding an element from it — while filtering would make "bring the stray
+ * elements back on canvas" satisfiable by hiding the stray instead of moving
+ * it, which is a worse layout scoring better.
+ *
+ * Making something invisible now buys nothing anywhere, which is also why
+ * `typeBudget` can stop penalising an invisible rect: it was only ever doing so
+ * by the same accident, and a penalty is not needed once the reward is gone.
+ */
+function visible(els: Element[]): Element[] {
+  return els.filter(paintsAnything);
+}
+
+/**
  * Turn a defect size into a score. `tolerance` is the amount treated as
  * negligible; `budget` is where the score bottoms out.
  */
@@ -70,10 +104,20 @@ function check(id: string, label: string, weight: number, run: (doc: Doc) => Che
 
 // --- universal checks ------------------------------------------------------
 
-/** Text hidden behind something painted above it. */
+/**
+ * Text hidden behind something painted above it.
+ *
+ * Visible text only, and for both of the usual reasons. `inkPolygons` is pure
+ * geometry — it lays out the glyphs and does not ask whether anyone can see
+ * them — so invisible text arrived here carrying real ink. Under a visible
+ * shape that ink read as a total occlusion failure for text nobody can see;
+ * anywhere else it padded the denominator, and three invisible text elements
+ * lifted a genuine 17% occlusion from 0% to 72%, with the detail line still
+ * naming the element that was covered.
+ */
 export function noTextOcclusion(weight = 1): Check {
   return check("no_text_occlusion", "Text is not covered by anything above it", weight, (doc) => {
-    const texts = doc.elements.filter(isText);
+    const texts = visible(doc.elements).filter(isText);
     if (texts.length === 0) return { score: 1, detail: "No text elements." };
     const worst: string[] = [];
     let totalHidden = 0;
@@ -119,10 +163,18 @@ export function inBounds(weight = 1, selector?: Selector): Check {
   });
 }
 
-/** Text that does not fit the box it was put in. */
+/**
+ * Text that does not fit the box it was put in.
+ *
+ * Scored on the share of lines hidden, so an invisible text element that
+ * *fits* pads the denominator and dilutes a real clipping failure — which is
+ * why this one takes the visibility filter even though the neighbouring
+ * `inBounds` does not. That one can only ever add a penalty; this one can
+ * subtract it.
+ */
 export function noTextClipping(weight = 1, selector?: Selector): Check {
   return check("no_text_clipping", "No text is clipped by its own box", weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter(isText);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let hiddenLines = 0;
@@ -150,7 +202,7 @@ export function noTextClipping(weight = 1, selector?: Selector): Check {
 /** WCAG contrast for every text element against what is behind it. */
 export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check {
   return check("contrast", `Text contrast is at least ${ratio}:1`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter((el) => isText(el) && !!el.text);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let worst = 21;
@@ -174,7 +226,7 @@ export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check
 export function elementCount(opts: { min?: number; max?: number; selector?: Selector; label?: string }, weight = 1): Check {
   const { min = 0, max = Infinity, selector } = opts;
   return check("element_count", opts.label ?? `Between ${min} and ${max} elements`, weight, (doc) => {
-    const n = (selector ? select(doc, selector) : doc.elements).length;
+    const n = visible(selector ? select(doc, selector) : doc.elements).length;
     if (n >= min && n <= max) return { score: 1, detail: `${n} element(s).` };
     const distance = n < min ? min - n : n - max;
     return { score: gradeDefect(distance, 0, Math.max(2, min || 2)), detail: `${n} element(s); wanted ${min}..${max}.` };
@@ -195,7 +247,7 @@ export function typeBudget(limits: Partial<Record<ElementType, number>>, weight 
     const over: string[] = [];
     let excess = 0;
     for (const [type, max] of entries) {
-      const n = doc.elements.filter((el) => el.type === type).length;
+      const n = visible(doc.elements).filter((el) => el.type === type).length;
       if (n <= max) continue;
       excess += n - max;
       over.push(`${n} ${type}(s), wanted at most ${max}`);
@@ -238,7 +290,7 @@ export function textUnchanged(reference: Doc, selector: Selector, weight = 1): C
 /** Required copy is present somewhere in the document, case-insensitively. */
 export function containsText(phrases: string[], weight = 1): Check {
   return check("contains_text", "Required copy is present", weight, (doc) => {
-    const haystack = doc.elements
+    const haystack = visible(doc.elements)
       .filter(isText)
       .map((el) => (el.text ?? "").toLowerCase().replace(/\s+/g, " "))
       .join("   ");
@@ -310,22 +362,46 @@ export function evenlySpaced(axis: "horizontal" | "vertical", selector: Selector
   });
 }
 
-/** Nothing crowds the canvas edge. */
+/**
+ * Nothing crowds the canvas edge.
+ *
+ * Measured on what each element *paints*, not on the box it was declared in.
+ * The two differ most for the single most natural way to centre a headline:
+ * a full-width text box with `align: center`. Its glyphs sit in the middle of
+ * the canvas with hundreds of units of air either side, and its box touches
+ * both edges — so a box-measured check scored a perfectly composed poster at
+ * zero, and did it on every task that asked for a margin. The box is a layout
+ * frame; a reader sees the letters.
+ *
+ * `paintedPolygons` also settles what a text element's fill means here: a text
+ * block with an opaque background really does paint its whole box, so that box
+ * is measured, while an unfilled one is measured on its glyphs alone.
+ */
 export function marginAtLeast(margin: number, weight = 1, selector?: Selector): Check {
   return check("margin", `Elements keep a ${margin} unit margin`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter(
-      // A full-bleed background is a deliberate choice, not a margin violation.
-      (el) => !isFullBleed(el, doc),
-    );
-    if (els.length === 0) return { score: 1, detail: "Nothing to check." };
+    const els = selector ? select(doc, selector) : doc.elements;
     let worst = Infinity;
     const offenders: string[] = [];
+    let measured = 0;
     for (const el of els) {
-      const b = aabb(el);
-      const m = Math.min(b.x, b.y, doc.width - (b.x + b.width), doc.height - (b.y + b.height));
+      const painted = paintedBounds(el);
+      // Paints nothing, so it crowds nothing.
+      if (!painted) continue;
+      // Running from one side of the canvas to the other is a bleed — a
+      // background, a banner, a full-width rule — and bleeding is a decision,
+      // not a crowded edge.
+      if (bleeds(painted, doc)) continue;
+      measured++;
+      const m = Math.min(
+        painted.x,
+        painted.y,
+        doc.width - (painted.x + painted.width),
+        doc.height - (painted.y + painted.height),
+      );
       worst = Math.min(worst, m);
       if (m < margin) offenders.push(`${el.id} (${round(m)})`);
     }
+    if (measured === 0) return { score: 1, detail: "Nothing to check." };
     return {
       score: gradeDefect(Math.max(0, margin - worst), 0, margin),
       detail: offenders.length ? `Tight margins: ${offenders.join(", ")}` : `Smallest margin ${round(worst)} units.`,
@@ -333,9 +409,22 @@ export function marginAtLeast(margin: number, weight = 1, selector?: Selector): 
   });
 }
 
-function isFullBleed(el: Element, doc: Doc): boolean {
-  const b = aabb(el);
-  return b.x <= 1 && b.y <= 1 && b.width >= doc.width - 1 && b.height >= doc.height - 1;
+/** The axis-aligned box around everything an element paints, or null if nothing. */
+function paintedBounds(el: Element): Rect | null {
+  const points = paintedPolygons(el).flat();
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/** Painted edge to edge on either axis: a deliberate full-bleed surface. */
+function bleeds(b: Rect, doc: Doc): boolean {
+  const spansWidth = b.x <= 1 && b.x + b.width >= doc.width - 1;
+  const spansHeight = b.y <= 1 && b.y + b.height >= doc.height - 1;
+  return spansWidth || spansHeight;
 }
 
 /** An image keeps its intrinsic aspect ratio, within a tolerance. */
@@ -388,7 +477,7 @@ export function fontSizeOrder(ids: string[], weight = 1): Check {
  */
 export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
   return check("type_hierarchy", `Largest text is at least ${minRatio}x the smallest`, weight, (doc) => {
-    const sizes = doc.elements.filter((el) => isText(el) && !!el.text).map((el) => el.style.fontSize ?? 32);
+    const sizes = visible(doc.elements).filter(isText).map((el) => el.style.fontSize ?? 32);
     if (sizes.length < 2) return { score: sizes.length === 1 ? 1 : 0, detail: `${sizes.length} text element(s).` };
     const ratio = Math.max(...sizes) / Math.min(...sizes);
     return {
@@ -401,10 +490,42 @@ export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
 /**
  * The canvas is neither bare nor packed. A crude proxy for "this looks like a
  * composed page", using bounding-box coverage without double-counting overlap.
+ *
+ * Two kinds of element are left out of the union, both for the same reason:
+ * they answer a different question from the one being asked.
+ *
+ * **A background that covers the whole canvas.** It saturates the grid by
+ * itself, and once it has, nothing else in the document can move the number:
+ * a composed poster, one with a single line of type in a corner, and one with
+ * every element crammed into a 260x90 box all measured 100% and scored the
+ * same. The check was reading the background and nothing else — on a task
+ * whose brief asks for a background image. Worse than useless, in fact: with
+ * the band topping out below 100%, bleeding the background as the brief asks
+ * scored *lower* than insetting it a few units, so the check paid a run to
+ * ignore the instruction. Excluded, the same three documents measure 55%, 4%
+ * and 2% — the distinction this check exists to draw.
+ *
+ * **Anything that paints nothing**, by `paintedPolygons`: a rect with a
+ * transparent fill and no stroke, anything at zero opacity. Counting those
+ * made "does this look composed" answerable with one element nobody can see.
+ * A bare page scoring 25% on this check went to 100% — and 15 points of
+ * normalized improvement on the task — for a single invisible rect, which is
+ * the cheapest possible way to look composed without composing anything.
+ *
+ * What is *not* narrowed is the area: a visible element still contributes its
+ * whole box, not its ink. A block of type occupies its box on the page, and
+ * the question here is how much of the page has something on it. That is also
+ * why the full-canvas exemption is narrower than `marginAtLeast`'s — there,
+ * anything running edge to edge on either axis is a bleed, because the
+ * question is whether an element crowds an edge; here a full-width band across
+ * the lower third crowds no edge but does fill that third.
  */
 export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
   return check("coverage", `Between ${Math.round(min * 100)}% and ${Math.round(max * 100)}% of the canvas is used`, weight, (doc) => {
-    if (doc.elements.length === 0) return { score: 0, detail: "Empty canvas." };
+    // Painted, not present: a canvas holding three invisible rects is an empty
+    // canvas, and testing the array length instead scored it above one holding
+    // nothing at all.
+    if (!doc.elements.some(paintsAnything)) return { score: 0, detail: "Empty canvas." };
     // Union area via a coarse occupancy grid: exact polygon union is overkill
     // for a sanity check, and a 60x60 grid resolves to under 2% of the canvas.
     const cols = 60;
@@ -412,7 +533,19 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
     const cellW = doc.width / cols;
     const cellH = doc.height / rows;
     const grid = new Uint8Array(cols * rows);
+    let filling = 0;
+    let invisible = 0;
     for (const el of doc.elements) {
+      if (fillsCanvas(el, doc)) {
+        filling++;
+        continue;
+      }
+      // The same definition of "paints something" the margin check uses, so
+      // an element cannot be invisible to one and solid to the other.
+      if (paintedPolygons(el).length === 0) {
+        invisible++;
+        continue;
+      }
       const b = aabb(el);
       const c0 = Math.max(0, Math.floor(b.x / cellW));
       const c1 = Math.min(cols - 1, Math.ceil((b.x + b.width) / cellW) - 1);
@@ -421,17 +554,47 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
       for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) grid[r * cols + c] = 1;
     }
     const used = grid.reduce((s: number, v: number) => s + v, 0) / (cols * rows);
-    if (used >= min && used <= max) return { score: 1, detail: `${Math.round(used * 100)}% covered.` };
+    const note = exclusionNote(filling, invisible);
+    if (used >= min && used <= max) return { score: 1, detail: `${Math.round(used * 100)}% covered${note}.` };
     const distance = used < min ? min - used : used - max;
-    return { score: gradeDefect(distance, 0, 0.35), detail: `${Math.round(used * 100)}% covered; wanted ${Math.round(min * 100)}..${Math.round(max * 100)}%.` };
+    return {
+      score: gradeDefect(distance, 0, 0.35),
+      detail: `${Math.round(used * 100)}% covered${note}; wanted ${Math.round(min * 100)}..${Math.round(max * 100)}%.`,
+    };
   });
+}
+
+/** Covers the canvas outright — a background, rather than a composed element. */
+function fillsCanvas(el: Element, doc: Doc): boolean {
+  const b = aabb(el);
+  return b.x <= 1 && b.y <= 1 && b.width >= doc.width - 1 && b.height >= doc.height - 1;
+}
+
+/**
+ * Why the number is lower than the page looks.
+ *
+ * Said out loud, because "55% covered" against a poster that visibly fills
+ * every inch of its canvas is otherwise a puzzle for whoever reads the report.
+ */
+function exclusionNote(filling: number, invisible: number): string {
+  const parts: string[] = [];
+  if (filling > 0) parts.push(`${filling} full-canvas`);
+  if (invisible > 0) parts.push(`${invisible} invisible`);
+  if (parts.length === 0) return "";
+  return ` (excluding ${parts.join(" and ")} ${filling + invisible === 1 ? "element" : "elements"})`;
 }
 
 /** At least one image element is present, optionally from a specific set. */
 export function usesImage(keys?: string[], weight = 1): Check {
   return check("uses_image", keys ? `Uses one of: ${keys.join(", ")}` : "Uses an image", weight, (doc) => {
-    const images = doc.elements.filter(isImage);
-    if (images.length === 0) return { score: 0, detail: "No image elements." };
+    const images = visible(doc.elements).filter(isImage);
+    if (images.length === 0) {
+      const hidden = doc.elements.filter(isImage).length;
+      return {
+        score: 0,
+        detail: hidden ? `${hidden} image element(s), none of them visible.` : "No image elements.",
+      };
+    }
     if (!keys) return { score: 1, detail: `${images.length} image(s).` };
     const matching = images.filter((el) => el.src && keys.includes(el.src));
     return {
@@ -453,7 +616,7 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
   return check("surface_luminance", `Backgrounds are no lighter than ${maxLuminance}`, weight, (doc) => {
     const canvasArea = doc.width * doc.height;
     const surfaces: { id: string; color: string }[] = [{ id: "canvas", color: doc.background }];
-    for (const el of doc.elements) {
+    for (const el of visible(doc.elements)) {
       if (el.type !== "rect" || !el.style.fill || el.style.fill === "transparent") continue;
       const b = aabb(el);
       if ((b.width * b.height) / canvasArea >= minAreaFraction) surfaces.push({ id: el.id, color: el.style.fill });
@@ -479,7 +642,7 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
 /** Text is at least `minLuminance` light — the other half of a dark theme. */
 export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Selector): Check {
   return check("text_luminance", `Text is at least ${minLuminance} light`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter((el) => isText(el) && !!el.text);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let satisfied = 0;
@@ -500,7 +663,7 @@ export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Sel
 export function usesPalette(colors: string[], weight = 1, selector?: Selector): Check {
   const wanted = new Set(colors.map((c) => c.toLowerCase()));
   return check("palette", `Colors come from the given palette`, weight, (doc) => {
-    const els = selector ? select(doc, selector) : doc.elements;
+    const els = visible(selector ? select(doc, selector) : doc.elements);
     const used: string[] = [];
     for (const el of els) {
       if (el.style.color) used.push(el.style.color.toLowerCase());

@@ -1,5 +1,6 @@
 /**
- * A minimal TrueType metrics reader: `head`, `hhea`, `hmtx`, `cmap`, `OS/2`.
+ * A minimal TrueType reader: `head`, `hhea`, `hmtx`, `cmap`, `OS/2`, and the
+ * glyph bounding boxes in `loca`/`glyf`.
  *
  * Why parse the font instead of pulling in a font library or measuring in a
  * browser: line breaking has to be *identical* everywhere. The eval scorer,
@@ -7,11 +8,33 @@
  * "did the text clip?" stops being a deterministic check. Reading advance
  * widths straight from `hmtx` gives one answer that every consumer shares.
  *
- * Only advance widths are read — no kerning, no shaping, no ligatures. The
- * renderer then pins each painted line to the width computed here with SVG
- * `textLength`, so paint and layout agree by construction rather than by
- * hoping two shaping engines match.
+ * No kerning, no shaping, no ligatures. The renderer then pins each painted
+ * line to the width computed here with SVG `textLength`, so paint and layout
+ * agree by construction rather than by hoping two shaping engines match.
+ *
+ * Outlines are not rasterized, but their *bounding boxes* are read, because
+ * several checks ask where the glyphs actually land rather than where the line
+ * box is. The line box runs from the ascender to the descender — 1.12em in
+ * Liberation Sans — while a line of capitals and digits inks only 0.69em of
+ * it. Treating that empty third as painted is what made "is this text covered?"
+ * and "does this element crowd the edge?" report defects a reader cannot see.
  */
+
+/**
+ * A glyph's outline bounds, in font units, relative to the pen origin and the
+ * baseline. `y` is positive *up*, as the font stores it: a descender's `yMin`
+ * is negative.
+ */
+export interface GlyphBounds {
+  /** Left edge of the outline, i.e. the left side bearing. */
+  xMin: number;
+  /** Right edge of the outline. Always `>= xMin`. */
+  xMax: number;
+  /** Bottom of the outline. Negative below the baseline. */
+  yMin: number;
+  /** Top of the outline. */
+  yMax: number;
+}
 
 export interface FontMetrics {
   family: string;
@@ -21,8 +44,16 @@ export interface FontMetrics {
   /** Typographic descender, font units (negative, down). */
   descender: number;
   lineGap: number;
+  /** True when the face carries glyph outlines this reader can bound. */
+  hasOutlines: boolean;
   /** Advance width in font units for a Unicode code point. */
   advanceOf(codePoint: number): number;
+  /**
+   * Outline bounds for a code point, or `null` when it draws nothing — a
+   * space, an unmapped code point, or any glyph in a face without `glyf`
+   * (a CFF/OTTO face, whose outlines this reader does not parse).
+   */
+  inkOf(codePoint: number): GlyphBounds | null;
 }
 
 const u16 = (dv: DataView, o: number) => dv.getUint16(o, false);
@@ -184,7 +215,84 @@ export function parseFont(data: Uint8Array, family: string): FontMetrics {
     return adv;
   }
 
-  return { family, unitsPerEm, ascender, descender, lineGap, advanceOf };
+  const readGlyphBounds = makeGlyphBoundsReader(dv, tables, head.offset, hmtx.offset, numberOfHMetrics);
+  const inkCache = new Map<number, GlyphBounds | null>();
+
+  function inkOf(codePoint: number): GlyphBounds | null {
+    const hit = inkCache.get(codePoint);
+    if (hit !== undefined) return hit;
+    const gid = cmap.get(codePoint);
+    const bounds = gid === undefined || !readGlyphBounds ? null : readGlyphBounds(gid);
+    inkCache.set(codePoint, bounds);
+    return bounds;
+  }
+
+  return {
+    family,
+    unitsPerEm,
+    ascender,
+    descender,
+    lineGap,
+    hasOutlines: readGlyphBounds !== null,
+    advanceOf,
+    inkOf,
+  };
+}
+
+/**
+ * A reader for one glyph's outline bounds, or `null` for a face this cannot
+ * bound — a CFF/OTTO face has no `glyf`, and its outlines live in a format
+ * this module deliberately does not parse.
+ *
+ * The bounding box in a glyph's own header is authoritative for both simple
+ * and composite glyphs, so no outline has to be walked. It is stated in glyph
+ * space; `hmtx`'s left side bearing is what places it against the pen, and the
+ * two agree only when `head.flags` bit 1 says so. Shifting by the bearing
+ * rather than trusting `xMin` costs two bytes a glyph and is right either way.
+ */
+function makeGlyphBoundsReader(
+  dv: DataView,
+  tables: Map<string, TableRecord>,
+  headOffset: number,
+  hmtxOffset: number,
+  numberOfHMetrics: number,
+): ((gid: number) => GlyphBounds | null) | null {
+  const loca = tables.get("loca");
+  const glyf = tables.get("glyf");
+  if (!loca || !glyf) return null;
+
+  // 0 selects uint16 offsets stored halved; 1 selects uint32 offsets.
+  const longLoca = i16(dv, headOffset + 50) !== 0;
+  const stride = longLoca ? 4 : 2;
+  // Clamped to the buffer rather than trusting the declared length: a
+  // truncated face should lose its glyph bounds, not throw out of layout.
+  const entries = Math.max(
+    0,
+    Math.floor((Math.min(loca.offset + loca.length, dv.byteLength) - loca.offset) / stride),
+  );
+  const offsetAt = (i: number) =>
+    longLoca ? u32(dv, loca.offset + i * 4) : u16(dv, loca.offset + i * 2) * 2;
+
+  const leftSideBearing = (gid: number): number => {
+    if (gid < numberOfHMetrics) return i16(dv, hmtxOffset + gid * 4 + 2);
+    const extra = hmtxOffset + numberOfHMetrics * 4 + (gid - numberOfHMetrics) * 2;
+    return extra + 1 < dv.byteLength ? i16(dv, extra) : 0;
+  };
+
+  return (gid: number): GlyphBounds | null => {
+    if (gid < 0 || gid + 1 >= entries) return null;
+    const start = offsetAt(gid);
+    // An empty range is a glyph with no outline at all — a space.
+    if (offsetAt(gid + 1) <= start) return null;
+    const at = glyf.offset + start;
+    if (at + 10 > glyf.offset + glyf.length || at + 10 > dv.byteLength) return null;
+    const xMin = i16(dv, at + 2);
+    const yMin = i16(dv, at + 4);
+    const xMax = i16(dv, at + 6);
+    const yMax = i16(dv, at + 8);
+    const lsb = leftSideBearing(gid);
+    return { xMin: lsb, xMax: lsb + Math.max(0, xMax - xMin), yMin, yMax };
+  };
 }
 
 /** Width of a string in font units. */

@@ -38,6 +38,20 @@ describe("font metrics", () => {
     expect(at40).toBeCloseTo(at20 * 2, 6);
   });
 
+  it("reads glyph outline bounds, and reports nothing for a space", () => {
+    expect(font.hasOutlines).toBe(true);
+    const cap = font.inkOf("H".codePointAt(0)!)!;
+    const descender = font.inkOf("g".codePointAt(0)!)!;
+    // A capital sits on the baseline; a `g` hangs below it.
+    expect(cap.yMin).toBe(0);
+    expect(descender.yMin).toBeLessThan(0);
+    // And the capital is the taller of the two.
+    expect(cap.yMax).toBeGreaterThan(descender.yMax);
+    // Outlines are narrower than the advance they are set in.
+    expect(cap.xMax - cap.xMin).toBeLessThan(font.advanceOf("H".codePointAt(0)!));
+    expect(font.inkOf(" ".codePointAt(0)!)).toBeNull();
+  });
+
   it("measures bold as wider than regular for the same string", () => {
     const bold = getFont("bold");
     expect(measureText(bold, "Hamburgefonstiv", 32)).toBeGreaterThan(
@@ -174,5 +188,57 @@ describe("largestFittingFontSize", () => {
   it("returns null when nothing in range fits", () => {
     const el = textEl({ width: 10, height: 10, text: "Impossibly long single word here" });
     expect(largestFittingFontSize(el, 40, 100)).toBeNull();
+  });
+});
+
+
+describe("line ink", () => {
+  // The line box runs ascender to descender whatever the line contains. What
+  // the glyphs cover is a good deal less, and several checks ask about the
+  // glyphs — see `src/doc/occlusion.ts`.
+  it("is tighter than the line box, and tighter still without descenders", () => {
+    const layout = layoutTextElement(textEl({ text: "RIDGELINE", style: { fontSize: 100 } }));
+    const line = layout.lines[0]!;
+    expect(layout.inkMeasured).toBe(true);
+    const ink = line.ink!;
+    expect(ink.height).toBeLessThan(layout.ascent + layout.descent);
+    expect(ink.width).toBeLessThanOrEqual(line.width);
+    // Capitals stop at the baseline, bar the optical overshoot on round
+    // letters, and come nowhere near the descender the line box reserves.
+    const belowBaseline = ink.y + ink.height - line.baseline;
+    expect(belowBaseline).toBeGreaterThanOrEqual(0);
+    expect(belowBaseline).toBeLessThan(layout.descent / 4);
+
+    const descending = layoutTextElement(textEl({ text: "Ridgeline pg", style: { fontSize: 100 } }));
+    expect(descending.lines[0]!.ink!.y + descending.lines[0]!.ink!.height).toBeGreaterThan(
+      descending.lines[0]!.baseline,
+    );
+  });
+
+  it("is null for a line that draws nothing", () => {
+    const layout = layoutTextElement(textEl({ text: "one\n\ntwo" }));
+    expect(layout.lines).toHaveLength(3);
+    expect(layout.lines[1]!.ink).toBeNull();
+    expect(layout.lines[0]!.ink).not.toBeNull();
+  });
+
+  // A CFF/OTTO face has no `glyf`, so nothing here can bound its glyphs. The
+  // flag is what tells a caller that `null` means "unknown", not "draws
+  // nothing" — the difference between falling back to the line box and
+  // silently reporting a headline as painting no ink at all.
+  it("says so when the face carries no outlines to measure", () => {
+    const outlineless = { ...font, hasOutlines: false, inkOf: () => null };
+    const layout = layoutTextElement(textEl({ text: "Ridgeline" }), outlineless);
+    expect(layout.inkMeasured).toBe(false);
+    expect(layout.lines[0]!.ink).toBeNull();
+    // Line breaking is unaffected: only the ink box is unavailable.
+    expect(layout.lines[0]!.width).toBeGreaterThan(0);
+  });
+
+  it("follows the line as alignment moves it", () => {
+    const left = layoutTextElement(textEl({ text: "Hi", style: { fontSize: 40, align: "left" } }));
+    const right = layoutTextElement(textEl({ text: "Hi", style: { fontSize: 40, align: "right" } }));
+    expect(right.lines[0]!.ink!.x).toBeGreaterThan(left.lines[0]!.ink!.x);
+    expect(right.lines[0]!.ink!.width).toBeCloseTo(left.lines[0]!.ink!.width, 6);
   });
 });

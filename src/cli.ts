@@ -9,15 +9,22 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
-import { FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "./feedback/index.js";
+import {
+  FEEDBACK_MODES,
+  availableFeedbackModes,
+  feedbackLabel,
+  type FeedbackMode,
+} from "./feedback/index.js";
 import {
   DEFAULT_MODEL,
   MODEL_SWEEP,
   PROVIDER_ENV,
+  allModels,
   getModel,
   hasCredentials,
   parseEffort,
   parseModelSpec,
+  runnableModels,
 } from "./agent/models.js";
 import { DEFAULT_SWEEP, loadExistingScores, runSweep, sweepPaths, expandMatrix, type SweepConfig } from "./runner/run.js";
 import { buildReport, buildReportJson } from "./runner/report.js";
@@ -26,7 +33,7 @@ import { rasterize } from "./render/raster.js";
 import { describeDoc } from "./render/describe.js";
 import { scoreDocument } from "./eval/score.js";
 import { buildRatingSheet, computeAgreement, sampleForRating } from "./eval/human.js";
-import type { SurfaceId } from "./surfaces/types.js";
+import { SURFACE_IDS, type SurfaceId } from "./surfaces/types.js";
 import type { RunScore } from "./eval/score.js";
 
 interface Args {
@@ -69,6 +76,38 @@ const list = (flags: Args["flags"], key: string, fallback: string[]): string[] =
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 };
 
+/**
+ * A matrix axis: a comma list, or one of the axis's shorthands.
+ *
+ * The shorthands exist because the full grid is the interesting run and
+ * spelling it out is four surfaces, six feedback conditions and every model in
+ * the registry typed by hand — a list that goes stale the moment a model is
+ * added. `all` is the whole axis; `available` narrows it to what this machine
+ * can actually run, which is the difference between a leaderboard and a sweep
+ * that dies on its first cell for want of a key.
+ */
+function axis<T extends string>(
+  flags: Args["flags"],
+  key: string,
+  shorthands: Record<string, () => T[]>,
+  fallback: T[],
+): T[] {
+  const raw = flags[key];
+  if (typeof raw !== "string") return fallback;
+  const expand = shorthands[raw.trim()];
+  if (!expand) return list(flags, key, fallback) as T[];
+  const expanded = expand();
+  if (expanded.length === 0) {
+    throw new Error(
+      `--${key} ${raw.trim()} expands to nothing here. ` +
+        (key === "models"
+          ? `Set an API key for one of the providers in MODELS, or name models explicitly.`
+          : `Name the values explicitly instead.`),
+    );
+  }
+  return expanded;
+}
+
 const HELP = `
 canvas-agent-bench — does an agent lay out a document better with coordinates or with relations?
 
@@ -83,19 +122,32 @@ Commands
   agreement --dir <sweepDir>  Compare human ratings against the judge.
 
 Cross-provider runs
-  --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
+  --models 'anthropic:claude-opus-5,google:gemini-3.8-flash,xai:grok-4.6'
   Every model runs through one loop on the Vercel AI SDK, so a difference
   between two models is not a difference between two harnesses. Prices live
   in MODELS in src/agent/models.ts; an unpriced model still runs, with cost
   reported as unknown rather than silently wrong.
 
+The whole grid
+  Each axis takes 'all', and models and feedback also take 'available',
+  which drops what this machine cannot run (no API key, no rasterizer):
+
+    npm run cli -- run --surfaces all --feedback all --models available \\
+      --repeats 3 --concurrency 12 --out runs/leaderboard --estimate
+
+  Drop --estimate to start it. The grid is large, so price it first: run a
+  one-task pilot into the same --out, then --estimate again and it will
+  extrapolate from what those runs actually cost. Run ids encode the cell, so
+  an interrupted sweep resumes into the same --out, and widening an axis later
+  only runs the cells that are new.
+
 Run options
   --tasks <sel>       Task selector: 'all', a family, an id, or a comma list. Default: all
-  --surfaces <list>   Default: ${DEFAULT_SWEEP.surfaces.join(",")}
-  --feedback <list>   Default: ${DEFAULT_SWEEP.feedback.join(",")}
-  --models <list>     Provider-qualified ids. Default: ${DEFAULT_MODEL}
-                      (--models sweep = ${MODEL_SWEEP.join(",")};
-                      for the cross-provider check pass explicit ids: google:<id>,openai:<id>)
+  --surfaces <list>   'all', or a comma list. Default: ${DEFAULT_SWEEP.surfaces.join(",")}
+  --feedback <list>   'all', 'available', or a comma list. Default: ${DEFAULT_SWEEP.feedback.join(",")}
+  --models <list>     'all', 'available', 'sweep', or provider-qualified ids.
+                      Default: ${DEFAULT_MODEL}
+                      (--models sweep = ${MODEL_SWEEP.join(",")})
   --repeats <n>       Repeats per cell. Default: ${DEFAULT_SWEEP.repeats}
   --effort <level>    low|medium|high|xhigh|max. Default: high
   --concurrency <n>   Default: ${DEFAULT_SWEEP.concurrency}
@@ -104,7 +156,7 @@ Run options
   --judge-model <id>  Default: ${DEFAULT_SWEEP.judgeModel}
   --dry-run           Expand and wire the matrix with a scripted model; no API calls, no cost.
   --force             Re-run cells that already have a result on disk.
-  --estimate          Print the matrix size and stop.
+  --estimate          Print the matrix, and its cost if --out holds runs to extrapolate from.
 `;
 
 async function main(): Promise<void> {
@@ -214,7 +266,12 @@ function checkModel(spec: string, label: string, live: boolean): void {
   if (live && !hasCredentials(provider)) {
     throw new Error(
       `No credentials for provider '${provider}', needed for ${label} '${spec}'. ` +
-        `Set ${PROVIDER_ENV[provider]}.`,
+        `Set ${PROVIDER_ENV[provider]}.` +
+        // The judge defaults to a provider the rest of the sweep may not use,
+        // which is the one way `--models available` still stops on a key.
+        (label === "judge model"
+          ? ` Or pass --judge-model with a model you do have a key for, or --no-judge to score on the deterministic checks alone.`
+          : ""),
     );
   }
 }
@@ -225,12 +282,19 @@ function buildSweepConfig(args: Args): SweepConfig {
   }
 
   const tasks = resolveTasks(str(args.flags, "tasks", "all"));
-  const models =
-    str(args.flags, "models", DEFAULT_MODEL) === "sweep"
-      ? MODEL_SWEEP
-      : list(args.flags, "models", [DEFAULT_MODEL]);
-  const surfaces = list(args.flags, "surfaces", DEFAULT_SWEEP.surfaces) as SurfaceId[];
-  const feedback = list(args.flags, "feedback", DEFAULT_SWEEP.feedback) as FeedbackMode[];
+  const models = axis(
+    args.flags,
+    "models",
+    { all: allModels, available: runnableModels, sweep: () => MODEL_SWEEP },
+    [DEFAULT_MODEL],
+  );
+  const surfaces = axis<SurfaceId>(args.flags, "surfaces", { all: () => [...SURFACE_IDS] }, DEFAULT_SWEEP.surfaces);
+  const feedback = axis<FeedbackMode>(
+    args.flags,
+    "feedback",
+    { all: () => [...FEEDBACK_MODES], available: availableFeedbackModes },
+    DEFAULT_SWEEP.feedback,
+  );
 
   for (const s of surfaces) getSurface(s);
   for (const f of feedback) {
@@ -280,9 +344,7 @@ async function cmdRun(args: Args): Promise<void> {
       `= ${cells.length} runs.`,
   );
   if (bool(args.flags, "estimate")) {
-    console.log(`Judge: ${config.judge ? `${config.judgeModel}, one call per run` : "disabled"}.`);
-    console.log("Each run is a multi-turn agent loop, so expect a few API calls per cell.");
-    console.log("Run without --estimate to start.");
+    printEstimate(config, cells.length);
     return;
   }
 
@@ -312,6 +374,86 @@ async function cmdRun(args: Args): Promise<void> {
       `${scores.length} runs, $${totalCost.toFixed(2)} total.`,
   );
   console.log(`Report: ${join(config.outDir, "report.md")}`);
+}
+
+/**
+ * What the grid would cost, from what its cells have already cost.
+ *
+ * A run is an agent loop of unknown length against a model whose verbosity is
+ * its own business, so nothing here can predict a price from first principles.
+ * What it can do is read the runs already in `--out` and extrapolate per
+ * model, which is exactly the number someone wants before committing to a
+ * grid: do a one-task pilot, then estimate the rest from it.
+ *
+ * Two things keep it from inventing a number. A model with no pilot runs is
+ * named rather than guessed at. And a model with no *pricing* is named too,
+ * because a run whose model is absent from `MODELS` carries `costUsd: 0` with
+ * `pricingKnown: false`, and averaging that zero in would report a confident
+ * $0.0000 per run. Worse than zero, in fact: `scoreRun` adds the judge's cost
+ * to the run's, so an unpriced model judged by a priced one yields the judge's
+ * cost alone, presented as the whole. Either way the total is a floor, and
+ * says which models are missing from it and why.
+ */
+function printEstimate(config: SweepConfig, cells: number): void {
+  console.log(`Judge: ${config.judge ? `${config.judgeModel}, one call per run` : "disabled"}.`);
+  console.log(`Models: ${config.models.join(", ")}`);
+  console.log(`Surfaces: ${config.surfaces.join(", ")}`);
+  console.log(`Feedback: ${config.feedback.join(", ")}`);
+
+  const paths = sweepPaths(config.outDir);
+  const done = existsSync(paths.scoresFile) ? [...loadExistingScores(paths).values()] : [];
+  const cellsPerModel = cells / Math.max(1, config.models.length);
+
+  if (done.length === 0) {
+    console.log(
+      `\nNo runs in ${config.outDir} to extrapolate from. Price the grid by running one task ` +
+        `into it first:\n  npm run cli -- run --tasks <id> --repeats 1 --out ${config.outDir} ...\n` +
+        `then estimate again.`,
+    );
+    console.log("Run without --estimate to start.");
+    return;
+  }
+
+  let total = 0;
+  const noRuns: string[] = [];
+  const noPrice: string[] = [];
+  const rows: string[] = [];
+  for (const model of config.models) {
+    const sample = done.filter((s) => s.model === model);
+    if (sample.length === 0) {
+      noRuns.push(model);
+      continue;
+    }
+    if (sample.some((s) => !s.efficiency.pricingKnown)) {
+      noPrice.push(model);
+      continue;
+    }
+    const perRun = sample.reduce((sum, s) => sum + s.efficiency.costUsd, 0) / sample.length;
+    const modelTotal = perRun * cellsPerModel;
+    total += modelTotal;
+    rows.push(
+      `  ${model.padEnd(44)} $${perRun.toFixed(4)}/run x ${cellsPerModel} = $${modelTotal.toFixed(2)} ` +
+        `(from ${sample.length} run${sample.length === 1 ? "" : "s"})`,
+    );
+  }
+
+  console.log(`\n${cells} runs, ${cellsPerModel} per model. Extrapolated from ${done.length} already in ${config.outDir}:`);
+  for (const row of rows) console.log(row);
+  const missing = noRuns.length + noPrice.length;
+  console.log(`  ${"total".padEnd(44)} $${total.toFixed(2)}${missing ? " (a floor, see below)" : ""}`);
+  if (noRuns.length > 0) {
+    console.log(
+      `\nNo runs yet for ${noRuns.join(", ")}, so nothing for them is in that total. ` +
+        `Run one task on each to bring it in.`,
+    );
+  }
+  if (noPrice.length > 0) {
+    console.log(
+      `\nNo pricing for ${noPrice.join(", ")}, so their runs are costed at zero and nothing for ` +
+        `them is in that total. Add a checked price to MODELS in src/agent/models.ts to include them.`,
+    );
+  }
+  console.log("\nRun without --estimate to start.");
 }
 
 function readScores(dir: string): RunScore[] {

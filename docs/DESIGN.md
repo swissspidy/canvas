@@ -56,9 +56,9 @@ avoid stacking things".
 
 So the defect is defined as **ink that something painted above it covers**:
 
-- For text, ink is the glyph envelope of each laid-out line, clipped to the
-  element box. Text already clipped away by its own box is a *text overflow*
-  problem, counted separately.
+- For text, ink is the bounding box of the glyphs each laid-out line actually
+  draws, clipped to the element box. Text already clipped away by its own box
+  is a *text overflow* problem, counted separately.
 - For images and rects, ink is the whole box.
 
 A card behind a headline occludes nothing, because it is painted below. A rect
@@ -71,6 +71,24 @@ span, which is neither what a reader sees nor a defect anyone would fix. The
 exception is a text element with its own block fill, which really does cover
 its whole box. Text that paints nothing — empty, or a fully transparent colour
 — occludes nothing.
+
+**Ink is the glyphs, not the line box.** A line box runs from the ascender to
+the descender whatever the line contains — 1.12em in Liberation Sans — and a
+row of capitals and digits inks 0.69em of it. Measuring the line box counted
+that blank third as painted, and reported a heading as covered by a rule laid
+in the air beneath its letters. So `src/text/ttf.ts` reads glyph bounding
+boxes out of `loca`/`glyf` and `src/text/layout.ts` walks the same advances
+the line was measured with, giving each line the box its letters occupy. A
+face whose outlines this reader cannot bound — a CFF/OTTO face — falls back to
+the line box, which is too generous rather than too tight.
+
+The same box answers a different question for `marginAtLeast`: *does this
+element crowd the canvas edge?* Measured on boxes, the most natural way to
+centre a headline — a full-width text box set to `align: center` — scored zero
+on every margin check in the suite, because the box touches both edges while
+the letters sit hundreds of units from either. Measured on ink it scores what
+a reader would say. An element whose paint runs from one side of the canvas to
+the other is exempt: that is a bleed, which is a decision, not a crowded edge.
 
 The structured feedback channel applies the same rule, and reports occlusion
 for **text** only — covering text destroys the only thing it carries, while a
@@ -102,10 +120,50 @@ hoping two shaping engines match.
 Deliberately simple, and worth knowing about: no kerning, no hyphenation, no
 bidi, no shaping. Words never break mid-word — a word wider than its box
 overflows horizontally, which is what a real canvas editor does and what the
-`overflowX` check looks for.
+`overflowX` check looks for. A newline *is* honoured, as a hard break.
+
+### One form for a line break
+
+Every text payload is normalized on the way in, on every surface: `\r\n` and a
+bare `\r` become `\n`, and so do the two characters backslash-`n`. Models send
+that pair constantly — a tool description reading "`\n` is a hard line break"
+says, once the JSON is decoded, *emit these two characters*, and they oblige by
+escaping the backslash. It rendered as a visible `\n` in the middle of a
+poster. The models bright enough to notice split the copy into two elements
+instead, which is worse: it turns a line break into a placement problem, on a
+bench that is measuring placement.
+
+The cost is that a document cannot hold a literal backslash followed by an `n`.
+On a task set of posters, flyers and quote cards that is a trade worth making,
+and it is the same trade on all four surfaces — which is what matters, since
+they are meant to differ only in how elements get arranged.
 
 Text is clipped to its element box when rendered, so the screenshot the agent
 sees shows the same truncation the scorer measures.
+
+### Copy cannot be blank
+
+`create` has always refused an empty string: a text element carrying no words
+is a deleted element wearing a disguise, and it still counts as preserved
+against a brief that says to keep the copy. A space bar is the same act, so
+whitespace-only copy is refused too — `"   "`, a tab, a lone line break. It laid
+out, it validated, and it painted not one pixel, because whitespace has an
+advance width and no outline.
+
+Only *entirely* blank copy is refused. Padding around real words is the
+author's business and alignment can depend on it, so `"  Ridgeline  "` is
+stored exactly as sent.
+
+This is the one invisibility the model forbids, and it is worth saying why the
+others stay legal. A rect with a transparent fill is how you draw an
+*outline* — omit a rect's fill entirely and the renderer paints it grey, so
+`transparent` is the only way to get an unfilled box. Zero opacity is the end
+of a range that exists for scrims. And an element can pass through invisible on
+its way to being styled, which would land on the incremental surfaces and not
+on document-as-code. Blank copy has none of that: `create` demands the text up
+front, so there is no half-built state to protect, and nothing is expressible
+only through a blank string. Everything else invisible is left to the checks,
+which ignore what paints nothing rather than refusing to hold it.
 
 ### Why there are font binaries in the repo, and why they are small
 
@@ -362,6 +420,53 @@ to become a real task.
 
 ---
 
+## What a check looks at: the page, or the document
+
+Every deterministic check reads one of two things, and which one it reads is a
+decision rather than an accident.
+
+**What is on the page** — how many elements there are, whether the required
+copy appears, whether an image was used, whether the type has a hierarchy, what
+colours are in play, how much of the canvas is covered, whether anything crowds
+an edge. These read only elements that paint something.
+
+They all used to read every element, and every one of them was gameable for it.
+The worst: a poster missing half its required copy and set in a single type
+size scored **full marks** by carrying the missing phrases in a text element at
+`opacity: 0`. `containsText` found them, `typeHierarchy` got its size ratio,
+and `minContrast` never objected, because it reads `style.color` and a hidden
+element's colour is perfectly legible. An image at `opacity: 0` satisfied "use
+the photo/mountains asset as a background image" for 17 points. Three invisible
+rects bought an "at least five elements" floor for 10.
+
+**What is in the document** — whether an element was kept, whether its box was
+held still, whether the copy is verbatim, whether anything hangs off the
+canvas. These read every element. Most of them name their elements by id, which
+is a deliberate reference to a specific element rather than a question about
+the render; "keep every element" must not be satisfiable by hiding one.
+
+`inBounds` is the one that could have gone either way. It stays unfiltered
+deliberately: it can only ever *add* a penalty, so there is nothing to gain by
+hiding an element from it, while filtering would make "bring the stray elements
+back on canvas" satisfiable by hiding the stray instead of moving it — a worse
+layout scoring better. `noTextClipping` looks like its twin and is not: it
+scores the *share* of lines hidden, so an invisible text element that fits pads
+the denominator and dilutes a real failure. It takes the filter.
+
+`src/tasks/tasks.test.ts` asserts the property across every task rather than
+check by check: adding an invisible rect, an invisible text and an invisible
+image to a task's starting document changes its score by nothing at all. A
+check added later that starts counting what nobody can see fails there. It
+caught two leaks the check-by-check pass missed — `coverage` testing its
+canvas for `elements.length === 0` rather than for anything painted, and the
+clipping ratio above.
+
+This is also why `typeBudget` can stop penalising an invisible rect, which it
+used to do. That penalty was the same box-counting accident producing a right
+answer by luck, and it is not needed once the reward is gone.
+
+---
+
 ## Things that are approximations, stated plainly
 
 - **Contrast backdrop**, as above.
@@ -370,12 +475,34 @@ to become a real task.
   screen" is what is being asked for. When the canvas is too small to separate
   everything, it says so rather than silently giving up.
 - **`coverage`** unions bounding boxes on a 60×60 occupancy grid rather than by
-  exact polygon union. It is a sanity check on "does this look composed", not a
-  precision instrument.
+  exact polygon union, and the grid rounds each element outward to whole cells.
+  It is a sanity check on "does this look composed", not a precision
+  instrument. Two kinds of element are left out of the union. An element
+  covering the canvas outright: a full-bleed background saturates the grid by
+  itself, and once it has, a composed page, a bare one and one with every
+  element in a corner all measure 100% and score the same — the check was
+  reading the background rather than the composition. And anything that paints
+  nothing, by `paintedPolygons`: counting invisible boxes made "does this look
+  composed" answerable with one element nobody can see, which took a bare page
+  from failing this check to passing it outright. A visible element still
+  contributes its whole box rather than its ink, because a block of type does
+  occupy its box on the page. The full-canvas exemption is narrower than the
+  one `marginAtLeast` makes, because the questions differ: a full-width band
+  across the lower third crowds no edge, but it does fill that third.
 - **Asset average colour** for contrast against an image is the midpoint of its
   two gradient stops.
-- **Glyph ink** is the line's advance width by the font's ascent-to-descent
-  envelope, not per-glyph outlines.
+- **Contrast ignores element opacity.** `minContrast` reads `style.color`
+  against the backdrop, so text at `opacity: 0.1` is scored as though it were
+  fully painted. Only fully invisible text is excluded, by the rule above.
+  Doing it properly means compositing the glyph colour with the backdrop at the
+  element's opacity, which would also change the score of every legitimately
+  translucent caption — a bigger change than the failure justifies, since
+  nothing in the task set asks for faint type.
+- **Glyph ink** is the bounding box of a line's glyphs, read from `glyf`, not
+  the outlines themselves — the counters and the gaps between letters count as
+  ink. Tight enough that a rule passing through the blank band under a line of
+  capitals is no longer reported as covering it; not so tight that a check has
+  to reason about letterforms.
 
 Each is a deliberate trade, and each is in a place where more precision would
 not change which surface wins.
