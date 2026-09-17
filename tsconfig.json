@@ -17,7 +17,7 @@
     "sourceMap": true,
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node", "webmcp-types"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "web/vendor"]

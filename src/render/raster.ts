@@ -11,20 +11,12 @@
 
 import { Resvg } from "@resvg/resvg-js";
 import type { Doc } from "../doc/types.js";
-import { renderSvg, type RenderOptions } from "./svg.js";
+import { renderSvg } from "./svg.js";
 import { FONT_DIR, FONT_FAMILY, FONT_FILES } from "../text/fonts.js";
 import { join } from "node:path";
+import { DEFAULT_SCREENSHOT_WIDTH, setRasterizer, type RasterOptions } from "./rasterizer.js";
 
-export interface RasterOptions extends RenderOptions {
-  /**
-   * Width of the PNG in pixels. Screenshots sent to the model are downscaled
-   * from canvas units; a 1080-wide canvas at 768px is comfortably inside the
-   * API's image budget while staying legible.
-   */
-  pixelWidth?: number;
-}
-
-export const DEFAULT_SCREENSHOT_WIDTH = 768;
+export { DEFAULT_SCREENSHOT_WIDTH, type RasterOptions };
 
 const fontFiles = [
   join(FONT_DIR, FONT_FILES.regular),
@@ -51,3 +43,6 @@ export function rasterizeSvg(svg: string, pixelWidth: number): Buffer {
 export function toDataUri(png: Buffer): string {
   return `data:image/png;base64,${png.toString("base64")}`;
 }
+
+// Importing this module is what makes screenshots available on the server.
+setRasterizer((doc, opts) => rasterize(doc, opts));

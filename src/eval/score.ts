@@ -32,6 +32,8 @@ export interface Efficiency {
   outputTokens: number;
   totalTokens: number;
   costUsd: number;
+  /** False when the model has no pricing entry; `costUsd` is then 0 and meaningless. */
+  pricingKnown: boolean;
   wallMs: number;
 }
 
@@ -42,6 +44,8 @@ export interface RunScore {
   surfaceId: string;
   feedbackMode: string;
   model: string;
+  /** Which agent loop produced this run. */
+  runner: "anthropic" | "aisdk";
   stopReason: string;
   error?: string;
   /** 0..1 from the deterministic checks. */
@@ -126,6 +130,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     surfaceId: run.surfaceId,
     feedbackMode: run.feedbackMode,
     model: run.model,
+    runner: run.runner,
     stopReason: run.stopReason,
     ...(run.error ? { error: run.error } : {}),
     constraintScore,
@@ -146,6 +151,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
       outputTokens: run.usage.output,
       totalTokens,
       costUsd: run.costUsd + (judge?.costUsd ?? 0),
+      pricingKnown: run.pricingKnown,
       wallMs: run.wallMs,
     },
     toolUsage: run.toolUsage,

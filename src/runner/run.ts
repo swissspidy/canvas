@@ -24,6 +24,8 @@ import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { runAgent, type RunResult } from "../agent/loop.js";
 import type { Effort } from "../agent/models.js";
 import { createScriptedClient, fixedScript } from "../agent/scripted.js";
+import { runAgentViaAiSdk } from "../agent/aisdk-loop.js";
+import { MockLanguageModelV4 } from "ai/test";
 import { judgeRun, DEFAULT_JUDGE_MODEL } from "../eval/judge.js";
 import { scoreRun, type RunScore } from "../eval/score.js";
 import { renderSvg } from "../render/svg.js";
@@ -43,6 +45,15 @@ export interface SweepConfig {
   concurrency: number;
   judge: boolean;
   judgeModel: string;
+  /**
+   * Which agent loop to use.
+   *
+   * `anthropic` is the native loop and takes bare model ids. `aisdk` goes
+   * through the Vercel AI SDK and takes `provider:model-id`, so every provider
+   * runs through one code path — which is what makes a cross-model comparison
+   * about the models rather than about the harness.
+   */
+  runner: "anthropic" | "aisdk";
   /** Run against the scripted client instead of the API. Costs nothing. */
   dryRun: boolean;
   /** Re-run cells that already have a result on disk. */
@@ -139,6 +150,23 @@ export interface SweepProgress {
 /** A trivial "do nothing" script, for `--dry-run` wiring checks. */
 const dryRunScript = fixedScript([{ text: "Dry run: no changes made." }]);
 
+/** The AI SDK equivalent: a model that answers once and calls nothing. */
+function dryRunLanguageModel() {
+  return new MockLanguageModelV4({
+    provider: "dry-run",
+    modelId: "dry-run",
+    doGenerate: async () => ({
+      content: [{ type: "text", text: "Dry run: no changes made." }],
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: {
+        inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 20, text: 20, reasoning: 0 },
+      },
+      warnings: [],
+    }),
+  });
+}
+
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
   const paths = sweepPaths(config.outDir);
   ensureDirs(paths);
@@ -184,7 +212,7 @@ async function runCell(
   client: Anthropic | undefined,
   onEvent: (event: AgentEvent) => void,
 ): Promise<RunScore> {
-  const run: RunResult = await runAgent({
+  const shared = {
     runId: cell.runId,
     task: cell.task,
     surface: getSurface(cell.surface),
@@ -192,10 +220,22 @@ async function runCell(
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.maxTokens ? { maxTokens: config.maxTokens } : {}),
-    ...(config.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
-    ...(config.dryRun ? { client: createScriptedClient(dryRunScript) } : client ? { client } : {}),
     onEvent,
-  });
+  };
+
+  const run: RunResult =
+    config.runner === "aisdk"
+      ? await runAgentViaAiSdk({
+          ...shared,
+          // A dry run needs a model that never calls the network; the SDK's own
+          // mock is the equivalent of the scripted Anthropic client.
+          ...(config.dryRun ? { languageModel: dryRunLanguageModel() } : {}),
+        })
+      : await runAgent({
+          ...shared,
+          ...(config.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
+          ...(config.dryRun ? { client: createScriptedClient(dryRunScript) } : client ? { client } : {}),
+        });
 
   const judge =
     config.judge && !config.dryRun
@@ -220,6 +260,7 @@ async function runCell(
         surface: cell.surface,
         feedback: cell.feedback,
         model: cell.model,
+        runner: config.runner,
         repeat: cell.repeat,
         stopReason: run.stopReason,
         error: run.error ?? null,
@@ -258,6 +299,7 @@ export const DEFAULT_SWEEP: Omit<SweepConfig, "outDir" | "taskIds"> = {
   concurrency: 4,
   judge: true,
   judgeModel: DEFAULT_JUDGE_MODEL,
+  runner: "anthropic",
   dryRun: false,
   force: false,
 };

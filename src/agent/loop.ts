@@ -27,7 +27,7 @@ import type { ToolSurface } from "../surfaces/types.js";
 import type { Task } from "../tasks/types.js";
 import type { FeedbackBlock, FeedbackChannel } from "../feedback/index.js";
 import { renderSvg } from "../render/svg.js";
-import { addUsage, costUsd, getModel, ZERO_USAGE, type Effort, type TokenUsage } from "./models.js";
+import { addUsage, costUsd, getModel, isKnownModel, ZERO_USAGE, type Effort, type TokenUsage } from "./models.js";
 import { noopSink, type AgentEvent, type EventSink, type StopReason } from "./events.js";
 import { initialUserBlocks, systemPrompt } from "./prompt.js";
 
@@ -93,6 +93,10 @@ export interface RunResult {
   toolUsage: Record<string, { ok: number; failed: number }>;
   usage: TokenUsage;
   costUsd: number;
+  /** False when the model is absent from the pricing table; cost is then 0 and meaningless. */
+  pricingKnown: boolean;
+  /** Which loop produced this run. The cross-loop check in the pre-registration needs it. */
+  runner: "anthropic" | "aisdk";
   wallMs: number;
   initialDoc: Doc;
   finalDoc: Doc;
@@ -367,6 +371,8 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     toolUsage,
     usage,
     costUsd: costUsd(usage, spec),
+    pricingKnown: isKnownModel(config.model),
+    runner: "anthropic",
     wallMs: Date.now() - startedAt,
     initialDoc,
     finalDoc: session.doc,

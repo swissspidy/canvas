@@ -19,7 +19,7 @@
 
 import type { Doc } from "../doc/types.js";
 import { describeDoc } from "../render/describe.js";
-import { rasterize, DEFAULT_SCREENSHOT_WIDTH } from "../render/raster.js";
+import { DEFAULT_SCREENSHOT_WIDTH, hasRasterizer, rasterizeDoc } from "../render/rasterizer.js";
 
 export const FEEDBACK_MODES = [
   "none",
@@ -71,6 +71,12 @@ export function createFeedbackChannel(
 ): FeedbackChannel {
   const width = opts.screenshotWidth ?? DEFAULT_SCREENSHOT_WIDTH;
   const showsImage = wantsImage(mode);
+  if (showsImage && !hasRasterizer()) {
+    throw new Error(
+      `Feedback mode '${mode}' needs a rasterizer and none is registered. ` +
+        `In Node, import 'src/render/raster.js'; in a browser, screenshot conditions are unavailable.`,
+    );
+  }
   const showsText = wantsText(mode);
   const showsAnalysis = wantsAnalysis(mode);
 
@@ -89,11 +95,16 @@ export function createFeedbackChannel(
         });
       }
       if (showsImage) {
-        blocks.push({ type: "image", png: rasterize(doc, { pixelWidth: width }), mediaType: "image/png" });
+        blocks.push({ type: "image", png: Buffer.from(rasterizeDoc(doc, { pixelWidth: width })), mediaType: "image/png" });
       }
       return blocks;
     },
   };
+}
+
+/** The modes that can actually run here, given whether a rasterizer exists. */
+export function availableFeedbackModes(): FeedbackMode[] {
+  return hasRasterizer() ? [...FEEDBACK_MODES] : FEEDBACK_MODES.filter((m) => !wantsImage(m));
 }
 
 /** Human-readable label for reports and the live page. */

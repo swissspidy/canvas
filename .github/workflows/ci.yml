@@ -22,3 +22,17 @@ jobs:
       # The whole pipeline end to end against a scripted agent — no API key,
       # no spending, but it exercises the matrix, scoring and report writing.
       - run: npm run cli -- run --dry-run --tasks arrange --repeats 1 --out "$RUNNER_TEMP/dry"
+      # The same pipeline through the cross-provider loop, so both harnesses
+      # stay wired. Still no API calls.
+      - run: npm run cli -- run --runner aisdk --dry-run --tasks arrange --repeats 1 --out "$RUNNER_TEMP/dry-aisdk"
+      # Catches the browser bundle breaking, which is the main regression risk
+      # for the WebMCP host.
+      - run: npm run build:web
+      - name: WebMCP end-to-end
+        run: |
+          CHROME="$(command -v google-chrome || command -v chromium || true)"
+          if [ -n "$CHROME" ]; then
+            CHROMIUM_PATH="$CHROME" npm run e2e:webmcp
+          else
+            echo "No Chrome on this runner; skipping the browser end-to-end."
+          fi

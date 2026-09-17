@@ -64,10 +64,11 @@ not appear where the mechanism predicts it is probably not the mechanism.
 | Variable | Levels | Notes |
 |---|---|---|
 | Tool surface | `coordinate`, `relational`, `document` | `hybrid` is exploratory, not in the confirmatory grid |
-| Feedback | `none`, `structured`, `screenshot`, `both` | `structured_plain` / `both_plain` are the confound control (§7) |
-| Model | `claude-opus-5` confirmatory; `claude-sonnet-5`, `claude-haiku-4-5` in a reduced grid | |
+| Feedback | `none`, `structured`, `screenshot`, `both` | `structured_plain` / `both_plain` are the confound control (§8) |
+| Model | `claude-opus-5` confirmatory; a cross-provider set in a reduced grid | Provider-qualified (`provider:model-id`) on the `aisdk` runner |
+| Harness | `anthropic` confirmatory; `aisdk` for every cross-model run | Not a variable of interest — a nuisance factor to be bounded, see §8 |
 | Task | 18 tasks across 5 families | Every condition sees every task |
-| Repeat | 3 | Sampling cannot be pinned; see §6 |
+| Repeat | 3 | Sampling cannot be pinned; see §7 |
 
 ### Dependent variables
 
@@ -125,7 +126,7 @@ Fixed in advance so the write-up cannot negotiate with itself later.
   points** is reported as resolved but not practically meaningful. A tool
   surface worth rebuilding an editor around should be worth more than that.
 - **Judge trust.** Judge scores are only reported as evidence if the human
-  agreement check (§8) reaches Spearman ρ ≥ 0.6 overall **and** shows no
+  agreement check (§9) reaches Spearman ρ ≥ 0.6 overall **and** shows no
   surface where per-surface ρ falls below 0.4. A judge that agrees with people
   on one surface but not another would manufacture exactly the headline this
   study is looking for. If the check fails, the judge is reported as an
@@ -136,7 +137,31 @@ Fixed in advance so the write-up cannot negotiate with itself later.
 
 ---
 
-## 6. What "we could not pin the sampling" means
+## 6. Effort across providers
+
+Effort is the one setting that could not be matched by hand across providers
+without inventing a mapping, and an invented mapping is a criticism vector.
+
+The cross-provider runs therefore use the **AI SDK's provider-neutral
+`reasoning` scale** (`provider-default`, `none`, `minimal`, `low`, `medium`,
+`high`, `xhigh`), which each provider maps to its own mechanism. The mapping is
+maintained upstream rather than here. This project's `effort` levels map onto it
+one-to-one except that `max` has no counterpart and saturates at `xhigh`
+(`reasoningFor` in `src/agent/providers.ts`).
+
+Every confirmatory run is fixed at `high`. Anything else would let a
+quality-cost lever vary silently.
+
+This is a real limitation and it is stated rather than papered over: "the same
+reasoning level" across two providers means "the level each provider's own
+adapter calls `high`", not a matched compute budget. A cross-provider
+difference in reasoning depth is therefore **confounded with** the model
+difference, and the write-up must say so wherever a cross-provider comparison
+appears.
+
+---
+
+## 7. What "we could not pin the sampling" means
 
 `temperature` was removed from the current model generation, so runs cannot be
 made deterministic by setting it to zero. This is a real limitation and it is
@@ -154,7 +179,7 @@ a refusal.
 
 ---
 
-## 7. Known confounds, and what is done about each
+## 8. Known confounds, and what is done about each
 
 | Confound | Control |
 |---|---|
@@ -166,11 +191,32 @@ a refusal.
 | Tool-call arity differs (relational has more tools) | Cost and token counts are reported per surface; quality-per-dollar is a pre-registered secondary outcome. |
 | Strict tool schemas would hide malformed calls | Tools are deliberately not `strict`. Rejected calls are a measured outcome. |
 | A judge that knows the condition | The judge is built from the task and the render only. Surface, feedback, model, turns and cost never enter its prompt. |
+| Two agent loops behaving differently | Every cross-model run uses the `aisdk` loop, Claude included, so no model comparison spans harnesses. A test asserts both loops reach an identical document from identical tool calls, and the cross-loop check below bounds the rest. |
+| Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
+| Cost comparisons across unpriced models | A model absent from `PRICING` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
 
 ---
 
-## 8. Judge validation
+### The cross-loop check
+
+Before any cross-model claim, `claude-opus-5` is run on the full task set
+through **both** loops at `feedback: both`, 3 repeats — 108 runs on each side.
+
+The two are compared on the primary outcome with the same paired, task-clustered
+procedure as everything else. If the paired difference between harnesses is
+resolved and exceeds the 5-point practical threshold, the harness is a
+first-order effect and every cross-model result is reported with that magnitude
+stated alongside it. If it is unresolved, the write-up says so and treats the
+loops as interchangeable for this purpose.
+
+This check is run and reported **whatever it shows**. Discovering that the
+harness matters as much as the model would be an unwelcome result and an
+important one.
+
+---
+
+## 9. Judge validation
 
 A stratified sample of 40 runs, spread across every surface × feedback cell, is
 rated 1–5 by a human against the same criteria the judge sees, in a blinded
@@ -180,15 +226,17 @@ breakdown is the one that matters; see the judge-trust rule in §5.
 
 ---
 
-## 9. Sample size and cost
+## 10. Sample size and cost
 
 Confirmatory grid: 18 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
 3 repeats = **648 runs**, plus 648 judge calls.
 
 Exploratory additions, run only after the confirmatory grid:
 
-- Model sweep: 2 further models × 3 surfaces × 2 feedback conditions
-  (`none`, `both`) × 18 tasks × 2 repeats = 432 runs.
+- Cross-loop check: 18 tasks × 3 surfaces × 1 feedback (`both`) × 3 repeats ×
+  2 harnesses = 324 runs.
+- Model sweep, on the `aisdk` runner: 2 further models × 3 surfaces ×
+  2 feedback conditions (`none`, `both`) × 18 tasks × 2 repeats = 432 runs.
 - Confound control: 3 surfaces × 2 plain feedback conditions × 18 tasks ×
   3 repeats = 324 runs.
 - `hybrid` surface: 1 surface × 4 feedback conditions × 18 tasks × 3 repeats
@@ -207,7 +255,7 @@ That is 48 runs; multiply its reported mean cost by the grid sizes above.
 
 ---
 
-## 10. Explicitly exploratory
+## 11. Explicitly exploratory
 
 Reported as exploratory, never as confirmatory, however tempting the numbers:
 
@@ -215,11 +263,14 @@ Reported as exploratory, never as confirmatory, however tempting the numbers:
   both. This is descriptive.
 - Per-task results, as opposed to per-family.
 - Anything about *why* a surface failed, drawn from reading transcripts.
+- Anything obtained by driving the surfaces over WebMCP. That track cannot
+  enforce the screenshot feedback conditions (`docs/WEBMCP.md`), and at present
+  it runs on a polyfill rather than a browser implementation.
 - Any comparison not listed in §4.
 
 ---
 
-## 11. Would we be happy with "document-as-code wins"?
+## 12. Would we be happy with "document-as-code wins"?
 
 Yes, and the plan is built so that the answer does not depend on mood:
 
@@ -237,11 +288,11 @@ Yes, and the plan is built so that the answer does not depend on mood:
 
 The outcome that would genuinely waste the month is one where every cell ties
 and nothing separates anything — including feedback. That is worth naming as
-the real risk, and the pilot in §9 is where it would first show up.
+the real risk, and the pilot in §10 is where it would first show up.
 
 ---
 
-## 12. Deviations
+## 13. Deviations
 
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.

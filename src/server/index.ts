@@ -46,6 +46,7 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".ttf": "font/ttf",
   ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
 };
 
 function send(res: ServerResponse, status: number, body: string | Buffer, type = "text/plain; charset=utf-8"): void {

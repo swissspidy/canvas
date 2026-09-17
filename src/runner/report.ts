@@ -204,6 +204,17 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
     `${scores.length} runs — ${surfaces.length} surface(s), ${feedbacks.length} feedback condition(s), ` +
       `${models.length} model(s), ${new Set(scores.map((s) => s.taskId)).size} task(s).`,
   );
+  const runners = [...new Set(scores.map((s) => s.runner))];
+  if (runners.length > 1) {
+    out.push("");
+    out.push(
+      `**Mixed harnesses: ${runners.join(" and ")}.** Runs from different loops are not directly comparable — ` +
+        `split them before reading any difference as a model effect.`,
+    );
+  } else {
+    out.push("");
+    out.push(`Harness: \`${runners[0]}\` loop.`);
+  }
   out.push("");
   out.push(
     "Scores are percentages with a bootstrapped 95% interval. Overlapping intervals mean the " +
@@ -244,6 +255,15 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
     ),
   );
   out.push("");
+  const unpriced = [...new Set(scores.filter((s) => !s.efficiency.pricingKnown).map((s) => s.model))];
+  if (unpriced.length > 0) {
+    out.push(
+      `> Cost is unknown for ${unpriced.join(", ")} — no pricing entry, so those runs are costed at zero ` +
+        `and every cost figure that includes them understates the true spend. Add them to PRICING in ` +
+        `\`src/agent/providers.ts\`.`,
+    );
+    out.push("");
+  }
   out.push("### Cost of a point");
   out.push("");
   out.push(

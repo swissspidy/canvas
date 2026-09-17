@@ -251,6 +251,27 @@ reporting spread, not by pretending determinism.
 surface, so a `cache_control` breakpoint on the system block caches that prefix
 across the whole sweep.
 
+### Two loops, on purpose
+
+`src/agent/loop.ts` talks to the Anthropic SDK directly. `src/agent/aisdk-loop.ts`
+goes through the Vercel AI SDK and reaches every provider. They are structural
+near-copies — same turn budget, same feedback attachment, same stop reasons,
+same `RunResult` — and a test asserts they reach an identical document from
+identical tool calls.
+
+The duplication is deliberate. The native loop has prompt caching, adaptive
+thinking and mid-conversation system messages, and carries the confirmatory
+grid. The AI SDK loop exists so that a cross-model comparison runs every model
+through *one* code path; splitting Claude and Gemini across two harnesses would
+make any difference between them ambiguous. The cost of keeping both is that
+they can drift, which the parity test and the pre-registered cross-loop check
+are there to catch.
+
+They differ in exactly one structural way, and only in a turn where nothing
+changed: an AI SDK `error-text` tool output carries no content array, so when
+*every* call in a turn was rejected, feedback follows in a user message instead
+of riding on the tool result.
+
 ### Switching surface mid-session
 
 `surfaceProvider` is consulted at the start of every turn. A change swaps the
@@ -263,6 +284,28 @@ It costs a prompt-cache miss, because tools render before the system prompt.
 That is unavoidable and not worth working around for a demo.
 
 ---
+
+## Running in a browser
+
+Two registries make the whole bench browser-portable, and both exist for the
+same reason: the document model, the surfaces, the renderer and the scorer are
+pure, and only two things reached for Node.
+
+`src/text/font-registry.ts` holds parsed font metrics; `src/text/fonts.ts` is
+the Node loader that reads them off disk. `src/render/rasterizer.ts` holds the
+SVG-to-PNG implementation; `src/render/raster.ts` registers the resvg one.
+
+In a browser the fonts are fetched and registered, and no rasterizer is
+registered at all — so `createFeedbackChannel` refuses the screenshot
+conditions there rather than silently dropping the image. A feedback condition
+that quietly stopped sending screenshots would corrupt the variable this study
+is built around; failing loudly is correct.
+
+What that buys is `src/webmcp/`: the surfaces published on
+`document.modelContext`, drivable by any WebMCP agent, with every call still
+going through `executeToolCall`. See `docs/WEBMCP.md`, including the two
+limitations — it runs on a polyfill, and screenshots almost certainly do not
+survive the round trip.
 
 ## The task set tests itself
 

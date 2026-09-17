@@ -71,6 +71,51 @@ spread a finding nobody measured. The comparison lives in
 
 ---
 
+## Running it across providers
+
+Two agent loops, deliberately near-identical in structure:
+
+| Runner | Models | Used for |
+|---|---|---|
+| `anthropic` (default) | bare ids — `claude-opus-5` | the confirmatory grid; has prompt caching and Anthropic's own knobs |
+| `aisdk` | `provider:model-id` | the cross-model generality check; every provider through one code path |
+
+```bash
+npm run cli -- run --runner aisdk --models anthropic:claude-opus-5,google:<id>,openai:<id>
+```
+
+One loop for every provider is the point: if Claude ran through one harness and
+Gemini through another, a difference between them could be the harness. A test
+asserts the two loops reach an identical document from identical tool calls, and
+the pre-registration requires a cross-loop check on Claude to bound what the
+harness contributes.
+
+Reasoning effort uses the AI SDK's **provider-neutral `reasoning` scale**
+(`none`…`xhigh`), which each provider maps itself. Matching effort across
+providers by hand would have been the obvious validity hole; this way the
+mapping is maintained upstream rather than invented here.
+
+Prices live in `PRICING` in `src/agent/providers.ts`. A model that is not listed
+still runs — its cost is reported as *unknown* and footnoted in the report,
+rather than being silently wrong.
+
+## Driving it over WebMCP
+
+The surfaces are also published on `document.modelContext`, so any WebMCP agent
+can drive the canvas with no agent loop from this repo involved:
+
+```bash
+npm run serve        # http://localhost:5173/webmcp.html
+npm run e2e:webmcp   # 21 assertions, ~3s, no API key
+```
+
+This is what makes the bench usable from
+[webmcp-evals](https://github.com/GoogleChromeLabs/webmcp-tools/tree/main/webmcp-evals)
+and anything else that speaks the protocol. **[docs/WEBMCP.md](docs/WEBMCP.md)**
+covers what is exposed to an agent versus to a harness, why the scorer is
+deliberately not a tool, and the two real limitations — it runs on a polyfill,
+and screenshot feedback almost certainly does not survive the round trip.
+
 ## How a run is scored
 
 **Deterministic checks** carry the argument. Every check returns a graded 0–1
@@ -173,17 +218,19 @@ src/
   feedback/   the feedback channel, six modes
   tasks/      18 tasks across five families
   eval/       checks, colour, blinded judge, scoring, human validation
-  agent/      the loop, models and pricing, events, scripted client
+  agent/      the loops (native + AI SDK), providers, pricing, events
+  webmcp/     the polyfill, surface registration, and the host page
   runner/     sweep runner and report generation
   server/     the live page's server
-web/          the live page (no build step)
-docs/         DESIGN.md, PREREGISTRATION.md, TASKS.md
+web/          the live page (no build step) and the WebMCP host (bundled)
+docs/         DESIGN.md, PREREGISTRATION.md, TASKS.md, WEBMCP.md
 assets/fonts/ vendored Liberation Sans (SIL OFL 1.1)
 ```
 
 Further reading: **[docs/DESIGN.md](docs/DESIGN.md)** for the decisions and
 their reasoning, **[docs/TASKS.md](docs/TASKS.md)** for the task set,
-**[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md)** for the analysis plan.
+**[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md)** for the analysis plan,
+**[docs/WEBMCP.md](docs/WEBMCP.md)** for driving it from an outside harness.
 
 ---
 
