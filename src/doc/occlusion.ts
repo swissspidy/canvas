@@ -155,6 +155,11 @@ export function paintedPolygons(el: Element): Polygon[] {
   return inkPolygons(el);
 }
 
+/** True when `el` puts anything at all on the canvas. */
+export function paintsAnything(el: Element): boolean {
+  return paintedPolygons(el).length > 0;
+}
+
 /** Elements painted above `el` that hide any part of what is beneath them. */
 export function occludersAbove(doc: Doc, el: Element, minOpacity = 0.5): Element[] {
   const index = doc.elements.findIndex((e) => e.id === el.id);

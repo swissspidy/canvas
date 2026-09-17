@@ -14,7 +14,7 @@
 
 import type { Doc, Element, ElementType, Rect } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
-import { occlusionOf, paintedPolygons } from "../doc/occlusion.js";
+import { occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
@@ -53,6 +53,40 @@ export function select(doc: Doc, selector: Selector): Element[] {
 
 export const isText = (el: Element) => el.type === "text";
 export const isImage = (el: Element) => el.type === "image";
+
+/**
+ * The elements a reader can see, for the checks that ask what is *on the page*.
+ *
+ * The checks here split into two kinds, and the split decides whether they get
+ * this filter:
+ *
+ * **What is on the page** — how many elements there are, whether the required
+ * copy appears, whether an image was used, whether the type has a hierarchy,
+ * what colours are in play. All of those were counting elements that paint
+ * nothing, and every one of them was gameable for it. The worst: a poster
+ * missing half its required copy and set in one size scored 100% by carrying
+ * the missing phrases in a text element at `opacity: 0`. An image at
+ * `opacity: 0` satisfied "use the photo/mountains asset as a background image".
+ * Invisible rects bought an "at least five elements" floor.
+ *
+ * **What is in the document** — whether an element was kept, whether its box
+ * was held still, whether anything hangs off the canvas. Those ask about the
+ * document rather than the render, and most of them name their elements by id,
+ * so they read every element and are deliberately left alone.
+ *
+ * `inBounds` is the one that could have gone either way, and stays unfiltered
+ * deliberately: it can only ever *add* a penalty, so there is nothing to gain
+ * by hiding an element from it — while filtering would make "bring the stray
+ * elements back on canvas" satisfiable by hiding the stray instead of moving
+ * it, which is a worse layout scoring better.
+ *
+ * Making something invisible now buys nothing anywhere, which is also why
+ * `typeBudget` can stop penalising an invisible rect: it was only ever doing so
+ * by the same accident, and a penalty is not needed once the reward is gone.
+ */
+function visible(els: Element[]): Element[] {
+  return els.filter(paintsAnything);
+}
 
 /**
  * Turn a defect size into a score. `tolerance` is the amount treated as
@@ -119,10 +153,18 @@ export function inBounds(weight = 1, selector?: Selector): Check {
   });
 }
 
-/** Text that does not fit the box it was put in. */
+/**
+ * Text that does not fit the box it was put in.
+ *
+ * Scored on the share of lines hidden, so an invisible text element that
+ * *fits* pads the denominator and dilutes a real clipping failure — which is
+ * why this one takes the visibility filter even though the neighbouring
+ * `inBounds` does not. That one can only ever add a penalty; this one can
+ * subtract it.
+ */
 export function noTextClipping(weight = 1, selector?: Selector): Check {
   return check("no_text_clipping", "No text is clipped by its own box", weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter(isText);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let hiddenLines = 0;
@@ -150,7 +192,7 @@ export function noTextClipping(weight = 1, selector?: Selector): Check {
 /** WCAG contrast for every text element against what is behind it. */
 export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check {
   return check("contrast", `Text contrast is at least ${ratio}:1`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter((el) => isText(el) && !!el.text);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let worst = 21;
@@ -174,7 +216,7 @@ export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check
 export function elementCount(opts: { min?: number; max?: number; selector?: Selector; label?: string }, weight = 1): Check {
   const { min = 0, max = Infinity, selector } = opts;
   return check("element_count", opts.label ?? `Between ${min} and ${max} elements`, weight, (doc) => {
-    const n = (selector ? select(doc, selector) : doc.elements).length;
+    const n = visible(selector ? select(doc, selector) : doc.elements).length;
     if (n >= min && n <= max) return { score: 1, detail: `${n} element(s).` };
     const distance = n < min ? min - n : n - max;
     return { score: gradeDefect(distance, 0, Math.max(2, min || 2)), detail: `${n} element(s); wanted ${min}..${max}.` };
@@ -195,7 +237,7 @@ export function typeBudget(limits: Partial<Record<ElementType, number>>, weight 
     const over: string[] = [];
     let excess = 0;
     for (const [type, max] of entries) {
-      const n = doc.elements.filter((el) => el.type === type).length;
+      const n = visible(doc.elements).filter((el) => el.type === type).length;
       if (n <= max) continue;
       excess += n - max;
       over.push(`${n} ${type}(s), wanted at most ${max}`);
@@ -238,7 +280,7 @@ export function textUnchanged(reference: Doc, selector: Selector, weight = 1): C
 /** Required copy is present somewhere in the document, case-insensitively. */
 export function containsText(phrases: string[], weight = 1): Check {
   return check("contains_text", "Required copy is present", weight, (doc) => {
-    const haystack = doc.elements
+    const haystack = visible(doc.elements)
       .filter(isText)
       .map((el) => (el.text ?? "").toLowerCase().replace(/\s+/g, " "))
       .join("   ");
@@ -425,7 +467,7 @@ export function fontSizeOrder(ids: string[], weight = 1): Check {
  */
 export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
   return check("type_hierarchy", `Largest text is at least ${minRatio}x the smallest`, weight, (doc) => {
-    const sizes = doc.elements.filter((el) => isText(el) && !!el.text).map((el) => el.style.fontSize ?? 32);
+    const sizes = visible(doc.elements).filter(isText).map((el) => el.style.fontSize ?? 32);
     if (sizes.length < 2) return { score: sizes.length === 1 ? 1 : 0, detail: `${sizes.length} text element(s).` };
     const ratio = Math.max(...sizes) / Math.min(...sizes);
     return {
@@ -470,7 +512,10 @@ export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
  */
 export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
   return check("coverage", `Between ${Math.round(min * 100)}% and ${Math.round(max * 100)}% of the canvas is used`, weight, (doc) => {
-    if (doc.elements.length === 0) return { score: 0, detail: "Empty canvas." };
+    // Painted, not present: a canvas holding three invisible rects is an empty
+    // canvas, and testing the array length instead scored it above one holding
+    // nothing at all.
+    if (!doc.elements.some(paintsAnything)) return { score: 0, detail: "Empty canvas." };
     // Union area via a coarse occupancy grid: exact polygon union is overkill
     // for a sanity check, and a 60x60 grid resolves to under 2% of the canvas.
     const cols = 60;
@@ -532,8 +577,14 @@ function exclusionNote(filling: number, invisible: number): string {
 /** At least one image element is present, optionally from a specific set. */
 export function usesImage(keys?: string[], weight = 1): Check {
   return check("uses_image", keys ? `Uses one of: ${keys.join(", ")}` : "Uses an image", weight, (doc) => {
-    const images = doc.elements.filter(isImage);
-    if (images.length === 0) return { score: 0, detail: "No image elements." };
+    const images = visible(doc.elements).filter(isImage);
+    if (images.length === 0) {
+      const hidden = doc.elements.filter(isImage).length;
+      return {
+        score: 0,
+        detail: hidden ? `${hidden} image element(s), none of them visible.` : "No image elements.",
+      };
+    }
     if (!keys) return { score: 1, detail: `${images.length} image(s).` };
     const matching = images.filter((el) => el.src && keys.includes(el.src));
     return {
@@ -555,7 +606,7 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
   return check("surface_luminance", `Backgrounds are no lighter than ${maxLuminance}`, weight, (doc) => {
     const canvasArea = doc.width * doc.height;
     const surfaces: { id: string; color: string }[] = [{ id: "canvas", color: doc.background }];
-    for (const el of doc.elements) {
+    for (const el of visible(doc.elements)) {
       if (el.type !== "rect" || !el.style.fill || el.style.fill === "transparent") continue;
       const b = aabb(el);
       if ((b.width * b.height) / canvasArea >= minAreaFraction) surfaces.push({ id: el.id, color: el.style.fill });
@@ -581,7 +632,7 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
 /** Text is at least `minLuminance` light — the other half of a dark theme. */
 export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Selector): Check {
   return check("text_luminance", `Text is at least ${minLuminance} light`, weight, (doc) => {
-    const els = (selector ? select(doc, selector) : doc.elements).filter((el) => isText(el) && !!el.text);
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let satisfied = 0;
@@ -602,7 +653,7 @@ export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Sel
 export function usesPalette(colors: string[], weight = 1, selector?: Selector): Check {
   const wanted = new Set(colors.map((c) => c.toLowerCase()));
   return check("palette", `Colors come from the given palette`, weight, (doc) => {
-    const els = selector ? select(doc, selector) : doc.elements;
+    const els = visible(selector ? select(doc, selector) : doc.elements);
     const used: string[] = [];
     for (const el of els) {
       if (el.style.color) used.push(el.style.color.toLowerCase());

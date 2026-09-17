@@ -206,6 +206,14 @@ throw away partial progress.
 - Per-task checks: alignment, even spacing, margins, required copy, palette
   conformance, type hierarchy, preserved elements, canvas coverage.
 
+**A check reads the page or the document, never both by accident.** Anything
+asking what is *on the page* — the element count, the required copy, the type
+hierarchy, the colours, the coverage — sees only elements that paint something.
+Anything asking what is *in the document* — was this element kept, was its box
+held still, does anything hang off the canvas — sees them all. Before that
+split, a poster missing half its copy and set in one type size scored full
+marks by carrying the missing phrases in a text element at `opacity: 0`.
+
 **Overlap is measured as hidden ink, not as raw overlap area.** A headline
 sitting on a card overlaps it by 100%, and that is good design. Scoring raw
 overlap would reward scattering elements across the canvas — the metric would

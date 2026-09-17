@@ -420,6 +420,53 @@ to become a real task.
 
 ---
 
+## What a check looks at: the page, or the document
+
+Every deterministic check reads one of two things, and which one it reads is a
+decision rather than an accident.
+
+**What is on the page** — how many elements there are, whether the required
+copy appears, whether an image was used, whether the type has a hierarchy, what
+colours are in play, how much of the canvas is covered, whether anything crowds
+an edge. These read only elements that paint something.
+
+They all used to read every element, and every one of them was gameable for it.
+The worst: a poster missing half its required copy and set in a single type
+size scored **full marks** by carrying the missing phrases in a text element at
+`opacity: 0`. `containsText` found them, `typeHierarchy` got its size ratio,
+and `minContrast` never objected, because it reads `style.color` and a hidden
+element's colour is perfectly legible. An image at `opacity: 0` satisfied "use
+the photo/mountains asset as a background image" for 17 points. Three invisible
+rects bought an "at least five elements" floor for 10.
+
+**What is in the document** — whether an element was kept, whether its box was
+held still, whether the copy is verbatim, whether anything hangs off the
+canvas. These read every element. Most of them name their elements by id, which
+is a deliberate reference to a specific element rather than a question about
+the render; "keep every element" must not be satisfiable by hiding one.
+
+`inBounds` is the one that could have gone either way. It stays unfiltered
+deliberately: it can only ever *add* a penalty, so there is nothing to gain by
+hiding an element from it, while filtering would make "bring the stray elements
+back on canvas" satisfiable by hiding the stray instead of moving it — a worse
+layout scoring better. `noTextClipping` looks like its twin and is not: it
+scores the *share* of lines hidden, so an invisible text element that fits pads
+the denominator and dilutes a real failure. It takes the filter.
+
+`src/tasks/tasks.test.ts` asserts the property across every task rather than
+check by check: adding an invisible rect, an invisible text and an invisible
+image to a task's starting document changes its score by nothing at all. A
+check added later that starts counting what nobody can see fails there. It
+caught two leaks the check-by-check pass missed — `coverage` testing its
+canvas for `elements.length === 0` rather than for anything painted, and the
+clipping ratio above.
+
+This is also why `typeBudget` can stop penalising an invisible rect, which it
+used to do. That penalty was the same box-counting accident producing a right
+answer by luck, and it is not needed once the reward is gone.
+
+---
+
 ## Things that are approximations, stated plainly
 
 - **Contrast backdrop**, as above.
@@ -444,6 +491,13 @@ to become a real task.
   across the lower third crowds no edge, but it does fill that third.
 - **Asset average colour** for contrast against an image is the midpoint of its
   two gradient stops.
+- **Contrast ignores element opacity.** `minContrast` reads `style.color`
+  against the backdrop, so text at `opacity: 0.1` is scored as though it were
+  fully painted. Only fully invisible text is excluded, by the rule above.
+  Doing it properly means compositing the glyph colour with the backdrop at the
+  element's opacity, which would also change the score of every legitimately
+  translucent caption — a bigger change than the failure justifies, since
+  nothing in the task set asks for faint type.
 - **Glyph ink** is the bounding box of a line's glyphs, read from `glyf`, not
   the outlines themselves — the counters and the gaps between letters count as
   ink. Tight enough that a rule passing through the blank band under a line of

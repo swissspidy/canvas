@@ -103,6 +103,78 @@ describe("the constraints the briefs state are actually scored", () => {
     return { ...doc, elements: doc.elements.map(fn) };
   }
 
+  /**
+   * Padding a document with elements nobody can see was the cheapest loophole
+   * in the suite, and it worked on five checks at once. The worst of them: a
+   * poster missing half its required copy and set in a single size scored
+   * *full marks* by carrying the missing phrases in a text element at
+   * `opacity: 0`. An image at `opacity: 0` satisfied "use this asset". Three
+   * invisible rects bought an "at least five elements" floor.
+   *
+   * The property, asserted across every task rather than check by check, so a
+   * check added later that starts counting invisible elements fails here.
+   */
+  it("gains nothing from elements nobody can see, on any task", () => {
+    // In bounds and unclipped, because the checks that ask whether an element
+    // hangs off the canvas or overflows its box are about the document rather
+    // than the render, and deliberately still see these.
+    const ghosts: Element[] = [
+      {
+        id: "ghost_rect",
+        type: "rect",
+        x: 100,
+        y: 100,
+        width: 300,
+        height: 300,
+        rotation: 0,
+        z: 900,
+        style: { fill: "transparent" },
+      },
+      {
+        id: "ghost_text",
+        type: "text",
+        x: 100,
+        y: 100,
+        width: 800,
+        height: 400,
+        rotation: 0,
+        z: 901,
+        text: "Ridgeline Festival September 12-14 Alpine Meadow, Colorado Tickets at ridgeline.fm",
+        style: { fontSize: 18, color: "#ffffff", opacity: 0 },
+      },
+      {
+        id: "ghost_image",
+        type: "image",
+        x: 100,
+        y: 100,
+        width: 400,
+        height: 300,
+        rotation: 0,
+        z: 902,
+        src: "photo/mountains",
+        style: { opacity: 0 },
+      },
+    ];
+
+    for (const task of TASKS) {
+      const before = task.initial();
+      const padded: Doc = { ...before, elements: [...before.elements, ...ghosts] };
+      expect(scoreOf(task, padded), task.id).toBeCloseTo(scoreOf(task, before), 10);
+    }
+  });
+
+  // The other side of the same boundary: a check that asks what is *in the
+  // document* must keep seeing an element that has been made invisible, or
+  // "keep every element" would be satisfiable by hiding one.
+  it("still counts an invisible element as present and unmoved", () => {
+    const task = getTask("repair.overlapping-stack");
+    const hidden = edit(task, (el) => (el.id === "badge" ? { ...el, style: { ...el.style, opacity: 0 } } : el));
+    const results = runChecks(hidden, [...universalChecks(), ...task.checks]);
+    const preserved = results.results.find((r) => r.id === "preserved")!;
+    expect(preserved.score).toBe(1);
+    expect(preserved.detail).toMatch(/All kept/);
+  });
+
   it("penalises shortening body copy on a task that says to keep it", () => {
     for (const id of ["repair.overlapping-stack", "repair.buried-text"]) {
       const task = getTask(id);
