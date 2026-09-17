@@ -141,6 +141,30 @@ they are meant to differ only in how elements get arranged.
 Text is clipped to its element box when rendered, so the screenshot the agent
 sees shows the same truncation the scorer measures.
 
+### Copy cannot be blank
+
+`create` has always refused an empty string: a text element carrying no words
+is a deleted element wearing a disguise, and it still counts as preserved
+against a brief that says to keep the copy. A space bar is the same act, so
+whitespace-only copy is refused too — `"   "`, a tab, a lone line break. It laid
+out, it validated, and it painted not one pixel, because whitespace has an
+advance width and no outline.
+
+Only *entirely* blank copy is refused. Padding around real words is the
+author's business and alignment can depend on it, so `"  Ridgeline  "` is
+stored exactly as sent.
+
+This is the one invisibility the model forbids, and it is worth saying why the
+others stay legal. A rect with a transparent fill is how you draw an
+*outline* — omit a rect's fill entirely and the renderer paints it grey, so
+`transparent` is the only way to get an unfilled box. Zero opacity is the end
+of a range that exists for scrims. And an element can pass through invisible on
+its way to being styled, which would land on the incremental surfaces and not
+on document-as-code. Blank copy has none of that: `create` demands the text up
+front, so there is no half-built state to protect, and nothing is expressible
+only through a blank string. Everything else invisible is left to the checks,
+which ignore what paints nothing rather than refusing to hold it.
+
 ### Why there are font binaries in the repo, and why they are small
 
 Layout needs real advance widths, and the rasterizer needs real outlines, on

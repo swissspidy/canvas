@@ -10,7 +10,14 @@
 import { z } from "zod";
 import { ELEMENT_TYPES } from "../doc/types.js";
 import type { Element, Style } from "../doc/types.js";
-import { TEXT_FIELD_NOTE, zStyle, zStylePatch, zTextContent } from "../doc/schema.js";
+import {
+  BLANK_TEXT_MESSAGE,
+  TEXT_FIELD_NOTE,
+  isBlankText,
+  zStyle,
+  zStylePatch,
+  zTextContent,
+} from "../doc/schema.js";
 import { ASSET_KEYS, getAsset } from "../doc/assets.js";
 import { addElement, patchElement, removeElement, requireElement, ToolError, topZ } from "../doc/ops.js";
 import { round } from "../doc/geometry.js";
@@ -67,8 +74,8 @@ export function buildElement(
   },
   box: { x: number; y: number; width: number; height: number; rotation?: number },
 ): Element {
-  if (content.type === "text" && !content.text) {
-    throw new ToolError("A text element needs 'text'.");
+  if (content.type === "text" && isBlankText(content.text)) {
+    throw new ToolError(BLANK_TEXT_MESSAGE);
   }
   if (content.type === "image") {
     if (!content.src) throw new ToolError("An image element needs 'src'.");
@@ -130,12 +137,12 @@ export const setStyleTool: ToolDef<z.infer<typeof zSetStyleInput>> = {
     if (input.text !== undefined && el.type !== "text") {
       throw new ToolError(`${input.id} is a ${el.type} element, so it has no text.`);
     }
-    // `create` and `write_document` both reject an empty string, so accepting
-    // one here would let two of the three surfaces reach a document state the
+    // `create` and `write_document` both reject blank copy, so accepting it
+    // here would let two of the three surfaces reach a document state the
     // third cannot — and a blanked element still counts as preserved.
-    if (input.text === "") {
+    if (input.text !== undefined && isBlankText(input.text)) {
       throw new ToolError(
-        "A text element needs non-empty 'text'.",
+        BLANK_TEXT_MESSAGE,
         `To remove it entirely, call delete with id '${input.id}'.`,
       );
     }

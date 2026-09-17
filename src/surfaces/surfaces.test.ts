@@ -523,23 +523,73 @@ describe("surface lookup", () => {
 });
 
 describe("set_style", () => {
-  // `create` and `write_document` both reject an empty string, and a blanked
+  // `create` and `write_document` both reject blank copy, and a blanked
   // element still counts as preserved, so this would be a way to satisfy a
-  // copy-preserving task by deleting the copy.
-  it("refuses to blank a text element", () => {
+  // copy-preserving task by deleting the copy. A space bar is the same act as
+  // an empty string, so the spaces are here too — and a lone line break, which
+  // is what text normalization turns a bare escape into.
+  it.each([["empty", ""], ["spaces", "   "], ["a tab", "\t"], ["a line break", "\n"]])(
+    "refuses to blank a text element with %s",
+    (_label, text) => {
+      const s = session(docWith(el("t", { type: "text", text: "Keep me", style: {} })));
+      const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text });
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/whitespace alone paints nothing/);
+      expect(r.message).toMatch(/delete/);
+      expect(s.doc.elements[0]!.text).toBe("Keep me");
+    },
+  );
+
+  it("still sets real text, and keeps the space around it", () => {
     const s = session(docWith(el("t", { type: "text", text: "Keep me", style: {} })));
-    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: "" });
-    expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/non-empty/);
-    expect(r.message).toMatch(/delete/);
-    expect(s.doc.elements[0]!.text).toBe("Keep me");
+    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: "  Changed  " });
+    expect(r.ok).toBe(true);
+    // Blank is about having no content at all, not about tidy copy: the
+    // padding is the author's business and alignment may depend on it.
+    expect(s.doc.elements[0]!.text).toBe("  Changed  ");
+  });
+});
+
+/**
+ * Blank copy is refused the same way everywhere. `create` demands the text up
+ * front, so unlike an invisible rect there is no half-built state to protect —
+ * and a rule one surface enforces and another does not is the one kind of
+ * obstacle this project must not put in a surface's way.
+ */
+describe("blank copy", () => {
+  const blanks = ["", "   ", "\n", " \t "];
+
+  it("is refused by create on every surface that has one", () => {
+    for (const surface of [coordinateSurface, relationalSurface]) {
+      for (const text of blanks) {
+        const s = session();
+        const placement =
+          surface.id === "coordinate"
+            ? { x: 0, y: 0, width: 200, height: 50 }
+            : { width: 200, height: 50, relation: "canvas_center" };
+        const r = executeToolCall(s, surface, "create", { type: "text", text, ...placement });
+        expect(r.ok, `${surface.id} ${JSON.stringify(text)}`).toBe(false);
+        expect(r.message).toMatch(/needs 'text'/);
+        expect(s.doc.elements).toHaveLength(0);
+      }
+    }
   });
 
-  it("still sets real text", () => {
-    const s = session(docWith(el("t", { type: "text", text: "Keep me", style: {} })));
-    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: "Changed" });
-    expect(r.ok).toBe(true);
-    expect(s.doc.elements[0]!.text).toBe("Changed");
+  it("is refused by write_document, which names the element", () => {
+    for (const text of blanks) {
+      const s = session();
+      const r = executeToolCall(s, documentSurface, "write_document", {
+        document: {
+          ...emptyDoc(1000, 1000),
+          elements: [
+            { id: "t", type: "text", x: 0, y: 0, width: 200, height: 50, rotation: 0, z: 1, text, style: {} },
+          ],
+        },
+      });
+      expect(r.ok, JSON.stringify(text)).toBe(false);
+      expect(r.message).toMatch(/t: A text element needs 'text'/);
+      expect(s.doc.elements).toHaveLength(0);
+    }
   });
 });
 

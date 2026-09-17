@@ -55,6 +55,35 @@ export function zTextContent(maxLength: number, description: string) {
 export const TEXT_FIELD_NOTE =
   "A newline in the string is a hard line break; otherwise the text wraps at the box width.";
 
+/**
+ * True for text that would paint nothing: absent, empty, or whitespace alone.
+ *
+ * `create` has always refused an empty string, on the grounds that a text
+ * element with no content is a deleted element wearing a disguise. A space bar
+ * is the same act, and `"   "` used to sail through — it laid out, it
+ * validated, and it painted not one pixel. Whitespace has an advance width but
+ * no outline, which is exactly why the checks now measure outlines.
+ *
+ * Unlike an invisible *rect*, this costs nothing to forbid. A transparent fill
+ * is the only way to draw an unfilled box, and an element can pass through
+ * invisible on its way to being styled — a rule against either would land on
+ * the incremental surfaces and not on document-as-code, which is the one kind
+ * of obstacle this project must not put in a surface's way. Blank copy is
+ * neither: `create` demands the text up front, so there is no build-up state to
+ * protect, and nothing is expressible only through a blank string.
+ */
+export function isBlankText(text: string | undefined): boolean {
+  return text === undefined || text.trim() === "";
+}
+
+/**
+ * The one wording for it, shared by every surface. Error quality is a real
+ * lever on how well an agent recovers, so it is held constant rather than
+ * left to whichever tool happened to raise it.
+ */
+export const BLANK_TEXT_MESSAGE =
+  "A text element needs 'text' with something in it; whitespace alone paints nothing.";
+
 export const zColor = z
   .string()
   .regex(COLOR_RE, "must be a hex color like #1a1a2e, or 'transparent'");
@@ -144,8 +173,8 @@ export function semanticIssues(doc: Doc): string[] {
   for (const el of doc.elements) {
     if (seen.has(el.id)) issues.push(`elements: duplicate id '${el.id}'`);
     seen.add(el.id);
-    if (el.type === "text" && (el.text === undefined || el.text === "")) {
-      issues.push(`${el.id}: text elements need a non-empty 'text'`);
+    if (el.type === "text" && isBlankText(el.text)) {
+      issues.push(`${el.id}: ${BLANK_TEXT_MESSAGE}`);
     }
     if (el.type === "image") {
       if (!el.src) issues.push(`${el.id}: image elements need 'src'`);
