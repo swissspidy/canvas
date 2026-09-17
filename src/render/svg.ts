@@ -15,7 +15,7 @@
 import type { Doc, Element } from "../doc/types.js";
 import { getAsset } from "../doc/assets.js";
 import { layoutTextElement } from "../text/layout.js";
-import { FONT_FAMILY } from "../text/fonts.js";
+import { FONT_FAMILY } from "../text/font-registry.js";
 import { round } from "../doc/geometry.js";
 
 export interface RenderOptions {

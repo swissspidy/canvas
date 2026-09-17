@@ -95,6 +95,50 @@ overflows horizontally, which is what a real canvas editor does and what the
 Text is clipped to its element box when rendered, so the screenshot the agent
 sees shows the same truncation the scorer measures.
 
+### Why there are font binaries in the repo, and why they are small
+
+Layout needs real advance widths, and the rasterizer needs real outlines, on
+every machine that clones this. A CDN webfont would add a network dependency to
+the eval; a system font stack would make renders differ per machine, which
+matters because the judge scores images.
+
+So the faces are vendored — but subsetted. The full Liberation Sans faces are
+~410KB each, of which the layout engine reads about 15KB (`hmtx`, `cmap`,
+`head`, `hhea`, `OS/2`); the rest is glyph outlines and positioning tables for
+scripts these tasks never use. `scripts/subset-fonts.py` cuts them to the Latin
+ranges plus the punctuation a brief is likely to contain: **825KB → 111KB**, no
+advance width moved, every recorded baseline unchanged.
+
+It also drops `GPOS` and `kern`. The layout engine ignores kerning and the
+renderer pins each line to its computed width with `textLength`, so removing
+the tables makes what is painted agree with what was measured, rather than
+relying on `textLength` to absorb the difference.
+
+`src/text/subset.test.ts` guards this. It holds goldens computed against the
+*full upstream faces* — measured widths, exact line-break positions, a real
+task element's layout — and compares exhaustively against the system-installed
+originals when they are present. A re-subset that shifts one number fails.
+
+### Loading is split from use
+
+`src/text/font-registry.ts` holds parsed metrics and knows nothing about where
+bytes came from. `src/text/fonts.ts` is the Node loader that reads them off
+disk and installs itself into the registry on import.
+
+That split exists because everything else in the layout, render, scoring and
+tool-surface path is already pure — reading a file was the only thing tying it
+to a server. With the split, the whole surface layer bundles and runs in a
+browser unchanged, which is what makes exposing the tools via WebMCP a
+packaging job rather than a rewrite. Verified, not assumed: the layer bundles
+with `--platform=browser` and executes in Chromium, running tool calls,
+rejecting a malformed one with the right message, rendering SVG and scoring the
+result.
+
+The Node loader is installed by importing `src/text/fonts.js`, which the CLI,
+the server and the rasterizer all do transitively, and which vitest installs
+via `setupFiles`. Asking for a weight with nothing registered throws an error
+that says exactly which of the two paths to take.
+
 ---
 
 ## The feedback channel is an object, not a flag

@@ -12,7 +12,7 @@
  */
 
 import type { Element, HAlign, Rect, VAlign } from "../doc/types.js";
-import { getFont } from "./fonts.js";
+import { getFont } from "./font-registry.js";
 import { measureUnits, type FontMetrics } from "./ttf.js";
 
 export const DEFAULT_FONT_SIZE = 32;

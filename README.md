@@ -133,6 +133,16 @@ breaking is therefore identical in the scorer, the rasterizer and the browser â€
 which is what makes *did the text clip?* a fact about the document rather than
 about whichever engine drew it.
 
+The fonts are vendored so every clone renders identically, and subsetted to the
+characters these tasks use: **111KB for both weights**, down from 825KB, with
+no advance width moved. `scripts/subset-fonts.py` regenerates them and
+`src/text/subset.test.ts` fails if a single measurement shifts.
+
+Loading is split from use, so the document model, the tool surfaces, the
+renderer and the scorer contain no Node at all. The whole surface layer bundles
+with `--platform=browser` and runs in a browser â€” which is what would make
+exposing the tools via WebMCP a packaging job rather than a rewrite.
+
 ---
 
 ## Deliberately not here
