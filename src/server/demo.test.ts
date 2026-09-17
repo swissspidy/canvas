@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoPolicy } from "./demo.js";
 import { runAgent } from "../agent/loop.js";
-import { createScriptedClient } from "../agent/scripted.js";
+import { createScriptedModel } from "../agent/scripted.js";
 import { getSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { defineTask } from "../tasks/types.js";
@@ -33,8 +33,8 @@ async function replay(from: SurfaceId, to?: SurfaceId, switchAfter = 2): Promise
     surface: getSurface(from),
     surfaceProvider: () => getSurface(surface),
     feedback: createFeedbackChannel("none"),
-    model: "claude-opus-5",
-    client: createScriptedClient(demoPolicy(() => surface)),
+    model: "anthropic:claude-opus-5",
+    languageModel: createScriptedModel(demoPolicy(() => surface)),
     onEvent: (e) => {
       if (e.type !== "turn_start") return;
       turns++;
@@ -124,6 +124,18 @@ describe("the live page's request guards", () => {
     const { status } = await get(app, "/api/run?brief=hello&width=1080&height=1350&demo=1");
     expect(status).toBe(200);
   });
+
+  // /api/run spends whatever key the operator has in the environment, so the
+  // models it accepts are the page's own list and nothing else.
+  it.each(["claude-opus-5", "anthropic:something-enormous", "__proto__"])(
+    "refuses %s as a model",
+    async (model) => {
+      const app = createApp();
+      const { status, body } = await get(app, `/api/run?brief=hello&model=${encodeURIComponent(model)}`);
+      expect(status).toBe(400);
+      expect(body).toMatch(/Unknown model/);
+    },
+  );
 
   // `in` and plain indexing both walk the prototype chain.
   it.each(["toString", "__proto__", "constructor"])("refuses %s as a surface", async (surface) => {

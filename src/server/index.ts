@@ -11,13 +11,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import Anthropic from "@anthropic-ai/sdk";
 import { runAgent } from "../agent/loop.js";
-import { createScriptedClient } from "../agent/scripted.js";
+import { createScriptedModel } from "../agent/scripted.js";
 import { getSurface, isSurfaceId, SURFACES } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "../feedback/index.js";
-import { DEFAULT_MODEL, MODELS } from "../agent/models.js";
+import { DEFAULT_MODEL, MODELS, hasCredentials, parseModelSpec } from "../agent/models.js";
 import { TASKS, getTask } from "../tasks/index.js";
 import { defineTask, type Task } from "../tasks/types.js";
 import { blank } from "../tasks/helpers.js";
@@ -140,13 +139,20 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
   const surfaceId = (params.get("surface") ?? "coordinate") as SurfaceId;
   const feedbackMode = (params.get("feedback") ?? "both") as FeedbackMode;
   const model = params.get("model") ?? DEFAULT_MODEL;
-  const demo = params.get("demo") === "1" || !hasCredentials();
   const runId = `live_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
   if (!FEEDBACK_MODES.includes(feedbackMode) || !isSurfaceId(surfaceId)) {
     sendJson(res, 400, { error: "Unknown surface or feedback mode." });
     return;
   }
+  // Only the models this build knows about. A free-text model id would let a
+  // caller point the operator's key at anything at all.
+  if (!Object.hasOwn(MODELS, model)) {
+    sendJson(res, 400, { error: `Unknown model '${model}'.` });
+    return;
+  }
+
+  const demo = params.get("demo") === "1" || !isRunnable(model);
 
   // Replays cost nothing; a real run costs money per turn, so only those are
   // rationed.
@@ -186,7 +192,7 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
       feedback: createFeedbackChannel(feedbackMode),
       model,
       signal: state.abort.signal,
-      ...(demo ? { client: createScriptedClient(demoPolicy(() => state.surface)) } : { client: new Anthropic() }),
+      ...(demo ? { languageModel: createScriptedModel(demoPolicy(() => state.surface)) } : {}),
       onEvent: (event: AgentEvent) => write(event),
     });
 
@@ -213,8 +219,18 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
   }
 }
 
-function hasCredentials(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+/** Whether a key is configured for the provider behind a model spec. */
+function isRunnable(model: string): boolean {
+  try {
+    return hasCredentials(parseModelSpec(model).provider);
+  } catch {
+    return false;
+  }
+}
+
+/** Whether anything on the page's model list can actually be driven. */
+function anyRunnable(): boolean {
+  return Object.keys(MODELS).some(isRunnable);
 }
 
 function handleSwitch(res: ServerResponse, params: URLSearchParams): void {
@@ -240,7 +256,7 @@ export function createApp() {
 
     if (path === "/api/meta") {
       sendJson(res, 200, {
-        hasCredentials: hasCredentials(),
+        hasCredentials: anyRunnable(),
         defaultModel: DEFAULT_MODEL,
         models: Object.values(MODELS).map((m) => ({ id: m.id, label: m.label })),
         surfaces: Object.values(SURFACES).map((s) => ({
@@ -293,8 +309,8 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === normalize(p
 if (isMain) {
   createApp().listen(port, host, () => {
     console.log(`Canvas agent bench: http://${host === "0.0.0.0" || host === "::" ? "localhost" : host}:${port}`);
-    if (!hasCredentials()) {
-      console.log("No ANTHROPIC_API_KEY found — the page will run in replay mode.");
+    if (!anyRunnable()) {
+      console.log("No provider API key found — the page will run in replay mode.");
     } else if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
       console.log(
         `WARNING: listening on ${host} with an API key set. /api/run is unauthenticated — anyone who can ` +

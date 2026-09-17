@@ -27,9 +27,11 @@ What counts as a result is written down in
 
 ## Quick start
 
+Node 24 — `nvm use` picks it up from `.nvmrc`.
+
 ```bash
 npm install
-npm test                      # 370+ tests, no API key needed
+npm test                      # 360+ tests, no API key needed
 npm run serve                 # live page at http://localhost:5173
 ```
 
@@ -44,7 +46,7 @@ npm run cli -- show repair.overlapping-stack  # a task's brief, start state and 
 npm run cli -- render fit.long-headline     # render a starting document to PNG
 
 npm run cli -- run --estimate               # matrix size, no spending
-npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted agent, no API calls
+npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted model, no API calls
 npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot
 ```
 
@@ -53,8 +55,8 @@ A sweep writes to `runs/<timestamp>/`: `report.md`, `report.json`,
 under `renders/`. Run ids are derived from the cell, so an interrupted sweep
 resumes without re-paying for finished work — just run the same command with
 the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
-judge, runner) are fingerprinted, and resuming after changing one is refused
-rather than silently averaged.
+judge) are fingerprinted, and resuming after changing one is refused rather
+than silently averaged.
 
 ---
 
@@ -62,10 +64,9 @@ rather than silently averaged.
 
 Type a brief, watch it build, and **switch the tool surface while the run is in
 flight**. The document and the conversation carry over; only the vocabulary
-changes from that turn on. The switch arrives the same way on every model and
-through both loops — a turn labelled `[operator notice]` — because a
-manipulation this study performs mid-run must not be the thing that varies by
-provider.
+changes from that turn on. The switch arrives the same way on every model — a
+turn labelled `[operator notice]` — because a manipulation this study performs
+mid-run must not be the thing that varies by provider.
 
 That toggle is the shareable part. It is also the part most likely to be
 misread, so: **the page measures nothing.** Its replay mode deliberately builds
@@ -77,34 +78,31 @@ spread a finding nobody measured. The comparison lives in
 
 ## Running it across providers
 
-Two agent loops, deliberately near-identical in structure:
-
-| Runner | Models | Used for |
-|---|---|---|
-| `anthropic` (default) | bare ids — `claude-opus-5` | the confirmatory grid; has prompt caching and Anthropic's own knobs |
-| `aisdk` | `provider:model-id` | the cross-model generality check; every provider through one code path |
+**One agent loop, on the Vercel AI SDK, for every provider — Claude included.**
+Models are named `provider:model-id`:
 
 ```bash
-npm run cli -- run --runner aisdk --models anthropic:claude-opus-5,google:<id>,openai:<id>
+npm run cli -- run --models 'anthropic:claude-opus-5,google:<id>,openai:<id>'
 ```
 
-Note the explicit ids. `--models sweep` on this runner is one model per Claude
-tier, not one per provider: Google's and OpenAI's ids change on their own
-schedule, and a shorthand pointing at a retired one would either fail a sweep
-three turns in or quietly run a different model than the write-up claims.
+That single path is the point. A second, hand-written Anthropic loop used to
+run alongside it, and two near-identical loops meant every cross-model number
+carried a question: is this the model, or the harness? One loop cannot answer
+that question wrongly, and there is nothing left to keep in step.
 
-One loop for every provider is the point: if Claude ran through one harness and
-Gemini through another, a difference between them could be the harness. A test
-asserts the two loops reach an identical document from identical tool calls, and
-the pre-registration requires a cross-loop check on Claude to bound what the
-harness contributes.
+Note the explicit ids. `--models sweep` is one model per Claude tier, not one
+per provider: Google's and OpenAI's ids change on their own schedule, and a
+shorthand pointing at a retired one would either fail a sweep three turns in or
+quietly run a different model than the write-up claims.
 
 Reasoning effort uses the AI SDK's **provider-neutral `reasoning` scale**
 (`none`…`xhigh`), which each provider maps itself. Matching effort across
 providers by hand would have been the obvious validity hole; this way the
-mapping is maintained upstream rather than invented here.
+mapping is maintained upstream rather than invented here. Prompt caching
+survives the move: the tools and the surface briefing are marked cacheable
+through `providerOptions`, which providers without such a knob simply ignore.
 
-Prices live in `PRICING` in `src/agent/providers.ts`. A model that is not listed
+Prices live in `MODELS` in `src/agent/models.ts`. A model that is not listed
 still runs — its cost is reported as *unknown* and footnoted in the report,
 rather than being silently wrong.
 
@@ -234,7 +232,7 @@ src/
   feedback/   the feedback channel, six modes
   tasks/      18 tasks across five families
   eval/       checks, colour, blinded judge, scoring, human validation
-  agent/      the loops (native + AI SDK), providers, pricing, events
+  agent/      the agent loop, the model registry and pricing, events
   webmcp/     the polyfill, surface registration, and the host page
   runner/     sweep runner and report generation
   server/     the live page's server

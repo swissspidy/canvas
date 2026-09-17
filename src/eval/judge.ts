@@ -11,16 +11,26 @@
  * cost never reach it. `judgeRun` takes the pieces it needs rather than a
  * `RunResult`, so leaking a condition into the prompt would take deliberate
  * effort rather than a careless spread.
+ *
+ * It goes through the same SDK the agent loop does, so a judge can be any
+ * provider's model — useful for checking that a result does not depend on
+ * being graded by a sibling of the model under test.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { generateObject, NoObjectGeneratedError, type LanguageModel, type ModelMessage } from "ai";
 import { z } from "zod";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { Doc } from "../doc/types.js";
 import { rasterize } from "../render/raster.js";
-import { addUsage, costUsd, getModel, ZERO_USAGE, type TokenUsage } from "../agent/models.js";
+import {
+  costUsd,
+  getModel,
+  resolveLanguageModel,
+  tokenUsage,
+  ZERO_USAGE,
+  type TokenUsage,
+} from "../agent/models.js";
 
-export const DEFAULT_JUDGE_MODEL = "claude-opus-5";
+export const DEFAULT_JUDGE_MODEL = "anthropic:claude-opus-5";
 export const JUDGE_SCREENSHOT_WIDTH = 768;
 
 /** 1..5 per criterion. A 5-point scale is what the human raters also use. */
@@ -72,70 +82,62 @@ export interface JudgeRunInput {
   /** Shown as a "before" image when the task started from an existing layout. */
   initialDoc?: Doc;
   model?: string;
-  client?: Anthropic;
+  /** Injected for tests. Bypasses provider resolution entirely. */
+  languageModel?: LanguageModel;
 }
 
-function imageBlock(doc: Doc): Anthropic.ImageBlockParam {
+type JudgeContent = Extract<ModelMessage, { role: "user" }>["content"];
+
+function imagePart(doc: Doc) {
   return {
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: "image/png",
+    type: "file" as const,
+    mediaType: "image/png",
+    data: {
+      type: "data" as const,
       data: rasterize(doc, { pixelWidth: JUDGE_SCREENSHOT_WIDTH }).toString("base64"),
     },
   };
 }
 
+function textPart(text: string) {
+  return { type: "text" as const, text };
+}
+
 export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
-  const client = input.client ?? new Anthropic();
   const model = input.model ?? DEFAULT_JUDGE_MODEL;
   const spec = getModel(model);
 
-  const content: Anthropic.ContentBlockParam[] = [
-    { type: "text", text: `# Brief given to the designer\n\n${input.brief}` },
-  ];
+  const content: JudgeContent = [textPart(`# Brief given to the designer\n\n${input.brief}`)];
 
   const startedFromLayout = (input.initialDoc?.elements.length ?? 0) > 0;
   if (startedFromLayout && input.initialDoc) {
-    content.push({ type: "text", text: "\n# Before" });
-    content.push(imageBlock(input.initialDoc));
+    content.push(textPart("\n# Before"));
+    content.push(imagePart(input.initialDoc));
   }
-  content.push({ type: "text", text: startedFromLayout ? "\n# After" : "\n# Result" });
-  content.push(imageBlock(input.finalDoc));
-  content.push({
-    type: "text",
-    text: `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nScore every criterion, then give an overall rating.`,
-  });
+  content.push(textPart(startedFromLayout ? "\n# After" : "\n# Result"));
+  content.push(imagePart(input.finalDoc));
+  content.push(
+    textPart(
+      `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nScore every criterion, then give an overall rating.`,
+    ),
+  );
 
   try {
-    const response = await client.messages.parse({
-      model,
-      max_tokens: 4000,
-      system: [{ type: "text", text: JUDGE_SYSTEM, cache_control: { type: "ephemeral" } }],
+    const response = await generateObject({
+      model: input.languageModel ?? resolveLanguageModel(model),
+      schema: zJudgement,
+      maxOutputTokens: 4000,
+      instructions: {
+        role: "system",
+        content: JUDGE_SYSTEM,
+        // Every judge call in a sweep shares this prefix.
+        providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      },
       messages: [{ role: "user", content }],
-      output_config: { format: zodOutputFormat(zJudgement) },
     });
 
-    const usage = addUsage(ZERO_USAGE, {
-      input: response.usage.input_tokens,
-      output: response.usage.output_tokens,
-      cacheRead: response.usage.cache_read_input_tokens ?? 0,
-      cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
-    });
-
-    const judgement = response.parsed_output;
-    if (!judgement) {
-      return {
-        criteriaScore: 0,
-        overallScore: 0,
-        judgement: { criteria: [], overall: 1, summary: "" },
-        model,
-        usage,
-        costUsd: costUsd(usage, spec),
-        error: "Judge returned no parseable judgement.",
-      };
-    }
-
+    const usage = tokenUsage(response.usage);
+    const judgement = response.object;
     const aligned = alignCriteria(input.criteria, judgement.criteria);
     if ("error" in aligned) {
       return {
@@ -159,13 +161,16 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       costUsd: costUsd(usage, spec),
     };
   } catch (err) {
+    // A call that produced no usable object still cost money, so bill what the
+    // error carries rather than reporting a failed judge call as free.
+    const usage = NoObjectGeneratedError.isInstance(err) && err.usage ? tokenUsage(err.usage) : { ...ZERO_USAGE };
     return {
       criteriaScore: 0,
       overallScore: 0,
       judgement: { criteria: [], overall: 1, summary: "" },
       model,
-      usage: { ...ZERO_USAGE },
-      costUsd: 0,
+      usage,
+      costUsd: costUsd(usage, spec),
       error: err instanceof Error ? err.message : String(err),
     };
   }

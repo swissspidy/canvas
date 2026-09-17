@@ -26,7 +26,6 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateText, jsonSchema, stepCountIs, tool } from "ai";
-import { MockLanguageModelV4 } from "ai/test";
 import { chromium } from "playwright-core";
 
 const PORT = Number(process.env.E2E_PORT ?? 5310);
@@ -122,40 +121,18 @@ async function waitForServer(timeoutMs = 20000) {
 }
 
 /**
- * A model that issues the calls a competent agent would for this task, so the
- * plumbing can be asserted without an API key or a sampled response.
+ * The calls a competent agent would make for this task, so the plumbing can be
+ * asserted without an API key or a sampled response. The bench's own scripted
+ * model drives them, so this script exercises the same stand-in the tests and
+ * the live page's replay mode use.
  */
-function scriptedModel() {
-  const script = [
-    [{ name: "align", input: { ids: IDS, edge: "left" } }],
-    [{ name: "distribute", input: { ids: IDS, axis: "vertical", spacing: 30 } }],
-    // A deliberately bad call: the error path has to survive the round trip too.
-    [{ name: "place", input: { id: "r1", relation: "below" } }],
-    [],
-  ];
-  let turn = 0;
-  return new MockLanguageModelV4({
-    provider: "mock",
-    modelId: "scripted",
-    doGenerate: async () => {
-      const calls = script[turn++] ?? [];
-      return {
-        content: calls.map((call, i) => ({
-          type: "tool-call",
-          toolCallId: `call_${turn}_${i}`,
-          toolName: call.name,
-          input: JSON.stringify(call.input),
-        })),
-        finishReason: { unified: calls.length ? "tool-calls" : "stop", raw: "stop" },
-        usage: {
-          inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
-          outputTokens: { total: 20, text: 20, reasoning: 0 },
-        },
-        warnings: [],
-      };
-    },
-  });
-}
+const SCRIPT = [
+  { tools: [{ name: "align", input: { ids: IDS, edge: "left" } }] },
+  { tools: [{ name: "distribute", input: { ids: IDS, axis: "vertical", spacing: 30 } }] },
+  // A deliberately bad call: the error path has to survive the round trip too.
+  { tools: [{ name: "place", input: { id: "r1", relation: "below" } }] },
+  { text: "Done." },
+];
 
 async function main() {
   const executable = findChromium();
@@ -246,16 +223,17 @@ async function main() {
     );
     check("every discovered tool converted", Object.keys(toolSet).length === discovered.length);
 
+    // Run under tsx (see package.json): these are TypeScript sources, which
+    // plain node cannot load.
     let model;
     if (modelSpec) {
-      // Run under tsx (see package.json): this resolves src/agent/providers.ts,
-      // which plain node cannot load.
-      const { resolveModel } = await import("../src/agent/providers.js");
-      model = resolveModel(modelSpec).model;
+      const { resolveLanguageModel } = await import("../src/agent/models.js");
+      model = resolveLanguageModel(modelSpec);
       console.log(`       driving with ${modelSpec}`);
     } else {
-      model = scriptedModel();
-      console.log("       driving with the SDK mock model (no API key needed)");
+      const { createScriptedModel, fixedScript } = await import("../src/agent/scripted.js");
+      model = createScriptedModel(fixedScript(SCRIPT));
+      console.log("       driving with the bench's scripted model (no API key needed)");
     }
 
     console.log("\n4. The model's calls execute inside the page");

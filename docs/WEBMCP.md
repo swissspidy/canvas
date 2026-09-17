@@ -64,7 +64,7 @@ await document.modelContext.executeTool({ name: "align" }, { ids: ["r1", "r2"], 
 ```
 
 A rejected call comes back with `isError: true` and the same wording the agent
-loops use — the shared error formatter, not a second one:
+loop uses — the shared error formatter, not a second one:
 
 ```json
 { "content": [{ "type": "text", "text": "No element with id 'ghost'.\nHint: Existing ids: r1, r2, r3, r4, r5\nNothing was changed." }], "isError": true }
@@ -72,7 +72,7 @@ loops use — the shared error formatter, not a second one:
 
 Switching surface disposes the old registration and installs the new one. The
 document carries over untouched, so the surface toggle means the same thing
-here as in the loops.
+here as in the loop.
 
 ---
 
@@ -174,8 +174,8 @@ is ours.
 
 ## What the end-to-end test asserts
 
-`npm run e2e:webmcp` runs in about three seconds against the SDK's mock model,
-so it needs no API key and can sit in CI. Pass `--model provider:model-id` to
+`npm run e2e:webmcp` runs in about three seconds against the bench's own
+scripted model, so it needs no API key and can sit in CI. Pass `--model provider:model-id` to
 drive it with a real one. It checks 29 things across seven stages:
 
 1. The page hosts the bench and publishes tools, advertising every feedback

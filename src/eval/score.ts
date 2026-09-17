@@ -44,8 +44,6 @@ export interface RunScore {
   surfaceId: string;
   feedbackMode: string;
   model: string;
-  /** Which agent loop produced this run. */
-  runner: "anthropic" | "aisdk";
   stopReason: string;
   error?: string;
   /** 0..1 from the deterministic checks. */
@@ -130,7 +128,6 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     surfaceId: run.surfaceId,
     feedbackMode: run.feedbackMode,
     model: run.model,
-    runner: run.runner,
     stopReason: run.stopReason,
     ...(run.error ? { error: run.error } : {}),
     constraintScore,

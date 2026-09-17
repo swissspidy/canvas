@@ -15,17 +15,14 @@
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 import type { Task } from "../tasks/types.js";
 import { getTask } from "../tasks/index.js";
 import { getSurface } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
-import { runAgent, type RunResult } from "../agent/loop.js";
-import type { Effort } from "../agent/models.js";
-import { createScriptedClient, fixedScript } from "../agent/scripted.js";
-import { runAgentViaAiSdk } from "../agent/aisdk-loop.js";
-import { MockLanguageModelV4 } from "ai/test";
+import { runAgent } from "../agent/loop.js";
+import { DEFAULT_MODEL, type Effort } from "../agent/models.js";
+import { dryRunModel } from "../agent/scripted.js";
 import { judgeRun, DEFAULT_JUDGE_MODEL } from "../eval/judge.js";
 import { scoreRun, type RunScore } from "../eval/score.js";
 import { renderStandaloneSvg } from "../render/svg.js";
@@ -45,21 +42,11 @@ export interface SweepConfig {
   concurrency: number;
   judge: boolean;
   judgeModel: string;
-  /**
-   * Which agent loop to use.
-   *
-   * `anthropic` is the native loop and takes bare model ids. `aisdk` goes
-   * through the Vercel AI SDK and takes `provider:model-id`, so every provider
-   * runs through one code path — which is what makes a cross-model comparison
-   * about the models rather than about the harness.
-   */
-  runner: "anthropic" | "aisdk";
-  /** Run against the scripted client instead of the API. Costs nothing. */
+  /** Run against a scripted model instead of the API. Costs nothing. */
   dryRun: boolean;
   /** Re-run cells that already have a result on disk. */
   force: boolean;
   maxTokens?: number;
-  eagerInputStreaming?: boolean;
 }
 
 export interface Cell {
@@ -136,10 +123,13 @@ function ensureDirs(paths: SweepPaths): void {
  */
 export function runFingerprint(config: SweepConfig): Record<string, unknown> {
   return {
-    runner: config.runner,
+    // There is one agent loop now, but sweeps made while there were two
+    // recorded which one they used. Reading it back means those results refuse
+    // to resume into a new sweep instead of being averaged with runs from a
+    // harness that no longer exists.
+    harness: (config as { runner?: string }).runner ?? "aisdk",
     effort: config.effort ?? null,
     maxTokens: config.maxTokens ?? null,
-    eagerInputStreaming: config.eagerInputStreaming ?? false,
     judge: config.judge,
     judgeModel: config.judgeModel,
     dryRun: config.dryRun,
@@ -190,26 +180,6 @@ export interface SweepProgress {
   onEvent?(cell: Cell, event: AgentEvent): void;
 }
 
-/** A trivial "do nothing" script, for `--dry-run` wiring checks. */
-const dryRunScript = fixedScript([{ text: "Dry run: no changes made." }]);
-
-/** The AI SDK equivalent: a model that answers once and calls nothing. */
-function dryRunLanguageModel() {
-  return new MockLanguageModelV4({
-    provider: "dry-run",
-    modelId: "dry-run",
-    doGenerate: async () => ({
-      content: [{ type: "text", text: "Dry run: no changes made." }],
-      finishReason: { unified: "stop", raw: "stop" },
-      usage: {
-        inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
-        outputTokens: { total: 20, text: 20, reasoning: 0 },
-      },
-      warnings: [],
-    }),
-  });
-}
-
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
   const paths = sweepPaths(config.outDir);
   ensureDirs(paths);
@@ -228,7 +198,6 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
 
   const cells = expandMatrix(config);
   const existing = config.force ? new Map<string, RunScore>() : loadExistingScores(paths);
-  const client = config.dryRun ? undefined : new Anthropic();
   const results: RunScore[] = [];
   let index = 0;
 
@@ -246,7 +215,7 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
       }
 
       progress.onCellStart?.(cell, i, cells.length);
-      const score = await runCell(cell, config, paths, client, (event) => progress.onEvent?.(cell, event));
+      const score = await runCell(cell, config, paths, (event) => progress.onEvent?.(cell, event));
       results.push(score);
       // Appended as each cell finishes, so an interrupted sweep keeps its work.
       appendFileSync(paths.scoresFile, `${JSON.stringify(score)}\n`);
@@ -263,10 +232,9 @@ async function runCell(
   cell: Cell,
   config: SweepConfig,
   paths: SweepPaths,
-  client: Anthropic | undefined,
   onEvent: (event: AgentEvent) => void,
 ): Promise<RunScore> {
-  const shared = {
+  const run = await runAgent({
     runId: cell.runId,
     task: cell.task,
     surface: getSurface(cell.surface),
@@ -274,22 +242,10 @@ async function runCell(
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.maxTokens ? { maxTokens: config.maxTokens } : {}),
+    // A dry run needs a model that never reaches the network.
+    ...(config.dryRun ? { languageModel: dryRunModel() } : {}),
     onEvent,
-  };
-
-  const run: RunResult =
-    config.runner === "aisdk"
-      ? await runAgentViaAiSdk({
-          ...shared,
-          // A dry run needs a model that never calls the network; the SDK's own
-          // mock is the equivalent of the scripted Anthropic client.
-          ...(config.dryRun ? { languageModel: dryRunLanguageModel() } : {}),
-        })
-      : await runAgent({
-          ...shared,
-          ...(config.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
-          ...(config.dryRun ? { client: createScriptedClient(dryRunScript) } : client ? { client } : {}),
-        });
+  });
 
   const judge =
     config.judge && !config.dryRun
@@ -299,7 +255,6 @@ async function runCell(
           finalDoc: run.finalDoc,
           initialDoc: run.initialDoc,
           model: config.judgeModel,
-          ...(client ? { client } : {}),
         })
       : undefined;
 
@@ -314,7 +269,6 @@ async function runCell(
         surface: cell.surface,
         feedback: cell.feedback,
         model: cell.model,
-        runner: config.runner,
         repeat: cell.repeat,
         stopReason: run.stopReason,
         error: run.error ?? null,
@@ -350,12 +304,11 @@ async function runCell(
 export const DEFAULT_SWEEP: Omit<SweepConfig, "outDir" | "taskIds"> = {
   surfaces: ["coordinate", "relational", "document"],
   feedback: ["none", "structured", "screenshot", "both"],
-  models: ["claude-opus-5"],
+  models: [DEFAULT_MODEL],
   repeats: 3,
   concurrency: 4,
   judge: true,
   judgeModel: DEFAULT_JUDGE_MODEL,
-  runner: "anthropic",
   dryRun: false,
   force: false,
 };

@@ -65,8 +65,7 @@ not appear where the mechanism predicts it is probably not the mechanism.
 |---|---|---|
 | Tool surface | `coordinate`, `relational`, `document` | `hybrid` is exploratory, not in the confirmatory grid |
 | Feedback | `none`, `structured`, `screenshot`, `both` | `structured_plain` / `both_plain` are the confound control (§8) |
-| Model | `claude-opus-5` confirmatory; a cross-provider set in a reduced grid | Provider-qualified (`provider:model-id`) on the `aisdk` runner |
-| Harness | `anthropic` confirmatory; `aisdk` for every cross-model run | Not a variable of interest — a nuisance factor to be bounded, see §8 |
+| Model | `anthropic:claude-opus-5` confirmatory; a cross-provider set in a reduced grid | Provider-qualified (`provider:model-id`) throughout |
 | Task | 18 tasks across 5 families | Every condition sees every task |
 | Repeat | 3 | Sampling cannot be pinned; see §7 |
 
@@ -151,7 +150,7 @@ The cross-provider runs therefore use the **AI SDK's provider-neutral
 `high`, `xhigh`), which each provider maps to its own mechanism. The mapping is
 maintained upstream rather than here. This project's `effort` levels map onto it
 one-to-one except that `max` has no counterpart and saturates at `xhigh`
-(`reasoningFor` in `src/agent/providers.ts`).
+(`reasoningFor` in `src/agent/models.ts`).
 
 Every confirmatory run is fixed at `high`. Anything else would let a
 quality-cost lever vary silently.
@@ -193,30 +192,12 @@ a refusal.
 | Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents. |
 | Document-as-code sees the JSON and others do not | Every surface gets the exact starting JSON *and* the geometry description in the opening message. |
 | Tool-call arity differs (relational has more tools) | Cost and token counts are reported per surface; quality-per-dollar is a pre-registered secondary outcome. |
-| Strict tool schemas would hide malformed calls | Tools are deliberately not `strict`. Rejected calls are a measured outcome. |
+| Strict tool schemas would hide malformed calls | Schema-enforced tool calling is deliberately not used. Rejected calls are a measured outcome. |
 | A judge that knows the condition | The judge is built from the task and the render only. Surface, feedback, model, turns and cost never enter its prompt. |
-| Two agent loops behaving differently | Every cross-model run uses the `aisdk` loop, Claude included, so no model comparison spans harnesses. A test asserts both loops reach an identical document from identical tool calls, and the cross-loop check below bounds the rest. |
+| The harness differing between models | There is one agent loop, on the AI SDK, and every model goes through it — Claude included. No comparison in this study spans two harnesses, so there is no harness difference left to bound. |
 | Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
-| Cost comparisons across unpriced models | A model absent from `PRICING` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
+| Cost comparisons across unpriced models | A model absent from `MODELS` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
-
----
-
-### The cross-loop check
-
-Before any cross-model claim, `claude-opus-5` is run on the full task set
-through **both** loops at `feedback: both`, 3 repeats — 108 runs on each side.
-
-The two are compared on the primary outcome with the same paired, task-clustered
-procedure as everything else. If the paired difference between harnesses is
-resolved and exceeds the 5-point practical threshold, the harness is a
-first-order effect and every cross-model result is reported with that magnitude
-stated alongside it. If it is unresolved, the write-up says so and treats the
-loops as interchangeable for this purpose.
-
-This check is run and reported **whatever it shows**. Discovering that the
-harness matters as much as the model would be an unwelcome result and an
-important one.
 
 ---
 
@@ -237,10 +218,8 @@ Confirmatory grid: 18 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
 
 Exploratory additions, run only after the confirmatory grid:
 
-- Cross-loop check: 18 tasks × 3 surfaces × 1 feedback (`both`) × 3 repeats ×
-  2 harnesses = 324 runs.
-- Model sweep, on the `aisdk` runner: 2 further models × 3 surfaces ×
-  2 feedback conditions (`none`, `both`) × 18 tasks × 2 repeats = 432 runs.
+- Model sweep: 2 further models × 3 surfaces × 2 feedback conditions
+  (`none`, `both`) × 18 tasks × 2 repeats = 432 runs.
 - Confound control: 3 surfaces × 2 plain feedback conditions × 18 tasks ×
   3 repeats = 324 runs.
 - `hybrid` surface: 1 surface × 4 feedback conditions × 18 tasks × 3 repeats
@@ -302,4 +281,10 @@ the real risk, and the pilot in §10 is where it would first show up.
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
 
-_(none yet)_
+**2026-09-17 — one harness, and the cross-loop check withdrawn.** The two agent
+loops were collapsed into one, on the Vercel AI SDK, which every model now runs
+through including Claude. The harness row in §3 and the cross-loop check in §8
+existed only to bound the difference between the two loops; with one loop there
+is no such difference to bound, and 324 runs' worth of budget is freed. Nothing
+in the hypotheses, the primary outcome, the analysis plan or the decision rules
+changes, and no run against a real model had been made when this was written.

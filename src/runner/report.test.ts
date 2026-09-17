@@ -8,8 +8,7 @@ function score(partial: Partial<RunScore> & { taskId: string; surfaceId: string 
     runId: `${partial.taskId}-${partial.surfaceId}-${Math.random()}`,
     taskFamily: "repair",
     feedbackMode: "none",
-    model: "claude-opus-5",
-    runner: "anthropic" as const,
+    model: "anthropic:claude-opus-5",
     stopReason: "completed",
     constraintScore: 0.8,
     checkResults: [],
@@ -219,12 +218,11 @@ describe("resume fingerprint", () => {
     taskIds: ["a"],
     surfaces: ["coordinate" as const],
     feedback: ["none" as const],
-    models: ["claude-opus-5"],
+    models: ["anthropic:claude-opus-5"],
     repeats: 1,
     concurrency: 1,
-    runner: "anthropic" as const,
     judge: true,
-    judgeModel: "claude-opus-5",
+    judgeModel: "anthropic:claude-opus-5",
     dryRun: false,
     force: false,
   };
@@ -232,18 +230,30 @@ describe("resume fingerprint", () => {
   it("ignores changes the run id already encodes", () => {
     // Adding a task or a repeat gives new ids, so the finished cells are still
     // comparable and the sweep should extend rather than refuse.
-    const extended = { ...base, taskIds: ["a", "b"], repeats: 3, models: ["claude-opus-5", "claude-sonnet-5"] };
+    const extended = {
+      ...base,
+      taskIds: ["a", "b"],
+      repeats: 3,
+      models: ["anthropic:claude-opus-5", "anthropic:claude-sonnet-5"],
+    };
     expect(fingerprintConflicts(runFingerprint(base), runFingerprint(extended))).toEqual([]);
+  });
+
+  // The two agent loops were collapsed into one. A directory holding runs from
+  // the retired native loop must not quietly accept runs from this one.
+  it("refuses to resume a sweep made under the retired native loop", () => {
+    const previous = runFingerprint({ ...base, runner: "anthropic" } as never);
+    const conflicts = fingerprintConflicts(previous, runFingerprint(base));
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain("harness");
   });
 
   it("names the settings a run id does not encode", () => {
     for (const changed of [
       { effort: "low" as const },
       { maxTokens: 4000 },
-      { eagerInputStreaming: true },
       { judge: false },
-      { judgeModel: "claude-sonnet-5" },
-      { runner: "aisdk" as const },
+      { judgeModel: "anthropic:claude-sonnet-5" },
       { dryRun: true },
     ]) {
       const conflicts = fingerprintConflicts(runFingerprint(base), runFingerprint({ ...base, ...changed }));

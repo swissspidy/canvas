@@ -43,7 +43,6 @@ const writeTool: ToolDef<z.infer<typeof zWriteInput>> = {
   description:
     "Replace the entire document with the JSON you supply. There is no partial update: anything you leave out is gone.",
   schema: zWriteInput,
-  eagerInput: true,
   run(ctx, input) {
     let next: Doc;
     try {
