@@ -17,6 +17,7 @@ import { getAsset } from "../doc/assets.js";
 import { layoutTextElement } from "../text/layout.js";
 import { FONT_FAMILY } from "../text/font-registry.js";
 import { round } from "../doc/geometry.js";
+import { toBase64 } from "./rasterizer.js";
 
 export interface RenderOptions {
   /** Clip each text element to its box, so overflow is visibly truncated. */
@@ -299,10 +300,14 @@ export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
   );
 }
 
-/** `@font-face` CSS with the vendored fonts inlined, for standalone SVG/PNG. */
-export function inlineFontCss(regular: Buffer, bold: Buffer): string {
-  const face = (bytes: Buffer, weight: string) =>
+/**
+ * `@font-face` CSS with the vendored faces inlined, making an SVG
+ * self-contained. Required whenever the SVG is rendered somewhere that cannot
+ * reach the page's stylesheets — an `<img>`, or a standalone file.
+ */
+export function inlineFontCss(regular: Uint8Array, bold: Uint8Array): string {
+  const face = (bytes: Uint8Array, weight: string) =>
     `@font-face{font-family:'${FONT_FAMILY}';font-style:normal;font-weight:${weight};` +
-    `src:url(data:font/ttf;base64,${bytes.toString("base64")}) format('truetype');}`;
+    `src:url(data:font/ttf;base64,${toBase64(bytes)}) format('truetype');}`;
   return face(regular, "normal") + face(bold, "bold");
 }

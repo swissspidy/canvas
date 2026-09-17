@@ -15,10 +15,11 @@
  * scoring to a *harness* on `window.__canvasBench` instead, which the agent
  * cannot reach.
  *
- * **Feedback stays push, not pull.** The channel's text rides back on each
- * tool result, exactly as it does in the loops, so `none`, `structured` and
- * `structured_plain` mean the same thing here. Screenshots are the exception
- * and are documented below.
+ * **Feedback stays push, not pull.** The channel's blocks ride back on each
+ * tool result, exactly as they do in the loops, so every feedback condition
+ * means the same thing here — screenshots included. `executeTool` is typed as
+ * returning a string, but that string is serialized JSON, so a base64 image
+ * crosses it intact.
  */
 
 import type { DocSession } from "../doc/session.js";
@@ -28,6 +29,7 @@ import { toolInputSchema } from "../doc/schema.js";
 import type { FeedbackChannel } from "../feedback/index.js";
 import type { Doc } from "../doc/types.js";
 import type { ActionRecord } from "../doc/session.js";
+import { toBase64 } from "../render/rasterizer.js";
 import type { PolyfillToolDescriptor } from "./polyfill.js";
 
 /** MCP-shaped tool output. */
@@ -91,7 +93,7 @@ export async function registerSurfaceTools(
           // flight or moves money: a wrong call is undone by another call.
           consequentialHint: false,
         },
-        execute: (input) => {
+        execute: async (input) => {
           const outcome = executeToolCall(session, surface, def.name, input ?? {});
           options.onAction?.(session.doc, outcome.record);
           return buildResult(outcome.ok, outcome.message, options.feedback, session.doc);
@@ -107,26 +109,24 @@ export async function registerSurfaceTools(
   };
 }
 
-function buildResult(
+async function buildResult(
   ok: boolean,
   message: string,
   feedback: FeedbackChannel | undefined,
   doc: Doc,
-): McpContent {
+): Promise<McpContent> {
   const content: McpContent["content"] = [{ type: "text", text: message }];
 
   if (feedback) {
-    for (const block of feedback.after(doc)) {
+    for (const block of await feedback.after(doc)) {
       if (block.type === "text") {
         content.push({ type: "text", text: block.text });
       } else {
-        // MCP has an image content type, but WebMCP's `executeTool` is typed
-        // as returning a string, so whether an image survives the trip to the
-        // model depends entirely on the host implementation. It is emitted
-        // here and the page reports whether the host kept it — see
-        // `docs/WEBMCP.md`. Nothing about the `screenshot` feedback condition
-        // should be assumed to work over WebMCP until a host is checked.
-        content.push({ type: "image", data: block.png.toString("base64"), mimeType: block.mediaType });
+        // The standard MCP image part. `executeTool` returns a string, but that
+        // string is serialized JSON, so base64 image data crosses intact — the
+        // transport is not the constraint. What a harness does with the part
+        // once it has it is; see `docs/WEBMCP.md`.
+        content.push({ type: "image", data: toBase64(block.png), mimeType: block.mediaType });
       }
     }
   }

@@ -27,6 +27,7 @@ import type { ToolSurface } from "../surfaces/types.js";
 import type { Task } from "../tasks/types.js";
 import type { FeedbackBlock, FeedbackChannel } from "../feedback/index.js";
 import { renderSvg } from "../render/svg.js";
+import { toBase64 } from "../render/rasterizer.js";
 import { addUsage, costUsd, getModel, isKnownModel, ZERO_USAGE, type Effort, type TokenUsage } from "./models.js";
 import { noopSink, type AgentEvent, type EventSink, type StopReason } from "./events.js";
 import { initialUserBlocks, systemPrompt } from "./prompt.js";
@@ -130,7 +131,7 @@ function toContentBlocks(blocks: FeedbackBlock[]): FeedbackContentBlock[] {
       ? ({ type: "text", text: b.text } as const)
       : ({
           type: "image",
-          source: { type: "base64", media_type: b.mediaType, data: b.png.toString("base64") },
+          source: { type: "base64", media_type: b.mediaType, data: toBase64(b.png) },
         } as const),
   );
 }
@@ -178,7 +179,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
   });
 
   const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: toContentBlocks(initialUserBlocks(config.task, initialDoc, config.feedback)) },
+    { role: "user", content: toContentBlocks(await initialUserBlocks(config.task, initialDoc, config.feedback)) },
   ];
 
   let usage: TokenUsage = { ...ZERO_USAGE };
@@ -314,7 +315,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
       // Feedback describes the state after *all* of this turn's calls, so it
       // attaches once, to the last result.
-      const feedbackBlocks = config.feedback.after(session.doc);
+      const feedbackBlocks = await config.feedback.after(session.doc);
       if (feedbackBlocks.length > 0) {
         emit({
           type: "feedback",

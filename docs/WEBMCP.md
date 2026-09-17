@@ -37,6 +37,7 @@ tools, their descriptions, and their JSON Schemas. Nothing else.
 | `setTask(id)` / `setSurface(id)` / `setFeedback(mode)` | Switch conditions |
 | `reset()` | Reload the current task's starting document |
 | `listTools()` / `callTool(name, input)` | Convenience wrappers |
+| `png({ pixelWidth })` | The rendered document as a base64 PNG |
 | `tasks`, `surfaces`, `feedbackModes` | What is available |
 | `svg()` | The rendered document |
 
@@ -105,7 +106,57 @@ execute each call back in the page, then read the page's own score.
 
 ---
 
-## Limitations, stated plainly
+## How images travel
+
+**Screenshots do cross — the harness has to unpack them.** `executeTool` is
+typed as returning a `string`, which reads like a bar on images. It is not: the
+string is serialized JSON, so base64 image data passes through intact. A
+screenshot-condition result looks like
+
+```json
+{ "content": [
+  { "type": "text", "text": "Aligned r1, r2 on left at 109 (relative to selection)." },
+  { "type": "image", "data": "iVBORw0KGgoAAAANSUhEUg…", "mimeType": "image/png" }
+] }
+```
+
+which is the standard MCP image part. The end-to-end test asserts the base64 on
+the far side decodes to a real PNG of the right dimensions, not merely that a
+field is present.
+
+What is genuinely on the harness is the *conversion*. If it parses the content
+array and re-wraps the image part for its model API, the model sees a picture.
+If it dumps the raw string in as text, the model gets tens of kilobytes of
+base64 and cannot see anything — worse than sending nothing. One line, for the
+AI SDK:
+
+```js
+const toModelPart = (part) =>
+  part.type === "image"
+    ? { type: "file", mediaType: part.mimeType, data: { type: "data", data: part.data } }
+    : { type: "text", text: part.text };
+```
+
+`scripts/e2e-webmcp.mjs` does exactly this and asserts the model received a
+file part rather than base64 text.
+
+**All six feedback conditions work in the browser.** Screenshots are produced by
+`src/render/browser-raster.ts` — the SVG is drawn into an `<img>`, painted onto
+a canvas and read back as PNG bytes — so `screenshot`, `both` and `both_plain`
+are as available here as under Node's resvg.
+
+One thing that had to be right: an SVG loaded as an image is an isolated
+document and cannot reach the host page's stylesheets, so a `font-family`
+reference alone would paint in a fallback. The face is inlined into the SVG as a
+data URI instead. Layout would have survived either way — every line is pinned
+to its computed width with `textLength` — but the screenshot the agent sees
+should be the document the scorer measured, in the same typeface. The
+end-to-end test renders with and without the embedded face and asserts the two
+differ, which is the only way to know embedding is doing anything.
+
+---
+
+## The one real limitation
 
 **It runs on a polyfill.** No browser ships WebMCP yet, so
 `src/webmcp/polyfill.ts` installs a `document.modelContext` that implements the
@@ -114,23 +165,10 @@ implementation exists, and the page says which is in play — "polyfill" or
 "native WebMCP" — because results obtained through a polyfill are results
 obtained through a polyfill.
 
-**Screenshots probably do not survive.** WebMCP types `executeTool` as
-returning a `string`. The registration emits an MCP `image` content part under
-the screenshot feedback conditions, but whether it reaches the model depends
-entirely on the host. Until you have checked a specific host, assume it does
-not.
-
-Relatedly, a browser has no rasterizer, so `createFeedbackChannel` refuses the
-screenshot modes there rather than silently dropping the image, and the page
-offers only the modes that work. A feedback condition that quietly stopped
-sending screenshots would corrupt the variable this study is built around.
-
-**This constrains what WebMCP can measure.** The feedback axis survives for
-`none`, `structured` and `structured_plain` — the tool result is the page's to
-construct. The screenshot conditions do not. So the WebMCP track can answer the
-*surface* question across many agents, and the confirmatory grid in
-`docs/PREREGISTRATION.md` stays in this repo's own loops, where all four
-feedback conditions are enforceable.
+That is why `docs/PREREGISTRATION.md` keeps anything measured over WebMCP in the
+exploratory column. Not because the protocol cannot carry what the study needs
+— it can, including screenshots — but because the implementation under it here
+is ours.
 
 ---
 
@@ -138,7 +176,7 @@ feedback conditions are enforceable.
 
 `npm run e2e:webmcp` runs in about three seconds against the SDK's mock model,
 so it needs no API key and can sit in CI. Pass `--model provider:model-id` to
-drive it with a real one. It checks 21 things across six stages:
+drive it with a real one. It checks 28 things across seven stages:
 
 1. The page hosts the bench and publishes tools; no page errors.
 2. A harness discovers them straight off `document.modelContext` — every tool
@@ -147,6 +185,9 @@ drive it with a real one. It checks 21 things across six stages:
 3. The discovered schemas convert to AI SDK tools.
 4. The model's calls execute *in the page*, including a deliberately malformed
    one, to prove the error path survives the round trip.
-5. The page's own state and scorer reflect the work: the rows share one left
+5. The screenshot crosses intact: the base64 decodes to a PNG of the right
+   dimensions, it reaches the model as a file part rather than as text, and the
+   embedded font is demonstrably applied.
+6. The page's own state and scorer reflect the work: the rows share one left
    edge, the rejected call is in the log, the score beats the baseline.
-6. Switching surface re-registers the tools and keeps the document.
+7. Switching surface re-registers the tools and keeps the document.

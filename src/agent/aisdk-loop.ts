@@ -23,6 +23,7 @@ import type { ToolSurface } from "../surfaces/types.js";
 import type { Task } from "../tasks/types.js";
 import type { FeedbackBlock, FeedbackChannel } from "../feedback/index.js";
 import { renderSvg } from "../render/svg.js";
+import { toBase64 } from "../render/rasterizer.js";
 import { addUsage, ZERO_USAGE, type Effort, type TokenUsage } from "./models.js";
 import { noopSink, type AgentEvent, type EventSink, type StopReason } from "./events.js";
 import { initialUserBlocks, systemPrompt } from "./prompt.js";
@@ -75,7 +76,7 @@ function toUserContent(blocks: FeedbackBlock[]): UserContentPart[] {
   return blocks.map((b) =>
     b.type === "text"
       ? ({ type: "text", text: b.text } as const)
-      : ({ type: "file", mediaType: b.mediaType, data: { type: "data", data: b.png.toString("base64") } } as const),
+      : ({ type: "file", mediaType: b.mediaType, data: { type: "data", data: toBase64(b.png) } } as const),
   );
 }
 
@@ -88,7 +89,7 @@ function toToolOutputContent(message: string, blocks: FeedbackBlock[]): ToolOutp
   const out: ToolOutputContent = [{ type: "text", text: message }];
   for (const block of blocks) {
     if (block.type === "text") out.push({ type: "text", text: block.text });
-    else out.push({ type: "file", mediaType: block.mediaType, data: { type: "data", data: block.png.toString("base64") } });
+    else out.push({ type: "file", mediaType: block.mediaType, data: { type: "data", data: toBase64(block.png) } });
   }
   return out;
 }
@@ -145,7 +146,7 @@ export async function runAgentViaAiSdk(config: AiSdkRunConfig): Promise<RunResul
   });
 
   const messages: ModelMessage[] = [
-    { role: "user", content: toUserContent(initialUserBlocks(config.task, initialDoc, config.feedback)) as never },
+    { role: "user", content: toUserContent(await initialUserBlocks(config.task, initialDoc, config.feedback)) as never },
   ];
 
   let usage: TokenUsage = { ...ZERO_USAGE };
@@ -292,7 +293,7 @@ export async function runAgentViaAiSdk(config: AiSdkRunConfig): Promise<RunResul
         });
       }
 
-      const feedbackBlocks = config.feedback.after(session.doc);
+      const feedbackBlocks = await config.feedback.after(session.doc);
       if (feedbackBlocks.length > 0) {
         emit({
           type: "feedback",

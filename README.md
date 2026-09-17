@@ -106,15 +106,22 @@ can drive the canvas with no agent loop from this repo involved:
 
 ```bash
 npm run serve        # http://localhost:5173/webmcp.html
-npm run e2e:webmcp   # 21 assertions, ~3s, no API key
+npm run e2e:webmcp   # 28 assertions, ~3s, no API key
 ```
+
+All six feedback conditions work there, screenshots included: the browser
+rasterizes through a canvas, and `executeTool` returning a `string` is no
+obstacle because that string is serialized JSON, so base64 image data crosses
+intact. The end-to-end test asserts the bytes decode to a real PNG and reach the
+model as an image part rather than as base64 text.
 
 This is what makes the bench usable from
 [webmcp-evals](https://github.com/GoogleChromeLabs/webmcp-tools/tree/main/webmcp-evals)
 and anything else that speaks the protocol. **[docs/WEBMCP.md](docs/WEBMCP.md)**
 covers what is exposed to an agent versus to a harness, why the scorer is
-deliberately not a tool, and the two real limitations — it runs on a polyfill,
-and screenshot feedback almost certainly does not survive the round trip.
+deliberately not a tool, the one-line conversion a harness must do with an image
+part, and the remaining caveat — it runs on a polyfill, because no browser
+ships WebMCP yet.
 
 ## How a run is scored
 

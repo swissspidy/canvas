@@ -11,6 +11,22 @@ function parse(raw: string): McpContent {
   return JSON.parse(raw) as McpContent;
 }
 
+/**
+ * Read a PNG's header. Enough to prove the bytes coming back over WebMCP are a
+ * real image and not, say, a base64-encoded error string.
+ */
+function inspectPng(base64: string): { valid: boolean; width: number; height: number; bytes: number } {
+  const bytes = Buffer.from(base64, "base64");
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const valid = bytes.length > 24 && bytes.subarray(0, 8).equals(signature);
+  return {
+    valid,
+    width: valid ? bytes.readUInt32BE(16) : 0,
+    height: valid ? bytes.readUInt32BE(20) : 0,
+    bytes: bytes.length,
+  };
+}
+
 function textOf(result: McpContent): string {
   return result.content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -179,19 +195,46 @@ describe("registering a surface", () => {
     expect(textOf(result)).not.toContain("Current document:");
   });
 
-  it("emits an image part under a screenshot condition", async () => {
+  it("returns a real PNG over the string transport", async () => {
+    // `executeTool` is typed as returning a string, which is sometimes read as
+    // meaning images cannot cross it. The string is serialized JSON, so base64
+    // image data survives — this asserts the bytes on the far side decode to a
+    // PNG of the expected size, not merely that some field is present.
+    const task = getTask("arrange.ragged-column");
+    const context = createModelContext();
+    const session = new DocSession(task.initial());
+    await registerSurfaceTools(context, session, relationalSurface, {
+      feedback: createFeedbackChannel("screenshot", { screenshotWidth: 160 }),
+    });
+    const tools = await context.getTools();
+
+    const raw = await context.executeTool(tools.find((t) => t.name === "align")!, { ids: ["r1", "r2"], edge: "left" });
+    expect(typeof raw).toBe("string");
+
+    const result = parse(raw);
+    const image = result.content.find((c) => c.type === "image") as { data: string; mimeType: string } | undefined;
+    expect(image).toBeDefined();
+    expect(image!.mimeType).toBe("image/png");
+
+    const png = inspectPng(image!.data);
+    expect(png.valid).toBe(true);
+    expect(png.width).toBe(160);
+    expect(png.height).toBe(Math.round((160 * task.initial().height) / task.initial().width));
+    expect(png.bytes).toBeGreaterThan(500);
+  });
+
+  it("sends both a description and an image under 'both'", async () => {
     const context = createModelContext();
     const session = new DocSession(getTask("arrange.ragged-column").initial());
     await registerSurfaceTools(context, session, relationalSurface, {
-      feedback: createFeedbackChannel("screenshot", { screenshotWidth: 160 }),
+      feedback: createFeedbackChannel("both", { screenshotWidth: 120 }),
     });
     const tools = await context.getTools();
     const result = parse(
       await context.executeTool(tools.find((t) => t.name === "align")!, { ids: ["r1", "r2"], edge: "left" }),
     );
-    const image = result.content.find((c) => c.type === "image");
-    expect(image).toBeDefined();
-    expect((image as { mimeType: string }).mimeType).toBe("image/png");
+    expect(textOf(result)).toContain("Current document:");
+    expect(result.content.some((c) => c.type === "image")).toBe(true);
   });
 
   it("never exposes the scorer as a tool", async () => {

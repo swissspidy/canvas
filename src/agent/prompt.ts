@@ -55,7 +55,11 @@ export function systemPrompt(surface: ToolSurface): string {
  * feedback condition. What the feedback channel actually controls is what
  * comes back after each action, which is the part under study.
  */
-export function initialUserBlocks(task: Task, doc: Doc, feedback: FeedbackChannel): FeedbackBlock[] {
+export async function initialUserBlocks(
+  task: Task,
+  doc: Doc,
+  feedback: FeedbackChannel,
+): Promise<FeedbackBlock[]> {
   const blocks: FeedbackBlock[] = [
     {
       type: "text",
@@ -79,7 +83,7 @@ export function initialUserBlocks(task: Task, doc: Doc, feedback: FeedbackChanne
   if (feedback.showsImage) {
     blocks.push({
       type: "image",
-      png: Buffer.from(rasterizeDoc(doc, { pixelWidth: DEFAULT_SCREENSHOT_WIDTH })),
+      png: await rasterizeDoc(doc, { pixelWidth: DEFAULT_SCREENSHOT_WIDTH }),
       mediaType: "image/png",
     });
     blocks.push({ type: "text", text: "The image above is the document as it currently renders." });

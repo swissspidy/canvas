@@ -295,17 +295,29 @@ pure, and only two things reached for Node.
 the Node loader that reads them off disk. `src/render/rasterizer.ts` holds the
 SVG-to-PNG implementation; `src/render/raster.ts` registers the resvg one.
 
-In a browser the fonts are fetched and registered, and no rasterizer is
-registered at all — so `createFeedbackChannel` refuses the screenshot
-conditions there rather than silently dropping the image. A feedback condition
-that quietly stopped sending screenshots would corrupt the variable this study
-is built around; failing loudly is correct.
+In a browser the fonts are fetched and registered, and `browser-raster.ts`
+installs a canvas rasterizer, so every feedback condition works there too. If
+nothing is registered, asking for a screenshot throws rather than quietly
+returning text — a feedback condition that silently stopped sending screenshots
+would corrupt the variable this study is built around.
 
-What that buys is `src/webmcp/`: the surfaces published on
+The browser rasterizer draws the SVG into an `<img>`, paints it onto a canvas
+and reads back PNG bytes. An SVG loaded as an image is an isolated document and
+cannot reach the host page's stylesheets, so the font face is inlined into the
+SVG as a data URI; otherwise text would paint in a fallback typeface. Layout
+would survive either way — every line is pinned with `textLength` — but the
+screenshot the agent sees should be the document the scorer measured, in the
+same face. The end-to-end test renders with and without the embedded face and
+asserts they differ, since that is the only way to know embedding works.
+
+Making the feedback channel `async` is the cost. Every caller was already in an
+async context, so it is paid once at the type level and nowhere at runtime.
+
+What all of this buys is `src/webmcp/`: the surfaces published on
 `document.modelContext`, drivable by any WebMCP agent, with every call still
-going through `executeToolCall`. See `docs/WEBMCP.md`, including the two
-limitations — it runs on a polyfill, and screenshots almost certainly do not
-survive the round trip.
+going through `executeToolCall`. See `docs/WEBMCP.md`. One caveat remains, and
+it is not about the protocol: no browser ships WebMCP yet, so it runs on a
+polyfill.
 
 ## The task set tests itself
 

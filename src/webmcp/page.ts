@@ -26,6 +26,8 @@ import { renderSvg } from "../render/svg.js";
 import { describeDoc } from "../render/describe.js";
 import { scoreDocument, baselineFor, normalize } from "../eval/score.js";
 import { registerFontBytes, FONT_FILES } from "../text/font-registry.js";
+import { installBrowserRasterizer, rasterizeInBrowser } from "../render/browser-raster.js";
+import { toBase64 } from "../render/rasterizer.js";
 import { installWebMcpPolyfill, isPolyfilled } from "./polyfill.js";
 import { registerSurfaceTools, type ModelContextLike, type RegisteredSurface } from "./register.js";
 import type { Doc } from "../doc/types.js";
@@ -148,6 +150,9 @@ async function boot(): Promise<void> {
     registerFontBytes(weight, new Uint8Array(await response.arrayBuffer()));
   }
 
+  // Must come before the feedback dropdown is built: it is what makes the
+  // screenshot conditions available in a browser at all.
+  installBrowserRasterizer();
   installWebMcpPolyfill();
 
   const taskSelect = el("task") as HTMLSelectElement;
@@ -164,8 +169,6 @@ async function boot(): Promise<void> {
   });
 
   const feedbackSelect = el("feedback") as HTMLSelectElement;
-  // A browser has no rasterizer, so the screenshot conditions are absent
-  // rather than silently degraded. See docs/WEBMCP.md.
   for (const mode of availableFeedbackModes()) feedbackSelect.append(new Option(mode, mode));
   feedbackSelect.value = feedbackMode;
   feedbackSelect.addEventListener("change", () => {
@@ -229,6 +232,15 @@ Object.defineProperty(window, "__canvasBench", {
       return JSON.parse(await modelContext().executeTool({ name }, input)) as unknown;
     },
     svg: () => renderSvg(session.doc),
+    /**
+     * The rendered document as a base64 PNG, for a harness that wants the
+     * image without going through a tool call. `embedFont: false` skips the
+     * inlined face — only useful for checking that embedding does anything.
+     */
+    async png(opts: { pixelWidth?: number; embedFont?: boolean } = {}) {
+      await ready;
+      return toBase64(await rasterizeInBrowser(session.doc, opts));
+    },
   },
   writable: false,
   enumerable: false,

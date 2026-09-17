@@ -263,9 +263,10 @@ Reported as exploratory, never as confirmatory, however tempting the numbers:
   both. This is descriptive.
 - Per-task results, as opposed to per-family.
 - Anything about *why* a surface failed, drawn from reading transcripts.
-- Anything obtained by driving the surfaces over WebMCP. That track cannot
-  enforce the screenshot feedback conditions (`docs/WEBMCP.md`), and at present
-  it runs on a polyfill rather than a browser implementation.
+- Anything obtained by driving the surfaces over WebMCP. Every feedback
+  condition is enforceable there, but it runs on a polyfill rather than a
+  browser implementation, and whether a screenshot reaches the model depends on
+  the driving harness unpacking the image part (`docs/WEBMCP.md`).
 - Any comparison not listed in §4.
 
 ---

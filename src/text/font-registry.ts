@@ -29,6 +29,8 @@ export const FONT_FILES: Record<FontWeight, string> = {
 };
 
 const parsed = new Map<FontWeight, FontMetrics>();
+/** Raw bytes are kept so a rasterizer can inline the face into an SVG. */
+const raw = new Map<FontWeight, Uint8Array>();
 
 /** A synchronous source of font bytes, installed by the platform loader. */
 export type FontLoader = (weight: FontWeight) => Uint8Array;
@@ -44,7 +46,27 @@ export function setFontLoader(fn: FontLoader | null): void {
 export function registerFontBytes(weight: FontWeight, bytes: Uint8Array): FontMetrics {
   const metrics = parseFont(bytes, FONT_FAMILY);
   parsed.set(weight, metrics);
+  raw.set(weight, bytes);
   return metrics;
+}
+
+/**
+ * The bytes a weight was registered from.
+ *
+ * An SVG rendered into an `<img>` cannot reach the page's stylesheets, so the
+ * browser rasterizer has to inline the face into the SVG itself. Without this
+ * it would paint in a fallback font, and the screenshot the agent sees would
+ * not be the document the scorer measured.
+ */
+export function getFontBytes(weight: FontWeight = "regular"): Uint8Array {
+  const hit = raw.get(weight);
+  if (hit) return hit;
+  if (loader) {
+    const bytes = loader(weight);
+    registerFontBytes(weight, bytes);
+    return bytes;
+  }
+  throw new Error(`No font bytes registered for weight '${weight}'.`);
 }
 
 export function hasFont(weight: FontWeight): boolean {

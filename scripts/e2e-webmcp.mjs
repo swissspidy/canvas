@@ -23,7 +23,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateText, jsonSchema, stepCountIs, tool } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
@@ -33,6 +33,9 @@ const PORT = Number(process.env.E2E_PORT ?? 5310);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TASK = "arrange.ragged-column";
 const SURFACE = "relational";
+// `both` so the round trip carries a screenshot as well as a description —
+// the part that is easiest to assume works and worth asserting.
+const FEEDBACK = "both";
 const IDS = ["r1", "r2", "r3", "r4", "r5"];
 
 const modelArg = process.argv.indexOf("--model");
@@ -67,6 +70,31 @@ function stopServer(server) {
   } catch {
     server.kill("SIGTERM");
   }
+}
+
+/**
+ * An MCP content part as the AI SDK wants it. This is the conversion a harness
+ * has to do: the image arrives base64 inside the JSON string `executeTool`
+ * returns, and becomes a real file part so the model sees a picture rather than
+ * a wall of base64 text.
+ */
+function toModelPart(part) {
+  return part.type === "image"
+    ? { type: "file", mediaType: part.mimeType, data: { type: "data", data: part.data } }
+    : { type: "text", text: part.text };
+}
+
+/** Read a PNG header, to prove the bytes are an image and not an error string. */
+function inspectPng(base64) {
+  const bytes = Buffer.from(base64, "base64");
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const valid = bytes.length > 24 && bytes.subarray(0, 8).equals(signature);
+  return {
+    valid,
+    width: valid ? bytes.readUInt32BE(16) : 0,
+    height: valid ? bytes.readUInt32BE(20) : 0,
+    bytes,
+  };
 }
 
 function findChromium() {
@@ -154,8 +182,12 @@ async function main() {
     await page.goto(`${BASE}/webmcp.html`, { waitUntil: "networkidle" });
     await page.evaluate(() => window.__canvasBench.ready);
     await page.evaluate(
-      ([task, surface]) => window.__canvasBench.setTask(task).then(() => window.__canvasBench.setSurface(surface)),
-      [TASK, SURFACE],
+      async ([task, surface, feedback]) => {
+        await window.__canvasBench.setTask(task);
+        await window.__canvasBench.setSurface(surface);
+        await window.__canvasBench.setFeedback(feedback);
+      },
+      [TASK, SURFACE, FEEDBACK],
     );
 
     console.log("\n1. The page hosts the bench and publishes tools");
@@ -166,6 +198,11 @@ async function main() {
     check("document.modelContext exists", hosted.hasModelContext);
     check("the task loaded in the browser", hosted.state.taskId === TASK, hosted.state.taskId);
     check("the surface is registered", hosted.state.surfaceId === SURFACE, hosted.state.surfaceId);
+    check(
+      "the screenshot feedback condition is available in the browser",
+      hosted.state.feedback === FEEDBACK,
+      hosted.state.feedback,
+    );
     check("no page errors during boot", pageErrors.length === 0, pageErrors.join("; "));
     console.log(`       tools hosted by ${hosted.state.polyfilled ? "the bundled polyfill" : "native WebMCP"}`);
 
@@ -213,6 +250,7 @@ async function main() {
     const brief = await page.evaluate((id) => window.__canvasBench.tasks.find((t) => t.id === id).brief, TASK);
     const messages = [{ role: "user", content: brief }];
     const executed = [];
+    const images = [];
 
     for (let turn = 1; turn <= 8; turn++) {
       const result = await generateText({
@@ -235,13 +273,15 @@ async function main() {
         );
         const parsed = JSON.parse(raw);
         executed.push({ name: call.toolName, isError: Boolean(parsed.isError) });
+        for (const part of parsed.content) if (part.type === "image") images.push(part);
+
         outputs.push({
           type: "tool-result",
           toolCallId: call.toolCallId,
           toolName: call.toolName,
           output: parsed.isError
             ? { type: "error-text", value: parsed.content.map((c) => c.text ?? "").join("\n") }
-            : { type: "content", value: parsed.content.filter((c) => c.type === "text") },
+            : { type: "content", value: parsed.content.map(toModelPart) },
         });
       }
       messages.push({ role: "tool", content: outputs });
@@ -255,7 +295,50 @@ async function main() {
       executed.map((e) => `${e.name}${e.isError ? "!" : ""}`).join(" "),
     );
 
-    console.log("\n5. The page's own state and scorer reflect the work");
+    console.log("\n5. The screenshot crosses the string transport intact");
+    check("an image part came back", images.length > 0, `${images.length} images`);
+    if (images.length > 0) {
+      const png = inspectPng(images[0].data);
+      const canvas = await page.evaluate(() => {
+        const doc = window.__canvasBench.state().doc;
+        return { width: doc.width, height: doc.height };
+      });
+      check("the image is declared as PNG", images[0].mimeType === "image/png", images[0].mimeType);
+      check("the base64 decodes to a real PNG", png.valid, `${png.bytes.length} bytes`);
+      check(
+        "its dimensions match the canvas aspect",
+        png.valid && Math.abs(png.height / png.width - canvas.height / canvas.width) < 0.02,
+        `${png.width}x${png.height} for a ${canvas.width}x${canvas.height} canvas`,
+      );
+      check(
+        "it was handed to the model as an image, not as base64 text",
+        messages.some((m) =>
+          m.role === "tool" &&
+          m.content.some((r) => r.output?.type === "content" && r.output.value.some((v) => v.type === "file")),
+        ),
+      );
+      // The load-bearing uncertainty about rendering SVG through an <img>:
+      // it is an isolated document, so a font-family reference alone would
+      // paint in a fallback. If embedding the face changes nothing, it is not
+      // being applied and every screenshot is in the wrong typeface.
+      const [embedded, plain] = await page.evaluate(async () => [
+        await window.__canvasBench.png({ pixelWidth: 320 }),
+        await window.__canvasBench.png({ pixelWidth: 320, embedFont: false }),
+      ]);
+      check(
+        "the embedded font is actually applied when rendering through an <img>",
+        embedded !== plain,
+        `${Buffer.from(embedded, "base64").length} vs ${Buffer.from(plain, "base64").length} bytes`,
+      );
+
+      const out = process.env.E2E_CANVAS_PNG;
+      if (out && png.valid) {
+        writeFileSync(out, png.bytes);
+        console.log(`       wrote the browser-rendered screenshot to ${out}`);
+      }
+    }
+
+    console.log("\n6. The page's own state and scorer reflect the work");
     const after = await page.evaluate(() => ({
       state: window.__canvasBench.state(),
       score: window.__canvasBench.score(),
@@ -275,7 +358,7 @@ async function main() {
     );
     check("still no page errors", pageErrors.length === 0, pageErrors.join("; "));
 
-    console.log("\n6. Switching surface re-registers the tools, keeping the document");
+    console.log("\n7. Switching surface re-registers the tools, keeping the document");
     await page.evaluate(() => window.__canvasBench.setSurface("coordinate"));
     const afterSwitch = await page.evaluate(async () => ({
       names: (await document.modelContext.getTools()).map((t) => t.name),

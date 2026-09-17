@@ -36,7 +36,10 @@ export const HEADLINE_FEEDBACK: FeedbackMode[] = ["none", "structured", "screens
 
 export type FeedbackBlock =
   | { type: "text"; text: string }
-  | { type: "image"; png: Buffer; mediaType: "image/png" };
+  // Uint8Array rather than Buffer: a browser canvas produces one and there is
+  // no Buffer there. Node's Buffer is a Uint8Array, so nothing on that side
+  // changes.
+  | { type: "image"; png: Uint8Array; mediaType: "image/png" };
 
 export interface FeedbackOptions {
   /** Pixel width of screenshots handed to the model. */
@@ -49,8 +52,13 @@ export interface FeedbackChannel {
   showsImage: boolean;
   /** True when the model sees derived layout analysis. */
   showsAnalysis: boolean;
-  /** Blocks to append after an action, or `[]` for the no-feedback condition. */
-  after(doc: Doc): FeedbackBlock[];
+  /**
+   * Blocks to append after an action, or `[]` for the no-feedback condition.
+   *
+   * Async because a browser rasterizes through a canvas, which is. Every
+   * caller is already in an async context, so this costs nothing in Node.
+   */
+  after(doc: Doc): Promise<FeedbackBlock[]>;
 }
 
 function wantsImage(mode: FeedbackMode): boolean {
@@ -74,7 +82,7 @@ export function createFeedbackChannel(
   if (showsImage && !hasRasterizer()) {
     throw new Error(
       `Feedback mode '${mode}' needs a rasterizer and none is registered. ` +
-        `In Node, import 'src/render/raster.js'; in a browser, screenshot conditions are unavailable.`,
+        `Import 'src/render/raster.js' in Node, or 'src/render/browser-raster.js' in a browser.`,
     );
   }
   const showsText = wantsText(mode);
@@ -84,7 +92,7 @@ export function createFeedbackChannel(
     mode,
     showsImage,
     showsAnalysis,
-    after(doc: Doc): FeedbackBlock[] {
+    async after(doc: Doc): Promise<FeedbackBlock[]> {
       const blocks: FeedbackBlock[] = [];
       if (showsText) {
         blocks.push({
@@ -95,7 +103,8 @@ export function createFeedbackChannel(
         });
       }
       if (showsImage) {
-        blocks.push({ type: "image", png: Buffer.from(rasterizeDoc(doc, { pixelWidth: width })), mediaType: "image/png" });
+        const png = await rasterizeDoc(doc, { pixelWidth: width });
+        blocks.push({ type: "image", png, mediaType: "image/png" });
       }
       return blocks;
     },
