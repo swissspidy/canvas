@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas agent bench — WebMCP host</title>
+<meta name="description" content="The tool surfaces, published on document.modelContext for any WebMCP agent to drive.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232b3a67'/><rect x='7' y='8' width='18' height='5' rx='2' fill='%23f3c969'/><rect x='7' y='17' width='11' height='4' rx='2' fill='%23e8e6f2'/><rect x='7' y='24' width='15' height='3' rx='1.5' fill='%238a86a8'/></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">
+    <h1>WebMCP host</h1>
+    <p class="question">
+      The tool surfaces, published on <code>document.modelContext</code>. No agent loop here — an outside
+      harness discovers the tools and calls them, and this page keeps the document, renders it and scores it.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel controls" aria-label="Setup">
+    <div class="row">
+      <div class="field">
+        <label for="task">Task</label>
+        <select id="task"></select>
+      </div>
+      <div class="field">
+        <label for="surface">Tool surface</label>
+        <select id="surface"></select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="feedback">Feedback on each tool result</label>
+        <select id="feedback"></select>
+      </div>
+      <div class="field">
+        <label id="tools-label">Registered tools</label>
+        <p class="hint" id="tools" aria-labelledby="tools-label"></p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="reset" class="primary">Reset task</button>
+      <button id="describe">Describe document</button>
+      <button id="score">Score</button>
+      <span class="status" id="status">starting…</span>
+    </div>
+    <p class="notice">
+      The scorer is deliberately <strong>not</strong> a WebMCP tool — an agent that can call the checks
+      optimizes against the rubric instead of laying out a document. It lives on
+      <code>window.__canvasBench</code>, which the tools cannot reach.
+    </p>
+  </section>
+
+  <section class="stage">
+    <div class="panel canvas-panel">
+      <div class="panel-head"><h2>Canvas</h2></div>
+      <div class="canvas-frame" id="canvas" aria-live="polite"></div>
+      <pre class="report" id="description"></pre>
+    </div>
+    <div class="panel log-panel">
+      <div class="panel-head"><h2>Tool calls</h2></div>
+      <ol class="log" id="log"></ol>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <p>
+      Drive it from a console: <code>await document.modelContext.getTools()</code>, then
+      <code>await document.modelContext.executeTool({ name: 'align' }, { ids: ['r1','r2'], edge: 'left' })</code>.
+      A harness uses <code>window.__canvasBench</code> to switch task, surface and feedback condition and to read
+      the score. See <code>docs/WEBMCP.md</code>.
+    </p>
+  </footer>
+</main>
+
+<script type="module" src="/dist/webmcp.js"></script>
+</body>
+</html>

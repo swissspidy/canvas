@@ -1,0 +1,6 @@
+node_modules/
+dist/
+runs/
+*.local
+.DS_Store
+web/dist/
