@@ -404,12 +404,22 @@ to become a real task.
   screen" is what is being asked for. When the canvas is too small to separate
   everything, it says so rather than silently giving up.
 - **`coverage`** unions bounding boxes on a 60×60 occupancy grid rather than by
-  exact polygon union. It is a sanity check on "does this look composed", not a
-  precision instrument.
+  exact polygon union, and the grid rounds each element outward to whole cells.
+  It is a sanity check on "does this look composed", not a precision
+  instrument. An element covering the canvas outright is left out of the union:
+  a full-bleed background saturates the grid by itself, and once it has, a
+  composed page, a bare one and one with every element in a corner all measure
+  100% and score the same — the check was reading the background rather than
+  the composition. The exemption is narrower than the one `marginAtLeast`
+  makes, because the questions differ: a full-width band across the lower third
+  crowds no edge, but it does fill that third.
 - **Asset average colour** for contrast against an image is the midpoint of its
   two gradient stops.
-- **Glyph ink** is the line's advance width by the font's ascent-to-descent
-  envelope, not per-glyph outlines.
+- **Glyph ink** is the bounding box of a line's glyphs, read from `glyf`, not
+  the outlines themselves — the counters and the gaps between letters count as
+  ink. Tight enough that a rule passing through the blank band under a line of
+  capitals is no longer reported as covering it; not so tight that a check has
+  to reason about letterforms.
 
 Each is a deliberate trade, and each is in a place where more precision would
 not change which surface wins.

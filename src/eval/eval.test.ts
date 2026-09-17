@@ -10,7 +10,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { coordinateSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
-import { marginAtLeast, noTextOcclusion } from "./checks.js";
+import { coverage, marginAtLeast, noTextOcclusion } from "./checks.js";
 import type { RunScore } from "./score.js";
 import type { Doc, Element } from "../doc/types.js";
 
@@ -785,5 +785,77 @@ describe("the occlusion check", () => {
     const outcome = noTextOcclusion().run(doc(heading, bar));
     expect(outcome.score).toBe(0);
     expect(outcome.detail).toMatch(/heading/);
+  });
+});
+
+describe("the coverage check", () => {
+  const W = 1000;
+  const H = 1000;
+  const page = (...elements: Element[]): Doc => ({
+    width: W,
+    height: H,
+    background: "#ffffff",
+    elements,
+  });
+  const box = (id: string, x: number, y: number, width: number, height: number): Element => ({
+    id,
+    type: "rect",
+    x,
+    y,
+    width,
+    height,
+    rotation: 0,
+    z: 0,
+    style: { fill: "#334455" },
+  });
+  const background = (): Element => ({ ...box("bg", 0, 0, W, H), type: "image", src: "photo/mountains" });
+
+  // A composed page, a bare one and one with everything in a corner — all
+  // behind the same full-bleed photo. Measuring the photo, the check called
+  // them identical, and called all three over-packed.
+  const composed = () => [box("band", 0, 600, W, 400), box("headline", 100, 200, 800, 200)];
+  const bare = () => [box("scrap", 20, 20, 120, 60)];
+
+  it("looks past a full-canvas background at what is composed on top of it", () => {
+    const outcome = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    expect(outcome.score).toBe(1);
+    expect(outcome.detail).toMatch(/excluding 1 full-canvas element/);
+  });
+
+  it("tells a composed page from a bare one behind the same background", () => {
+    const good = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    const empty = coverage(0.3, 0.98).run(page(background(), ...bare()));
+    expect(good.score).toBe(1);
+    expect(empty.score).toBeLessThan(0.3);
+    // The distinction the check exists to draw, and could not draw before.
+    expect(good.score).toBeGreaterThan(empty.score);
+  });
+
+  // The brief asks for a background image. Bleeding it used to score worse
+  // than insetting it, which paid a run to ignore the instruction.
+  it("does not reward insetting a background that the brief wants bled", () => {
+    const bled = coverage(0.3, 0.98).run(page(background(), ...composed()));
+    const inset = coverage(0.3, 0.98).run(
+      page({ ...background(), x: 24, y: 24, width: W - 48, height: H - 48 }, ...composed()),
+    );
+    expect(bled.score).toBeGreaterThanOrEqual(inset.score);
+  });
+
+  // Narrower than `marginAtLeast`'s bleed rule on purpose: a band across the
+  // lower third really does fill that third.
+  it("still counts a full-width band that does not cover the canvas", () => {
+    const withBand = coverage(0.3, 0.98).run(page(box("band", 0, 600, W, 400)));
+    expect(withBand.detail).not.toMatch(/excluding/);
+    expect(withBand.score).toBe(1);
+  });
+
+  it("scores a page that is nothing but a background as bare", () => {
+    expect(coverage(0.3, 0.98).run(page(background())).score).toBeLessThan(0.3);
+  });
+
+  it("leaves a page with no full-canvas element alone", () => {
+    const outcome = coverage(0.3, 0.98).run(page(...composed()));
+    expect(outcome.detail).not.toMatch(/excluding/);
+    expect(outcome.score).toBe(1);
   });
 });
