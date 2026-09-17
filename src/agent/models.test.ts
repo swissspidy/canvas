@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateText } from "ai";
 import {
   MODELS,
+  PROVIDER_ENV,
+  PROVIDER_IDS,
   addUsage,
   costUsd,
+  credentialedProviders,
   getModel,
+  hasCredentials,
   parseEffort,
   parseModelSpec,
   reasoningFor,
@@ -132,5 +137,133 @@ describe("effort", () => {
   it("refuses a level nobody defined", () => {
     expect(parseEffort("high")).toBe("high");
     expect(() => parseEffort("highest")).toThrow(/Unknown effort/);
+  });
+});
+
+/**
+ * One provider's variable, with the others cleared. The suite inherits the
+ * operator's real environment, and a key sitting in it would otherwise decide
+ * these results.
+ */
+function onlySet(name: string | null, value = ""): void {
+  for (const env of Object.values(PROVIDER_ENV)) vi.stubEnv(env, undefined);
+  if (name !== null) vi.stubEnv(name, value);
+}
+
+/** The auth headers the first request would actually carry. */
+async function authHeaders(spec: string): Promise<Record<string, string>> {
+  let seen: Headers | null = null;
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+    seen = new Headers(init?.headers ?? {});
+    return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  await generateText({ model: resolveLanguageModel(spec), prompt: "hi" }).catch(() => {});
+  if (seen === null) throw new Error(`No request was sent for '${spec}'.`);
+  return Object.fromEntries(
+    [...(seen as Headers).entries()].filter(([k]) => /key|authorization/i.test(k)),
+  );
+}
+
+describe("credentials", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("sees one provider's key and not another's", () => {
+    onlySet("GOOGLE_GENERATIVE_AI_API_KEY", "k");
+    expect(hasCredentials("google")).toBe(true);
+    expect(hasCredentials("anthropic")).toBe(false);
+    expect(credentialedProviders()).toEqual(["google"]);
+  });
+
+  it("reports no credential when nothing is set", () => {
+    onlySet(null);
+    for (const provider of PROVIDER_IDS) expect(hasCredentials(provider)).toBe(false);
+    expect(credentialedProviders()).toEqual([]);
+  });
+
+  /**
+   * The drift guard.
+   *
+   * `hasCredentials` is a local reading of an environment variable, but the
+   * adapter is what authenticates, from a name of its own. Checking a name
+   * the adapter does not read is worse than not checking at all: the key
+   * reports as found, the run says it is live, and the first request 401s.
+   * That is the bug this pair of assertions exists to catch — an adapter
+   * renaming its variable, or an alias being added here that only this file
+   * believes in.
+   */
+  describe("PROVIDER_ENV names the variable the adapter authenticates with", () => {
+    for (const provider of PROVIDER_IDS) {
+      const env = PROVIDER_ENV[provider];
+      it(`${provider} authenticates from ${env}`, async () => {
+        const secret = `secret-via-${env}`;
+        onlySet(env, secret);
+        const headers = await authHeaders(`${provider}:some-model-id`);
+        // Which header and which scheme is the adapter's business — an
+        // `x-api-key`, an `x-goog-api-key` or a bearer token. That the secret
+        // reaches one of them at all is what this file is claiming.
+        expect(Object.values(headers).some((v) => v.includes(secret))).toBe(true);
+      });
+
+      it(`${provider} sends no stale credential without ${env}`, async () => {
+        onlySet(null);
+        // The adapter raises its own missing-key error, so no request is made.
+        await expect(authHeaders(`${provider}:some-model-id`)).rejects.toThrow(/No request/);
+      });
+    }
+  });
+});
+
+describe("operator-named models", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function reload(extra: string | undefined) {
+    vi.resetModules();
+    vi.stubEnv("CANVAS_EXTRA_MODELS", extra);
+    return import("./models.js");
+  }
+
+  // Without this, a machine holding only a Google or OpenAI key has no model
+  // on the page's list that its key can drive, so the key is unusable.
+  it("adds a named model to the registry, unpriced", async () => {
+    const { MODELS: withExtra, getModel: get } = await reload("google:some-gemini-id");
+    expect(Object.hasOwn(withExtra, "google:some-gemini-id")).toBe(true);
+    expect(get("google:some-gemini-id").priced).toBe(false);
+  });
+
+  it("keeps the checked price when an extra names a listed model", async () => {
+    const { getModel: get } = await reload("anthropic:claude-opus-5");
+    expect(get("anthropic:claude-opus-5").priced).toBe(true);
+    expect(get("anthropic:claude-opus-5").inputPerMTok).toBe(5);
+  });
+
+  it("leaves the registry alone when unset, and tolerates stray commas", async () => {
+    const { MODELS: bare } = await reload(undefined);
+    // Spelled out rather than compared against the imported `MODELS`, which
+    // would already carry extras on a machine that has the variable set.
+    expect(Object.keys(bare)).toEqual([
+      "anthropic:claude-opus-5",
+      "anthropic:claude-sonnet-5",
+      "anthropic:claude-haiku-4-5",
+    ]);
+    const { MODELS: spaced } = await reload(" google:a , , openai:b ");
+    expect(Object.hasOwn(spaced, "google:a")).toBe(true);
+    expect(Object.hasOwn(spaced, "openai:b")).toBe(true);
+  });
+
+  // A typo here would otherwise surface as a 400 from the page, long after
+  // the operator set it.
+  it("refuses a malformed entry at startup, naming the variable", async () => {
+    await expect(reload("gemini-2.5-pro")).rejects.toThrow(
+      /CANVAS_EXTRA_MODELS lists 'gemini-2.5-pro'.*missing a provider/s,
+    );
   });
 });

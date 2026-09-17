@@ -214,7 +214,7 @@ function checkModel(spec: string, label: string, live: boolean): void {
   if (live && !hasCredentials(provider)) {
     throw new Error(
       `No credentials for provider '${provider}', needed for ${label} '${spec}'. ` +
-        `Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
+        `Set ${PROVIDER_ENV[provider]}.`,
     );
   }
 }

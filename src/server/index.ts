@@ -16,7 +16,15 @@ import { createScriptedModel } from "../agent/scripted.js";
 import { getSurface, isSurfaceId, SURFACES } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "../feedback/index.js";
-import { DEFAULT_MODEL, MODELS, hasCredentials, parseModelSpec } from "../agent/models.js";
+import {
+  DEFAULT_MODEL,
+  EXTRA_MODELS_ENV,
+  MODELS,
+  PROVIDER_ENV,
+  credentialedProviders,
+  hasCredentials,
+  parseModelSpec,
+} from "../agent/models.js";
 import { TASKS, getTask } from "../tasks/index.js";
 import { defineTask, type Task } from "../tasks/types.js";
 import { blank } from "../tasks/helpers.js";
@@ -233,6 +241,43 @@ function anyRunnable(): boolean {
   return Object.keys(MODELS).some(isRunnable);
 }
 
+/**
+ * What the page's model menu should start on.
+ *
+ * The usual default, unless it is a model this machine has no key for and
+ * another listed model is runnable — opening the menu on a model that can
+ * only replay, while a live one sits further down the list, reads as "no key
+ * found" when the key is right there.
+ */
+function pageDefaultModel(): string {
+  if (isRunnable(DEFAULT_MODEL)) return DEFAULT_MODEL;
+  return Object.keys(MODELS).find(isRunnable) ?? DEFAULT_MODEL;
+}
+
+/**
+ * Why the page cannot run live, in a form the operator can act on.
+ *
+ * Reason and remedy only — the console and the page each frame it their own
+ * way — because two different situations reach replay mode and they need
+ * different advice. No key at all is the ordinary one. A key for a provider
+ * that no listed model names is the confusing one: the key works, nothing is
+ * misconfigured, and the message still said "no provider API key found".
+ */
+function replayReason(): string {
+  const configured = credentialedProviders();
+  if (configured.length === 0) {
+    const recognized = Object.entries(PROVIDER_ENV)
+      .map(([provider, name]) => `${provider} (${name})`)
+      .join(", ");
+    return `No provider API key found. Recognized: ${recognized}.`;
+  }
+  return (
+    `A key is set for ${configured.join(", ")}, but every model on this build's list belongs to ` +
+    `another provider. Name one to use it — for example ` +
+    `${EXTRA_MODELS_ENV}='${configured[0]}:<model-id>' — and restart.`
+  );
+}
+
 function handleSwitch(res: ServerResponse, params: URLSearchParams): void {
   const runId = params.get("runId") ?? "";
   const surface = params.get("surface") as SurfaceId;
@@ -257,7 +302,8 @@ export function createApp() {
     if (path === "/api/meta") {
       sendJson(res, 200, {
         hasCredentials: anyRunnable(),
-        defaultModel: DEFAULT_MODEL,
+        replayReason: anyRunnable() ? null : replayReason(),
+        defaultModel: pageDefaultModel(),
         models: Object.values(MODELS).map((m) => ({ id: m.id, label: m.label })),
         surfaces: Object.values(SURFACES).map((s) => ({
           id: s.id,
@@ -310,7 +356,7 @@ if (isMain) {
   createApp().listen(port, host, () => {
     console.log(`Canvas agent bench: http://${host === "0.0.0.0" || host === "::" ? "localhost" : host}:${port}`);
     if (!anyRunnable()) {
-      console.log("No provider API key found — the page will run in replay mode.");
+      console.log(`${replayReason()} The page will run in replay mode.`);
     } else if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
       console.log(
         `WARNING: listening on ${host} with an API key set. /api/run is unauthenticated — anyone who can ` +
