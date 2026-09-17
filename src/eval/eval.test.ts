@@ -858,4 +858,43 @@ describe("the coverage check", () => {
     expect(outcome.detail).not.toMatch(/excluding/);
     expect(outcome.score).toBe(1);
   });
+
+  // One element nobody can see was the cheapest possible way to look composed
+  // without composing anything: it took a bare page from failing this check to
+  // passing it outright.
+  it("cannot be padded with an element that paints nothing", () => {
+    const ghost = (id: string, style: Element["style"]): Element => ({
+      ...box(id, 40, 40, W - 80, H - 80),
+      style,
+    });
+    const before = coverage(0.3, 0.98).run(page(background(), ...bare()));
+    for (const style of [
+      { fill: "transparent" },
+      { fill: "#33445500" },
+      { fill: "#334455", opacity: 0 },
+    ] as Element["style"][]) {
+      const after = coverage(0.3, 0.98).run(page(background(), ...bare(), ghost("pad", style)));
+      expect(after.score, JSON.stringify(style)).toBe(before.score);
+      expect(after.detail).toMatch(/1 invisible/);
+    }
+  });
+
+  // The other half of that: an outline is faint, not absent.
+  it("still counts a box that is only a stroke", () => {
+    const outline: Element = {
+      ...box("frame", 100, 100, 800, 800),
+      style: { fill: "transparent", strokeColor: "#000000", strokeWidth: 2 },
+    };
+    const outcome = coverage(0.3, 0.98).run(page(outline));
+    expect(outcome.detail).not.toMatch(/invisible/);
+    expect(outcome.score).toBe(1);
+  });
+
+  it("names both exclusions apart, and counts them", () => {
+    const ghost: Element = { ...box("pad", 40, 40, 100, 100), style: { fill: "transparent" } };
+    const outcome = coverage(0.3, 0.98).run(
+      page(background(), ...composed(), ghost, { ...ghost, id: "pad2" }),
+    );
+    expect(outcome.detail).toMatch(/excluding 1 full-canvas and 2 invisible elements/);
+  });
 });

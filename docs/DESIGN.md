@@ -406,13 +406,18 @@ to become a real task.
 - **`coverage`** unions bounding boxes on a 60×60 occupancy grid rather than by
   exact polygon union, and the grid rounds each element outward to whole cells.
   It is a sanity check on "does this look composed", not a precision
-  instrument. An element covering the canvas outright is left out of the union:
-  a full-bleed background saturates the grid by itself, and once it has, a
-  composed page, a bare one and one with every element in a corner all measure
-  100% and score the same — the check was reading the background rather than
-  the composition. The exemption is narrower than the one `marginAtLeast`
-  makes, because the questions differ: a full-width band across the lower third
-  crowds no edge, but it does fill that third.
+  instrument. Two kinds of element are left out of the union. An element
+  covering the canvas outright: a full-bleed background saturates the grid by
+  itself, and once it has, a composed page, a bare one and one with every
+  element in a corner all measure 100% and score the same — the check was
+  reading the background rather than the composition. And anything that paints
+  nothing, by `paintedPolygons`: counting invisible boxes made "does this look
+  composed" answerable with one element nobody can see, which took a bare page
+  from failing this check to passing it outright. A visible element still
+  contributes its whole box rather than its ink, because a block of type does
+  occupy its box on the page. The full-canvas exemption is narrower than the
+  one `marginAtLeast` makes, because the questions differ: a full-width band
+  across the lower third crowds no edge, but it does fill that third.
 - **Asset average colour** for contrast against an image is the midpoint of its
   two gradient stops.
 - **Glyph ink** is the bounding box of a line's glyphs, read from `glyf`, not

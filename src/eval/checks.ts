@@ -439,24 +439,34 @@ export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
  * The canvas is neither bare nor packed. A crude proxy for "this looks like a
  * composed page", using bounding-box coverage without double-counting overlap.
  *
- * **A background that covers the whole canvas is excluded.** It saturates the
- * grid by itself, and once it has, nothing else in the document can move the
- * number: a composed poster, one with a single line of type in a corner, and
- * one with every element crammed into a 260x90 box all measured 100% and
- * scored the same. The check was reading the background and nothing else — on
- * a task whose brief asks for a background image.
+ * Two kinds of element are left out of the union, both for the same reason:
+ * they answer a different question from the one being asked.
  *
- * Worse than useless, in fact: with the band topping out below 100%, bleeding
- * the background as the brief asks scored *lower* than insetting it a few
- * units, so the check paid a run to ignore the instruction. Excluding it, the
- * same three documents measure 55%, 4% and 2% — which is the distinction this
- * check exists to draw.
+ * **A background that covers the whole canvas.** It saturates the grid by
+ * itself, and once it has, nothing else in the document can move the number:
+ * a composed poster, one with a single line of type in a corner, and one with
+ * every element crammed into a 260x90 box all measured 100% and scored the
+ * same. The check was reading the background and nothing else — on a task
+ * whose brief asks for a background image. Worse than useless, in fact: with
+ * the band topping out below 100%, bleeding the background as the brief asks
+ * scored *lower* than insetting it a few units, so the check paid a run to
+ * ignore the instruction. Excluded, the same three documents measure 55%, 4%
+ * and 2% — the distinction this check exists to draw.
  *
- * The exemption is narrower than `marginAtLeast`'s on purpose. There, anything
- * running edge to edge on either axis is a bleed, because the question is
- * whether an element crowds an edge. Here the question is how much of the page
- * has something on it, and a full-width band across the lower third genuinely
- * fills that third — so only an element covering the canvas outright drops out.
+ * **Anything that paints nothing**, by `paintedPolygons`: a rect with a
+ * transparent fill and no stroke, anything at zero opacity. Counting those
+ * made "does this look composed" answerable with one element nobody can see.
+ * A bare page scoring 25% on this check went to 100% — and 15 points of
+ * normalized improvement on the task — for a single invisible rect, which is
+ * the cheapest possible way to look composed without composing anything.
+ *
+ * What is *not* narrowed is the area: a visible element still contributes its
+ * whole box, not its ink. A block of type occupies its box on the page, and
+ * the question here is how much of the page has something on it. That is also
+ * why the full-canvas exemption is narrower than `marginAtLeast`'s — there,
+ * anything running edge to edge on either axis is a bleed, because the
+ * question is whether an element crowds an edge; here a full-width band across
+ * the lower third crowds no edge but does fill that third.
  */
 export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
   return check("coverage", `Between ${Math.round(min * 100)}% and ${Math.round(max * 100)}% of the canvas is used`, weight, (doc) => {
@@ -468,10 +478,17 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
     const cellW = doc.width / cols;
     const cellH = doc.height / rows;
     const grid = new Uint8Array(cols * rows);
-    let excluded = 0;
+    let filling = 0;
+    let invisible = 0;
     for (const el of doc.elements) {
       if (fillsCanvas(el, doc)) {
-        excluded++;
+        filling++;
+        continue;
+      }
+      // The same definition of "paints something" the margin check uses, so
+      // an element cannot be invisible to one and solid to the other.
+      if (paintedPolygons(el).length === 0) {
+        invisible++;
         continue;
       }
       const b = aabb(el);
@@ -482,9 +499,7 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
       for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) grid[r * cols + c] = 1;
     }
     const used = grid.reduce((s: number, v: number) => s + v, 0) / (cols * rows);
-    // Said out loud, because a report reading "55% covered" against a poster
-    // that visibly fills its page is otherwise a puzzle.
-    const note = excluded > 0 ? ` (excluding ${excluded} full-canvas element(s))` : "";
+    const note = exclusionNote(filling, invisible);
     if (used >= min && used <= max) return { score: 1, detail: `${Math.round(used * 100)}% covered${note}.` };
     const distance = used < min ? min - used : used - max;
     return {
@@ -498,6 +513,20 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
 function fillsCanvas(el: Element, doc: Doc): boolean {
   const b = aabb(el);
   return b.x <= 1 && b.y <= 1 && b.width >= doc.width - 1 && b.height >= doc.height - 1;
+}
+
+/**
+ * Why the number is lower than the page looks.
+ *
+ * Said out loud, because "55% covered" against a poster that visibly fills
+ * every inch of its canvas is otherwise a puzzle for whoever reads the report.
+ */
+function exclusionNote(filling: number, invisible: number): string {
+  const parts: string[] = [];
+  if (filling > 0) parts.push(`${filling} full-canvas`);
+  if (invisible > 0) parts.push(`${invisible} invisible`);
+  if (parts.length === 0) return "";
+  return ` (excluding ${parts.join(" and ")} ${filling + invisible === 1 ? "element" : "elements"})`;
 }
 
 /** At least one image element is present, optionally from a specific set. */

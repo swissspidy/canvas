@@ -226,7 +226,10 @@ background saturates its occupancy grid on its own, so a composed page, a bare
 one and one with every element shoved into a corner all measured 100% and
 scored the same — and bleeding the background, which one brief explicitly asks
 for, scored *worse* than insetting it. A canvas-filling element is now left out
-of the union, and the three measure 55%, 4% and 2%.
+of the union, and the three measure 55%, 4% and 2%. So is anything that paints
+nothing: a single transparent rect used to take a bare page from failing that
+check to passing it, which is the cheapest imaginable way to look composed
+without composing anything.
 
 **Scores are normalized against the starting document.** A run that changes
 nothing already scores ~68% raw, because most checks measure defects it never
