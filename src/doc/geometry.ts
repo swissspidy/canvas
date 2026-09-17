@@ -188,7 +188,7 @@ export function overlapArea(a: Element, b: Element): number {
 }
 
 /** Axis-aligned bounding box of an element's rotated box. */
-export function aabb(el: Element): Rect {
+export function aabb(el: Rect & { rotation?: number }): Rect {
   const pts = corners(el);
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);

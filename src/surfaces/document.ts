@@ -58,6 +58,18 @@ const writeTool: ToolDef<z.infer<typeof zWriteInput>> = {
       throw err;
     }
 
+    // The canvas is fixed, and the other two surfaces have no way to change
+    // it. Letting this one resize it would hand it a move nobody else has —
+    // growing the page turns an out-of-bounds element in-bounds and rescales
+    // every margin the checks measure, so the surfaces would stop being
+    // compared on the same problem.
+    if (next.width !== ctx.doc.width || next.height !== ctx.doc.height) {
+      throw new ToolError(
+        `The canvas is ${ctx.doc.width}x${ctx.doc.height} and cannot be resized; you sent ${next.width}x${next.height}.`,
+        "The document was not changed. Send it again with the original width and height.",
+      );
+    }
+
     for (const el of next.elements) ctx.session.registerId(el.id);
     const summary = diffSummary(ctx.doc, next);
     return {
@@ -114,7 +126,8 @@ export const documentSurface: ToolSurface = {
   briefing: [
     "You edit the document by rewriting it. There are no incremental operations: `write_document` takes the",
     "complete JSON and replaces what is there, so include every element you want to keep, with all of its fields.",
-    "The schema is fixed — unknown keys are rejected and the document is left untouched. Coordinates are in canvas",
+    "The schema is fixed — unknown keys are rejected and the document is left untouched. The canvas width and height",
+    "are fixed too: send them back unchanged. Coordinates are in canvas",
     "units from the top-left corner: x runs right, y runs down. An element's x and y are its top-left corner before",
     "rotation; rotation turns it about its center.",
   ].join(" "),

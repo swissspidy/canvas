@@ -242,13 +242,25 @@ const createTool: ToolDef<z.infer<typeof zCreateInput>> = {
   description: "Add a new element, placed relative to another element or to the canvas.",
   schema: zCreateInput,
   run(ctx, input) {
-    const placement = computePlacement(ctx.doc, { width: input.width, height: input.height }, input);
+    const rotation = input.rotation ?? 0;
+    // Every relation here is defined on the painted bounding box — that is what
+    // `place` computes against, and "below this, with a 50 unit gap" has to
+    // mean the same thing whether the element arrives rotated or is rotated
+    // afterwards. A rotated box is wider than its declared width, and its
+    // x/y stay the *unrotated* top-left, so both ends need converting.
+    const painted = aabb({ x: 0, y: 0, width: input.width, height: input.height, rotation });
+    const placement = computePlacement(ctx.doc, { width: painted.width, height: painted.height }, input);
+
+    // `cover` and `fill_canvas` dictate the box outright, so they land
+    // axis-aligned — the same thing `place` does with a placement that carries
+    // a size.
+    const sized = placement.width !== undefined && placement.height !== undefined;
     const el = buildElement(ctx, input, {
-      x: placement.x,
-      y: placement.y,
+      x: placement.x - (sized ? 0 : painted.x),
+      y: placement.y - (sized ? 0 : painted.y),
       width: placement.width ?? input.width,
       height: placement.height ?? input.height,
-      rotation: input.rotation,
+      rotation: sized ? 0 : rotation,
     });
     const outcome = commitNew(ctx, el);
     return { ...outcome, message: `${outcome.message.replace(/\.$/, "")} — placed ${placement.label}.` };

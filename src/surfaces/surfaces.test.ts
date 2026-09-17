@@ -197,6 +197,64 @@ describe("coordinate surface", () => {
 });
 
 describe("relational surface", () => {
+  // `place` computes against the painted bounding box; `create` computed
+  // against the declared width and height and then wrote the result into x/y,
+  // which are the *unrotated* top-left. A rotated create therefore landed off
+  // by half the difference, and hung outside the margin it asked for.
+  it("places a rotated create exactly where place would put it", () => {
+    for (const relation of ["canvas_top_left", "canvas_center", "canvas_bottom_right"]) {
+      const viaCreate = session();
+      expect(
+        executeToolCall(viaCreate, relationalSurface, "create", {
+          type: "rect",
+          width: 200,
+          height: 100,
+          rotation: 30,
+          relation,
+          margin: 40,
+        }).ok,
+      ).toBe(true);
+
+      const viaPlace = session();
+      expect(
+        executeToolCall(viaPlace, relationalSurface, "create", {
+          type: "rect",
+          width: 200,
+          height: 100,
+          relation: "canvas_center",
+        }).ok,
+      ).toBe(true);
+      const created = viaPlace.doc.elements[0]!.id;
+      expect(executeToolCall(viaPlace, coordinateSurface, "set_style", { id: created, z: 0 }).ok).toBe(true);
+      viaPlace.commit({
+        ...viaPlace.doc,
+        elements: viaPlace.doc.elements.map((e) => ({ ...e, rotation: 30 })),
+      });
+      expect(executeToolCall(viaPlace, relationalSurface, "place", { id: created, relation, margin: 40 }).ok).toBe(true);
+
+      const a = aabb(viaCreate.doc.elements[0]!);
+      const b = aabb(viaPlace.doc.elements[0]!);
+      expect(a.x).toBeCloseTo(b.x, 6);
+      expect(a.y).toBeCloseTo(b.y, 6);
+    }
+  });
+
+  it("keeps a rotated create inside the margin it asked for", () => {
+    const s = session();
+    executeToolCall(s, relationalSurface, "create", {
+      type: "rect",
+      width: 200,
+      height: 100,
+      rotation: 45,
+      relation: "canvas_top_left",
+      margin: 40,
+    });
+    const box = aabb(s.doc.elements[0]!);
+    // Committed geometry is rounded to two decimals.
+    expect(box.x).toBeCloseTo(40, 1);
+    expect(box.y).toBeCloseTo(40, 1);
+  });
+
   it("has no tool that accepts a raw coordinate", () => {
     // The point of the surface: intent in, geometry computed. If an `x` ever
     // appears in a schema here, the comparison has sprung a leak.
@@ -416,5 +474,71 @@ describe("document-as-code surface", () => {
     const r = executeToolCall(s, documentSurface, "read_document", {});
     expect(r.ok).toBe(true);
     expect(JSON.parse(r.message)).toEqual(s.doc);
+  });
+
+  // Growing the page turns an out-of-bounds element in-bounds and rescales
+  // every margin the checks measure. Neither other surface can do it, so
+  // allowing it here would stop the three being compared on one problem.
+  it("refuses to resize the canvas", () => {
+    const s = session(docWith(el("a")));
+    const before = JSON.stringify(s.doc);
+    for (const [width, height] of [
+      [2000, 1000],
+      [1000, 2000],
+    ]) {
+      const r = executeToolCall(s, documentSurface, "write_document", {
+        document: { width, height, background: "#ffffff", elements: [el("a")] },
+      });
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/cannot be resized/);
+      expect(r.message).toMatch(/was not changed/);
+    }
+    expect(JSON.stringify(s.doc)).toBe(before);
+  });
+
+  it("still allows the background to change, which a restyle brief asks for", () => {
+    const s = session(docWith(el("a")));
+    const r = executeToolCall(s, documentSurface, "write_document", {
+      document: { width: 1000, height: 1000, background: "#12121f", elements: [el("a")] },
+    });
+    expect(r.ok).toBe(true);
+    expect(s.doc.background).toBe("#12121f");
+  });
+});
+
+describe("surface lookup", () => {
+  // Ids arrive from a query string and from WebMCP, and both `in` and plain
+  // indexing walk the prototype chain.
+  it("does not mistake an Object.prototype key for a surface", () => {
+    for (const id of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      expect(() => getSurface(id as never)).toThrow(/Unknown surface/);
+    }
+  });
+
+  it("still resolves the real ids", () => {
+    for (const id of Object.keys(SURFACES)) {
+      expect(getSurface(id as never).id).toBe(id);
+    }
+  });
+});
+
+describe("set_style", () => {
+  // `create` and `write_document` both reject an empty string, and a blanked
+  // element still counts as preserved, so this would be a way to satisfy a
+  // copy-preserving task by deleting the copy.
+  it("refuses to blank a text element", () => {
+    const s = session(docWith(el("t", { type: "text", text: "Keep me", style: {} })));
+    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: "" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/non-empty/);
+    expect(r.message).toMatch(/delete/);
+    expect(s.doc.elements[0]!.text).toBe("Keep me");
+  });
+
+  it("still sets real text", () => {
+    const s = session(docWith(el("t", { type: "text", text: "Keep me", style: {} })));
+    const r = executeToolCall(s, coordinateSurface, "set_style", { id: "t", text: "Changed" });
+    expect(r.ok).toBe(true);
+    expect(s.doc.elements[0]!.text).toBe("Changed");
   });
 });

@@ -8,7 +8,21 @@
 
 import { defineTask } from "./types.js";
 import { blank, doc, image, POSTER_H, POSTER_W } from "./helpers.js";
-import { containsText, coverage, elementCount, marginAtLeast, typeHierarchy, usesImage } from "../eval/checks.js";
+import {
+  containsText,
+  coverage,
+  elementCount,
+  geometryUnchanged,
+  marginAtLeast,
+  typeBudget,
+  typeHierarchy,
+  usesImage,
+} from "../eval/checks.js";
+
+const titleCard = () =>
+  doc([image({ id: "bg", x: 0, y: 0, w: POSTER_W, h: POSTER_H, src: "texture/gradient", z: 0 })], {
+    background: "#ffffff",
+  });
 
 export const composeTasks = [
   defineTask({
@@ -96,6 +110,9 @@ export const composeTasks = [
     checks: [
       containsText(["We shape our buildings; thereafter they shape us.", "Winston Churchill, 1943"], 2),
       elementCount({ min: 2, max: 5, label: "Two to five elements" }, 1),
+      // "No images. Use the canvas background and at most one decorative
+      // shape." A count of elements does not say what kind they are.
+      typeBudget({ image: 0, rect: 1 }, 1, "No images, and at most one decorative shape"),
       typeHierarchy(1.8, 1),
       marginAtLeast(48, 1),
     ],
@@ -155,15 +172,17 @@ export const composeTasks = [
       "Start from the texture/gradient asset covering the whole canvas, then set the text over it.",
       "This will be projected, so contrast matters more than decoration.",
     ].join("\n"),
-    initial: () => doc(
-      [image({ id: "bg", x: 0, y: 0, w: POSTER_W, h: POSTER_H, src: "texture/gradient", z: 0 })],
-      { background: "#ffffff" },
-    ),
+    initial: titleCard,
     checks: [
       containsText(["Interfaces That Explain Themselves", "Dana Okonkwo", "Layout Conf 2026"], 2),
       typeHierarchy(1.7, 1),
       marginAtLeast(40, 1),
       elementCount({ min: 4, label: "Background plus at least three text elements" }, 1),
+      // "Start from the texture/gradient asset covering the whole canvas."
+      // Nothing stopped a run deleting it, swapping it, or shrinking it to a
+      // corner and setting the text on the plain white page instead.
+      usesImage(["texture/gradient"], 1),
+      geometryUnchanged(titleCard(), ["bg"], 1),
     ],
     judgeCriteria: [
       "Is the talk title legible against the gradient at a glance?",

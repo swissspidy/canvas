@@ -4,6 +4,7 @@ import { TASK_FAMILIES } from "./types.js";
 import { parseDoc } from "../doc/schema.js";
 import { runChecks, universalChecks } from "../eval/checks.js";
 import { renderSvg } from "../render/svg.js";
+import type { Doc, Element } from "../doc/types.js";
 
 /**
  * A task whose starting document already scores well teaches nothing: every
@@ -84,5 +85,91 @@ describe.each(TASKS)("task $id", (task) => {
       expect(r.score).toBeLessThanOrEqual(1);
       expect(r.detail.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * Loopholes: a brief that forbids something, and a check that lets it through.
+ * Each of these is a cheap way to score well without doing the work asked for,
+ * so each has to cost something.
+ */
+describe("the constraints the briefs state are actually scored", () => {
+  function scoreOf(task: (typeof TASKS)[number], doc: Doc): number {
+    return runChecks(doc, [...universalChecks(), ...task.checks]).score;
+  }
+
+  function edit(task: (typeof TASKS)[number], fn: (el: Element) => Element): Doc {
+    const doc = task.initial();
+    return { ...doc, elements: doc.elements.map(fn) };
+  }
+
+  it("penalises shortening body copy on a task that says to keep it", () => {
+    for (const id of ["repair.overlapping-stack", "repair.buried-text"]) {
+      const task = getTask(id);
+      const gutted = edit(task, (el) => (el.type === "text" ? { ...el, text: el.text?.slice(0, 4) ?? "" } : el));
+      expect(scoreOf(task, gutted), id).toBeLessThan(scoreOf(task, task.initial()));
+    }
+  });
+
+  it("penalises moving elements on a task that says not to", () => {
+    for (const id of ["restyle.palette-swap", "restyle.dark-mode", "repair.z-order"]) {
+      const task = getTask(id);
+      const shoved = edit(task, (el) => ({ ...el, x: el.x + 60, y: el.y + 60 }));
+      expect(scoreOf(task, shoved), id).toBeLessThan(scoreOf(task, task.initial()));
+    }
+  });
+
+  it("penalises resizing elements on an arrange task that says not to", () => {
+    for (const id of ["arrange.ragged-column", "arrange.uneven-row"]) {
+      const task = getTask(id);
+      const squashed = edit(task, (el) => ({ ...el, width: el.width / 2, height: el.height / 2 }));
+      expect(scoreOf(task, squashed), id).toBeLessThan(scoreOf(task, task.initial()));
+    }
+  });
+
+  it("penalises an image on the quote card, which asks for none", () => {
+    const task = getTask("compose.quote-card");
+    const doc = task.initial();
+    const withPhoto: Doc = {
+      ...doc,
+      elements: [
+        ...doc.elements,
+        {
+          id: "sneaky",
+          type: "image",
+          src: "photo/mountains",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 0,
+          z: 9,
+          style: {},
+        },
+      ],
+    };
+    expect(scoreOf(task, withPhoto)).toBeLessThan(scoreOf(task, doc));
+  });
+
+  it("penalises dropping the gradient the title card is built on", () => {
+    const task = getTask("compose.title-card");
+    const doc = task.initial();
+    expect(scoreOf(task, { ...doc, elements: [] })).toBeLessThan(scoreOf(task, doc));
+    const shrunk = edit(task, (el) => (el.id === "bg" ? { ...el, width: 100, height: 100 } : el));
+    expect(scoreOf(task, shrunk)).toBeLessThan(scoreOf(task, doc));
+  });
+
+  it("penalises a row shoved to one side, however even its inner gaps", () => {
+    const task = getTask("arrange.uneven-row");
+    const doc = task.initial();
+    const hardLeft: Doc = {
+      ...doc,
+      elements: doc.elements.map((el, i) => ({ ...el, x: 20 + i * 220, y: 520 })),
+    };
+    const centred: Doc = {
+      ...doc,
+      elements: doc.elements.map((el, i) => ({ ...el, x: 56 + i * 248, y: 520 })),
+    };
+    expect(scoreOf(task, hardLeft)).toBeLessThan(scoreOf(task, centred));
   });
 });

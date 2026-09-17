@@ -134,6 +134,15 @@ export const setStyleTool: ToolDef<z.infer<typeof zSetStyleInput>> = {
     if (input.text !== undefined && el.type !== "text") {
       throw new ToolError(`${input.id} is a ${el.type} element, so it has no text.`);
     }
+    // `create` and `write_document` both reject an empty string, so accepting
+    // one here would let two of the three surfaces reach a document state the
+    // third cannot — and a blanked element still counts as preserved.
+    if (input.text === "") {
+      throw new ToolError(
+        "A text element needs non-empty 'text'.",
+        `To remove it entirely, call delete with id '${input.id}'.`,
+      );
+    }
     const patch: Parameters<typeof patchElement>[2] = {};
     if (input.style) patch.style = input.style as Style;
     if (input.text !== undefined) patch.text = input.text;

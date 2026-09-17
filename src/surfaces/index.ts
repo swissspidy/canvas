@@ -39,10 +39,18 @@ export const SURFACES: Record<SurfaceId, ToolSurface> = {
   hybrid: hybridSurface,
 };
 
+/**
+ * True for a real surface id. `in` and plain indexing both walk the prototype
+ * chain, so `"toString"` and `"__proto__"` come back as surfaces — the ids here
+ * arrive from an HTTP query string and a WebMCP call, not only from typed code.
+ */
+export function isSurfaceId(id: string): id is SurfaceId {
+  return Object.hasOwn(SURFACES, id);
+}
+
 export function getSurface(id: SurfaceId): ToolSurface {
-  const surface = SURFACES[id];
-  if (!surface) throw new Error(`Unknown surface '${id}'. Known: ${Object.keys(SURFACES).join(", ")}`);
-  return surface;
+  if (!isSurfaceId(id)) throw new Error(`Unknown surface '${id}'. Known: ${Object.keys(SURFACES).join(", ")}`);
+  return SURFACES[id];
 }
 
 export { coordinateSurface, relationalSurface, documentSurface, hybridSurface, setStyleTool, deleteTool };
