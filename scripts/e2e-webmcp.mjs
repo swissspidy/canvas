@@ -203,6 +203,16 @@ async function main() {
       hosted.state.feedback === FEEDBACK,
       hosted.state.feedback,
     );
+    // Read before `ready` resolves, this listed only the text conditions: the
+    // handle is built while boot() is still awaiting its first fetch, before
+    // the browser rasterizer is installed. A harness enumerating conditions
+    // from it would silently skip every screenshot cell.
+    const advertised = await page.evaluate(() => window.__canvasBench.feedbackModes);
+    check(
+      "the bench advertises every feedback condition, screenshots included",
+      ["screenshot", "both", "both_plain"].every((m) => advertised.includes(m)),
+      advertised.join(", "),
+    );
     check("no page errors during boot", pageErrors.length === 0, pageErrors.join("; "));
     console.log(`       tools hosted by ${hosted.state.polyfilled ? "the bundled polyfill" : "native WebMCP"}`);
 
@@ -238,6 +248,8 @@ async function main() {
 
     let model;
     if (modelSpec) {
+      // Run under tsx (see package.json): this resolves src/agent/providers.ts,
+      // which plain node cannot load.
       const { resolveModel } = await import("../src/agent/providers.js");
       model = resolveModel(modelSpec).model;
       console.log(`       driving with ${modelSpec}`);

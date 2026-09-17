@@ -16,7 +16,7 @@
     "cli": "tsx src/cli.ts",
     "serve": "node scripts/build-web.mjs && tsx src/server/index.ts",
     "build:web": "node scripts/build-web.mjs",
-    "e2e:webmcp": "node scripts/build-web.mjs && node scripts/e2e-webmcp.mjs"
+    "e2e:webmcp": "node scripts/build-web.mjs && tsx scripts/e2e-webmcp.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.56",

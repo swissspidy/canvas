@@ -11,7 +11,7 @@ import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
 import { FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "./feedback/index.js";
 import { MODELS, MODEL_SWEEP, DEFAULT_MODEL, parseEffort } from "./agent/models.js";
-import { CROSS_PROVIDER_SWEEP, parseModelSpec, PRICING, PROVIDER_ENV, hasCredentials } from "./agent/providers.js";
+import { CLAUDE_TIER_SWEEP, parseModelSpec, PRICING, PROVIDER_ENV, hasCredentials } from "./agent/providers.js";
 import { DEFAULT_SWEEP, loadExistingScores, runSweep, sweepPaths, expandMatrix, type SweepConfig } from "./runner/run.js";
 import { buildReport, buildReportJson } from "./runner/report.js";
 import { renderStandaloneSvg } from "./render/svg.js";
@@ -85,7 +85,9 @@ Run options
   --tasks <sel>       Task selector: 'all', a family, an id, or a comma list. Default: all
   --surfaces <list>   Default: ${DEFAULT_SWEEP.surfaces.join(",")}
   --feedback <list>   Default: ${DEFAULT_SWEEP.feedback.join(",")}
-  --models <list>     Default: ${DEFAULT_MODEL}   (--models sweep = ${MODEL_SWEEP.join(",")})
+  --models <list>     Default: ${DEFAULT_MODEL}   (--models sweep = ${MODEL_SWEEP.join(",")};
+                      on --runner aisdk, sweep = ${CLAUDE_TIER_SWEEP.join(",")}. For the
+                      cross-provider check pass explicit ids: google:<id>,openai:<id>)
   --runner <name>     'anthropic' (default, native loop, bare model ids) or
                       'aisdk' (Vercel AI SDK, provider:model-id, every provider one loop)
   --repeats <n>       Repeats per cell. Default: ${DEFAULT_SWEEP.repeats}
@@ -187,7 +189,7 @@ function buildSweepConfig(args: Args): SweepConfig {
   const models =
     modelsFlag === "sweep"
       ? runner === "aisdk"
-        ? CROSS_PROVIDER_SWEEP
+        ? CLAUDE_TIER_SWEEP
         : MODEL_SWEEP
       : list(args.flags, "models", [defaultModel]);
   const surfaces = list(args.flags, "surfaces", DEFAULT_SWEEP.surfaces) as SurfaceId[];
@@ -205,7 +207,7 @@ function buildSweepConfig(args: Args): SweepConfig {
       if (!(m in PRICING)) {
         console.warn(`Note: no pricing for '${m}'; its cost is reported as unknown. Add it to PRICING in src/agent/providers.ts.`);
       }
-      if (!args.flags["dry-run"] && !hasCredentials(provider)) {
+      if (!bool(args.flags, "dry-run") && !hasCredentials(provider)) {
         throw new Error(
           `No credentials for provider '${provider}'. Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
         );

@@ -53,6 +53,13 @@ export interface FeedbackChannel {
   /** True when the model sees derived layout analysis. */
   showsAnalysis: boolean;
   /**
+   * Pixel width of every screenshot in this condition, including the one in
+   * the opening message. Exposed because the initial image is built in
+   * `src/agent/prompt.ts`, not here, and a run whose first image is 768px and
+   * whose later images are 200px is not one condition.
+   */
+  screenshotWidth: number;
+  /**
    * Blocks to append after an action, or `[]` for the no-feedback condition.
    *
    * Async because a browser rasterizes through a canvas, which is. Every
@@ -92,6 +99,7 @@ export function createFeedbackChannel(
     mode,
     showsImage,
     showsAnalysis,
+    screenshotWidth: width,
     async after(doc: Doc): Promise<FeedbackBlock[]> {
       const blocks: FeedbackBlock[] = [];
       if (showsText) {

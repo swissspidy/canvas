@@ -19,7 +19,7 @@ import { assetCatalogue } from "../doc/assets.js";
 import { describeDoc } from "../render/describe.js";
 import { documentJson } from "../surfaces/document.js";
 import type { FeedbackChannel, FeedbackBlock } from "../feedback/index.js";
-import { DEFAULT_SCREENSHOT_WIDTH, rasterizeDoc } from "../render/rasterizer.js";
+import { rasterizeDoc } from "../render/rasterizer.js";
 
 export const BASE_SYSTEM = [
   "You lay out visual documents on a fixed-size canvas.",
@@ -83,7 +83,7 @@ export async function initialUserBlocks(
   if (feedback.showsImage) {
     blocks.push({
       type: "image",
-      png: await rasterizeDoc(doc, { pixelWidth: DEFAULT_SCREENSHOT_WIDTH }),
+      png: await rasterizeDoc(doc, { pixelWidth: feedback.screenshotWidth }),
       mediaType: "image/png",
     });
     blocks.push({ type: "text", text: "The image above is the document as it currently renders." });

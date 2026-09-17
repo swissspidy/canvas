@@ -150,6 +150,29 @@ describe("agent loop", () => {
 });
 
 describe("feedback channel wiring", () => {
+  // The opening image is built in prompt.ts, the later ones in the feedback
+  // channel. A condition whose first image is 768px and whose rest are 200px
+  // is not one condition.
+  it("renders every image in a run at the configured width", async () => {
+    const { client, result } = run("both", [
+      { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+      { text: "Done." },
+    ]);
+    await result;
+    const pngs: Buffer[] = [];
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== "object") return;
+      const block = value as { type?: string; source?: { data?: string } };
+      if (block.type === "image" && block.source?.data) pngs.push(Buffer.from(block.source.data, "base64"));
+      for (const v of Object.values(value)) walk(v);
+    };
+    walk(client.requests.at(-1)!.messages);
+    expect(pngs.length).toBeGreaterThan(1);
+    // Bytes 16..20 of a PNG's IHDR hold the width.
+    for (const png of pngs) expect(png.readUInt32BE(16)).toBe(200);
+  });
+
   const script = [
     { tools: [{ name: "create" as const, input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
     { text: "Done." },

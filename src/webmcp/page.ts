@@ -201,7 +201,15 @@ Object.defineProperty(window, "__canvasBench", {
     score,
     tasks: TASKS.map((t) => ({ id: t.id, family: t.family, title: t.title, brief: t.brief })),
     surfaces: Object.values(SURFACES).map((s) => ({ id: s.id, title: s.title })),
-    feedbackModes: availableFeedbackModes(),
+    // A getter, not a value: `boot()` suspends at its first `fetch`, so this
+    // object is built before `installBrowserRasterizer()` has run, and
+    // `availableFeedbackModes()` drops the image modes when no rasterizer is
+    // registered. Evaluated eagerly, a harness enumerating conditions from
+    // here would silently skip every screenshot condition — while the page's
+    // own dropdown, built later, listed them.
+    get feedbackModes() {
+      return availableFeedbackModes();
+    },
     async setTask(id: string) {
       await ready;
       (el("task") as HTMLSelectElement).value = id;

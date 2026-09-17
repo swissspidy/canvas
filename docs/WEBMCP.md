@@ -38,7 +38,7 @@ tools, their descriptions, and their JSON Schemas. Nothing else.
 | `reset()` | Reload the current task's starting document |
 | `listTools()` / `callTool(name, input)` | Convenience wrappers |
 | `png({ pixelWidth })` | The rendered document as a base64 PNG |
-| `tasks`, `surfaces`, `feedbackModes` | What is available |
+| `tasks`, `surfaces`, `feedbackModes` | What is available. `feedbackModes` is a getter: it is read after the browser rasterizer installs, not before |
 | `svg()` | The rendered document |
 
 **The scorer is deliberately not a tool.** An agent that can call the checks
@@ -176,9 +176,10 @@ is ours.
 
 `npm run e2e:webmcp` runs in about three seconds against the SDK's mock model,
 so it needs no API key and can sit in CI. Pass `--model provider:model-id` to
-drive it with a real one. It checks 28 things across seven stages:
+drive it with a real one. It checks 29 things across seven stages:
 
-1. The page hosts the bench and publishes tools; no page errors.
+1. The page hosts the bench and publishes tools, advertising every feedback
+   condition including the screenshot ones; no page errors.
 2. A harness discovers them straight off `document.modelContext` — every tool
    carries a JSON Schema, the relational surface exposes `place` and no raw
    coordinate, and no scorer is reachable.

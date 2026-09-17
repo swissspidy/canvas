@@ -139,8 +139,22 @@ export function reasoningFor(effort: Effort | null): ReasoningLevel {
   }
 }
 
-/** Convenience list for the CLI's `--models sweep`, one per provider tier. */
-export const CROSS_PROVIDER_SWEEP = [
+/**
+ * What `--models sweep` expands to on the `aisdk` runner: one model per Claude
+ * tier, the AI SDK equivalent of `MODEL_SWEEP`.
+ *
+ * Deliberately *not* a cross-provider list, despite this runner existing for
+ * the cross-provider check. Google's and OpenAI's model ids change on their own
+ * schedule, and a shorthand that silently points at a retired id would fail a
+ * sweep three turns in — or, worse, quietly run a different model than the
+ * write-up claims. The cross-provider comparison therefore takes explicit ids:
+ *
+ *   npm run cli -- run --runner aisdk --models anthropic:claude-opus-5,google:<id>,openai:<id>
+ *
+ * Any spec runs; one missing from `PRICING` is costed as unknown and footnoted
+ * in the report rather than silently costed wrong.
+ */
+export const CLAUDE_TIER_SWEEP = [
   "anthropic:claude-opus-5",
   "anthropic:claude-sonnet-5",
   "anthropic:claude-haiku-4-5",

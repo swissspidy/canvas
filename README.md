@@ -29,7 +29,7 @@ What counts as a result is written down in
 
 ```bash
 npm install
-npm test                      # 250+ tests, no API key needed
+npm test                      # 370+ tests, no API key needed
 npm run serve                 # live page at http://localhost:5173
 ```
 
@@ -52,7 +52,9 @@ A sweep writes to `runs/<timestamp>/`: `report.md`, `report.json`,
 `scores.jsonl`, a full record per run under `runs/`, and a PNG and SVG per run
 under `renders/`. Run ids are derived from the cell, so an interrupted sweep
 resumes without re-paying for finished work — just run the same command with
-the same `--out`.
+the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
+judge, runner) are fingerprinted, and resuming after changing one is refused
+rather than silently averaged.
 
 ---
 
@@ -86,6 +88,11 @@ Two agent loops, deliberately near-identical in structure:
 npm run cli -- run --runner aisdk --models anthropic:claude-opus-5,google:<id>,openai:<id>
 ```
 
+Note the explicit ids. `--models sweep` on this runner is one model per Claude
+tier, not one per provider: Google's and OpenAI's ids change on their own
+schedule, and a shorthand pointing at a retired one would either fail a sweep
+three turns in or quietly run a different model than the write-up claims.
+
 One loop for every provider is the point: if Claude ran through one harness and
 Gemini through another, a difference between them could be the harness. A test
 asserts the two loops reach an identical document from identical tool calls, and
@@ -108,7 +115,7 @@ can drive the canvas with no agent loop from this repo involved:
 
 ```bash
 npm run serve        # http://localhost:5173/webmcp.html
-npm run e2e:webmcp   # 28 assertions, ~3s, no API key
+npm run e2e:webmcp   # 29 assertions, ~4s, no API key
 ```
 
 All six feedback conditions work there, screenshots included: the browser
