@@ -1,0 +1,49 @@
+# Weekly, and grouped.
+#
+# A lockfile bump that arrives as eight separate pull requests gets reviewed as
+# none of them, so related packages travel together: one branch, one CI run,
+# one decision. The groups are ordered, and a package joins the first it
+# matches.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
+    groups:
+      # The SDK and its providers move as a set: upgrading one without the
+      # others is how a provider ends up on a spec version the core no longer
+      # speaks, and the harness reaches every model through all of them.
+      ai-sdk:
+        patterns:
+          - "ai"
+          - "@ai-sdk/*"
+      # Compiler, runner and the type definitions that have to match them.
+      typescript:
+        patterns:
+          - "typescript"
+          - "tsx"
+          - "@types/*"
+      production-dependencies:
+        dependency-type: production
+      development-dependencies:
+        dependency-type: development
+
+  # The workflows pin actions by commit SHA, which is what makes an automated
+  # updater worth having: nothing else moves those pins.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Zurich
+    groups:
+      actions:
+        patterns:
+          - "*"

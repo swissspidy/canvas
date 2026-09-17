@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "description": "Does an agent manipulate a visual document better through coordinate primitives or relational operations?",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -22,13 +22,12 @@
     "@ai-sdk/anthropic": "^4.0.56",
     "@ai-sdk/google": "^4.0.74",
     "@ai-sdk/openai": "^4.0.69",
-    "@anthropic-ai/sdk": "^0.126.0",
     "@resvg/resvg-js": "^2.6.2",
     "ai": "^7.0.105",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^22.20.3",
+    "@types/node": "^24.13.5",
     "esbuild": "^0.28.2",
     "playwright-core": "^1.63.0",
     "tsx": "^4.23.13",

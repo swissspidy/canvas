@@ -247,69 +247,67 @@ this project should not do.
 
 ## The agent loop
 
-A manual loop rather than the SDK's tool runner, for three reasons this study
-needs: feedback blocks come from a channel the runner knows nothing about;
-per-turn usage has to be recorded separately for the cost analysis; and a
-refused or truncated turn has to be recorded as an outcome rather than
-swallowed.
+**One loop, on the Vercel AI SDK, for every provider — Claude included.**
+
+There were two for a while: `src/agent/loop.ts` spoke to the Anthropic SDK
+directly and carried the confirmatory grid, and a second, near-identical loop
+went through the AI SDK to reach every other provider. The duplication bought
+one thing — Anthropic's own knobs on the confirmatory path — and cost three:
+two implementations to keep in step, a parity test to prove they were, and a
+pre-registered cross-loop check to bound what the difference between them was
+doing to the results. The AI SDK reaches Claude perfectly well, including
+prompt caching, so the second loop was removed rather than maintained. A
+cross-model comparison that spans two harnesses can always be answered with
+"or maybe that was the harness"; one that spans none cannot.
+
+A manual loop rather than the SDK's own tool runner, for three reasons this
+study needs: feedback blocks come from a channel the runner knows nothing
+about; per-turn usage has to be recorded separately for the cost analysis; and
+a refused or truncated turn has to be recorded as an outcome rather than
+swallowed. Tools are therefore declared without an `execute`, so `generateText`
+returns tool calls and the loop runs them itself.
 
 Two things are deliberately **not** used:
 
-- **`strict: true` on tool definitions.** It would make malformed tool calls
-  impossible, and how often a surface provokes one is a measured outcome.
+- **Schema-enforced ("strict") tool calling.** It would make malformed tool
+  calls impossible, and how often a surface provokes one is a measured outcome.
   Inputs are validated against the same Zod schema instead.
-- **Server-side refusal fallbacks.** Re-running a refused turn on a different
-  model inside the same call would silently corrupt the model variable. A
-  refusal ends the run and is reported as one.
+- **Automatic retries on a refusal.** Re-running a refused turn would silently
+  corrupt the model variable. A refusal ends the run and is reported as one.
 
-A turn that stops at `max_tokens` also ends the run. Its tool input is usually
-half-written, and running it would corrupt the document with something the
-model never finished saying.
+A turn that stops at the output limit also ends the run. Its tool input is
+usually half-written, and running it would corrupt the document with something
+the model never finished saying.
 
 **No temperature.** It was removed from the current model generation, so runs
 cannot be pinned to a fixed sample. Variance is handled by repeating cells and
 reporting spread, not by pretending determinism.
 
-**Prompt caching.** The tools and system prompt are stable for every run on a
-surface, so a `cache_control` breakpoint on the system block caches that prefix
-across the whole sweep.
+**Prompt caching.** The tools and the surface briefing are stable for every run
+on a surface, so the instructions carry a cache breakpoint and that prefix is
+paid for once across a sweep rather than once per run. It is set through
+`providerOptions`, which is namespaced per provider — the providers that have
+no such knob never read it, so the portable path keeps the Anthropic-specific
+saving.
 
-### Two loops, on purpose
-
-`src/agent/loop.ts` talks to the Anthropic SDK directly. `src/agent/aisdk-loop.ts`
-goes through the Vercel AI SDK and reaches every provider. They are structural
-near-copies — same turn budget, same feedback attachment, same stop reasons,
-same `RunResult` — and a test asserts they reach an identical document from
-identical tool calls.
-
-The duplication is deliberate. The native loop has prompt caching and adaptive
-thinking, and carries the confirmatory grid. The AI SDK loop exists so that a
-cross-model comparison runs every model
-through *one* code path; splitting Claude and Gemini across two harnesses would
-make any difference between them ambiguous. The cost of keeping both is that
-they can drift, which the parity test and the pre-registered cross-loop check
-are there to catch.
-
-They differ in exactly one structural way, and only in a turn where nothing
-changed: an AI SDK `error-text` tool output carries no content array, so when
-*every* call in a turn was rejected, feedback follows in a user message instead
-of riding on the tool result.
+**One structural wrinkle.** An `error-text` tool output carries no content
+array, so in a turn where *every* call was rejected the feedback follows in a
+user message instead of riding on the tool result. That costs one extra message
+in exactly the turns where nothing changed.
 
 ### Switching surface mid-session
 
 `surfaceProvider` is consulted at the start of every turn. A change swaps the
 tool list while keeping the document and the conversation, and is announced as
-a user turn labelled `[operator notice]`, with wording shared between the two
-loops.
+a user turn labelled `[operator notice]`.
 
-A `{role: "system"}` entry inside `messages` would have been the more natural
-way to say *this came from the harness, not from the user*, and it was the
-first implementation. It is not portable: the Messages API takes it only under
-a beta, and across the providers the AI SDK loop reaches it is variously
-accepted, hoisted into the system prompt, or rejected. The switch is the one
-manipulation this study performs mid-run, so it cannot be the thing that
-behaves differently per provider. A labelled user turn is worse prose and
-better experimental hygiene.
+A `{role: "system"}` entry inside the conversation would have been the more
+natural way to say *this came from the harness, not from the user*, and it was
+the first implementation. It is not portable: across the providers the loop
+reaches it is variously accepted, hoisted into the instructions, or rejected.
+The switch is the one manipulation this study performs mid-run, so it cannot be
+the thing that behaves differently per provider. A labelled user turn is worse
+prose and better experimental hygiene.
 
 It costs a prompt-cache miss, because tools render before the system prompt.
 That is unavoidable and not worth working around for a demo.

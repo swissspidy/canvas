@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { baselineFor, normalize, scoreDocument, scoreRun, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
 import { computeAgreement, pearson, sampleForRating, spearman } from "./human.js";
-import { alignCriteria, toUnit } from "./judge.js";
+import { alignCriteria, judgeRun, toUnit } from "./judge.js";
 import { bootstrapCI, mean, stdev } from "../runner/report.js";
 import { getTask, TASKS } from "../tasks/index.js";
 import { runAgent } from "../agent/loop.js";
-import { createScriptedClient, fixedScript } from "../agent/scripted.js";
+import { createScriptedModel, fixedScript } from "../agent/scripted.js";
+import { MockLanguageModelV4 } from "ai/test";
 import { coordinateSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
@@ -251,8 +252,8 @@ describe("scoring a run", () => {
       task,
       surface,
       feedback: createFeedbackChannel("none"),
-      model: "claude-opus-5",
-      client: createScriptedClient(fixedScript(turns)),
+      model: "anthropic:claude-opus-5",
+      languageModel: createScriptedModel(fixedScript(turns)),
     });
     return run;
   }
@@ -408,8 +409,7 @@ function fakeScore(partial: Partial<RunScore>): RunScore {
     taskFamily: "arrange",
     surfaceId: "coordinate",
     feedbackMode: "none",
-    model: "claude-opus-5",
-    runner: "anthropic" as const,
+    model: "anthropic:claude-opus-5",
     stopReason: "completed",
     constraintScore: 0.8,
     checkResults: [],
@@ -508,6 +508,85 @@ describe("scoreDocument", () => {
     const clipping = results.find((r) => r.id === "no_text_clipping" && r.weight > 1);
     expect(clipping?.passed).toBe(false);
     expect(clipping?.detail).toMatch(/headline/);
+  });
+});
+
+/**
+ * The judge goes through the same SDK the agent loop does, so it can be driven
+ * by a model that answers with a fixed judgement and never leaves the process.
+ */
+function judgeModel(judgement: unknown): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    provider: "mock",
+    modelId: "judge",
+    doGenerate: async () => ({
+      content: [{ type: "text", text: JSON.stringify(judgement) }],
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: {
+        inputTokens: { total: 1000, noCache: 1000, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 100, text: 100, reasoning: 0 },
+      },
+      warnings: [],
+    }),
+  });
+}
+
+describe("the judge", () => {
+  const task = getTask("arrange.ragged-column");
+  const fullMarks = (score: number) => ({
+    criteria: task.judgeCriteria.map((criterion) => ({ criterion, score, reason: "because" })),
+    overall: score,
+    summary: "A summary.",
+  });
+
+  async function judge(judgement: unknown, model = judgeModel(judgement)) {
+    const result = await judgeRun({
+      brief: task.brief,
+      criteria: task.judgeCriteria,
+      finalDoc: task.initial(),
+      initialDoc: task.initial(),
+      model: "anthropic:claude-opus-5",
+      languageModel: model,
+    });
+    return { result, model };
+  }
+
+  it("maps a judgement onto the 0..1 scales and prices the call", async () => {
+    const { result } = await judge(fullMarks(4));
+    expect(result.error).toBeUndefined();
+    // 4 of 5 is three quarters of the way up a 1..5 scale.
+    expect(result.criteriaScore).toBeCloseTo(0.75, 9);
+    expect(result.overallScore).toBeCloseTo(0.75, 9);
+    expect(result.usage.input).toBe(1000);
+    expect(result.costUsd).toBeCloseTo((1000 * 5 + 100 * 25) / 1e6, 9);
+  });
+
+  it("shows the judge the brief, the before and the after — and nothing about the run", async () => {
+    const { model } = await judge(fullMarks(3));
+    const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
+    expect(prompt).toContain(task.brief.slice(0, 40));
+    // Before and after, as images rather than as a description.
+    expect(prompt.match(/"type":"file"/g)).toHaveLength(2);
+    // Nothing that would tell it which condition produced this.
+    expect(prompt).not.toMatch(/coordinate|relational|feedback|screenshot condition|turns/i);
+  });
+
+  // The schema cannot enforce "copy each criterion verbatim", and a mean taken
+  // over the wrong set is 40% of a composite that looks fine.
+  it("keeps itself out of the score when it grades a different set of criteria", async () => {
+    const { result } = await judge({
+      criteria: [{ criterion: task.judgeCriteria[0]!, score: 5, reason: "because" }],
+      overall: 5,
+      summary: "Short.",
+    });
+    expect(result.error).toMatch(/scored 1 criteria/);
+    expect(result.criteriaScore).toBe(0);
+  });
+
+  it("reports a model that answers with nothing usable as a failed judgement", async () => {
+    const { result } = await judge(null, judgeModel({ not: "a judgement" }));
+    expect(result.error).toBeTruthy();
+    expect(result.criteriaScore).toBe(0);
   });
 });
 

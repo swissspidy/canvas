@@ -1,5 +1,11 @@
 /**
- * Model registry.
+ * Model registry: naming, resolution and pricing.
+ *
+ * Models are named `provider:modelId` — `anthropic:claude-opus-5`,
+ * `google:<model-id>`, `openai:<model-id>` — and every one of them is reached
+ * through the Vercel AI SDK. One name, one adapter, one loop: if Claude ran
+ * through a hand-written Anthropic loop and Gemini through the SDK, any
+ * difference between them could be the harness rather than the model.
  *
  * Pricing lives here so every run carries a cost, not just a score. Cost is
  * not a footnote in this study: document-as-code spends few turns and many
@@ -12,6 +18,11 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
+import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
+import { openai } from "@ai-sdk/openai";
+import type { LanguageModel } from "ai";
+
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
@@ -20,7 +31,14 @@ export function parseEffort(value: string): Effort {
   throw new Error(`Unknown effort '${value}'. Use one of: ${EFFORTS.join(", ")}.`);
 }
 
+export const PROVIDER_IDS = ["anthropic", "google", "openai"] as const;
+export type ProviderId = (typeof PROVIDER_IDS)[number];
+
+/** The AI SDK's provider-neutral reasoning scale. */
+export type ReasoningLevel = "provider-default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export interface ModelSpec {
+  /** The full `provider:modelId` spec. */
   id: string;
   label: string;
   /** USD per million input tokens. */
@@ -31,75 +49,137 @@ export interface ModelSpec {
   cacheWriteMultiplier: number;
   /** Cache reads cost this multiple of the input rate. */
   cacheReadMultiplier: number;
-  contextWindow: number;
-  /** `output_config.effort` is accepted. */
-  supportsEffort: boolean;
-  /**
-   * How to ask for thinking. "adaptive" takes `{type:"adaptive"}`;
-   * "budget" is the older `{type:"enabled", budget_tokens}` form.
-   */
-  thinking: "adaptive" | "budget";
+  /** False when the id is absent from the table; cost is then 0 and meaningless. */
+  priced: boolean;
 }
 
-const DEFAULTS = { cacheWriteMultiplier: 1.25, cacheReadMultiplier: 0.1 };
+const CACHE = { cacheWriteMultiplier: 1.25, cacheReadMultiplier: 0.1 };
 
-export const MODELS: Record<string, ModelSpec> = {
-  "claude-opus-5": {
-    id: "claude-opus-5",
-    label: "Opus 5",
-    inputPerMTok: 5,
-    outputPerMTok: 25,
-    contextWindow: 1_000_000,
-    supportsEffort: true,
-    thinking: "adaptive",
-    ...DEFAULTS,
-  },
-  "claude-sonnet-5": {
-    id: "claude-sonnet-5",
-    label: "Sonnet 5",
-    inputPerMTok: 2,
-    outputPerMTok: 10,
-    contextWindow: 1_000_000,
-    supportsEffort: true,
-    thinking: "adaptive",
-    ...DEFAULTS,
-  },
-  "claude-haiku-4-5": {
-    id: "claude-haiku-4-5",
-    label: "Haiku 4.5",
-    inputPerMTok: 1,
-    outputPerMTok: 5,
-    contextWindow: 200_000,
-    supportsEffort: false,
-    thinking: "budget",
-    ...DEFAULTS,
-  },
+type PriceEntry = Pick<ModelSpec, "label" | "inputPerMTok" | "outputPerMTok">;
+
+function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
+  return Object.fromEntries(
+    Object.entries(entries).map(([id, entry]) => [id, { id, ...entry, ...CACHE, priced: true }]),
+  );
+}
+
+/**
+ * Prices, in USD per million tokens.
+ *
+ * Only models whose prices have been checked are listed. An unlisted model
+ * still runs — it is reported with `pricingKnown: false` and costed at zero,
+ * which the report footnotes, rather than being silently priced wrong. Add
+ * entries here from the provider's own pricing page; nothing infers them.
+ */
+export const MODELS: Record<string, ModelSpec> = table({
+  "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, outputPerMTok: 25 },
+  "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, outputPerMTok: 10 },
+  "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5 },
+});
+
+export const DEFAULT_MODEL = "anthropic:claude-opus-5";
+
+/**
+ * What `--models sweep` expands to: one model per Claude tier.
+ *
+ * Deliberately *not* a cross-provider list. Google's and OpenAI's model ids
+ * change on their own schedule, and a shorthand that silently points at a
+ * retired id would fail a sweep three turns in — or, worse, quietly run a
+ * different model than the write-up claims. The cross-provider comparison
+ * therefore takes explicit ids:
+ *
+ *   npm run cli -- run --models anthropic:claude-opus-5,google:<id>,openai:<id>
+ */
+export const MODEL_SWEEP = [
+  "anthropic:claude-opus-5",
+  "anthropic:claude-sonnet-5",
+  "anthropic:claude-haiku-4-5",
+];
+
+/**
+ * Environment variable each provider reads, so a missing key fails with
+ * something useful instead of a 401 from three turns into a sweep.
+ */
+export const PROVIDER_ENV: Record<ProviderId, string[]> = {
+  anthropic: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
+  google: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+  openai: ["OPENAI_API_KEY"],
 };
 
-export const DEFAULT_MODEL = "claude-opus-5";
-
-/** The sweep in week four: one model per tier. */
-export const MODEL_SWEEP = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
-
-export function getModel(id: string): ModelSpec {
-  const spec = MODELS[id];
-  if (spec) return spec;
-  // An unknown id is usually a model newer than this table. Run it, but cost
-  // it at zero and say so, rather than refusing or inventing a price.
-  return {
-    id,
-    label: id,
-    inputPerMTok: 0,
-    outputPerMTok: 0,
-    contextWindow: 200_000,
-    supportsEffort: false,
-    thinking: "adaptive",
-    ...DEFAULTS,
-  };
+export function parseModelSpec(spec: string): { provider: ProviderId; modelId: string } {
+  const at = spec.indexOf(":");
+  if (at < 1) {
+    throw new Error(
+      `Model '${spec}' is missing a provider. Use 'provider:model-id', for example ` +
+        `anthropic:claude-opus-5, google:<model-id> or openai:<model-id>.`,
+    );
+  }
+  const provider = spec.slice(0, at) as ProviderId;
+  const modelId = spec.slice(at + 1);
+  if (!PROVIDER_IDS.includes(provider)) {
+    throw new Error(`Unknown provider '${provider}'. Known: ${PROVIDER_IDS.join(", ")}.`);
+  }
+  if (!modelId) throw new Error(`Model '${spec}' has an empty model id.`);
+  return { provider, modelId };
 }
 
-export function isKnownModel(id: string): boolean {
-  return id in MODELS;
+export function hasCredentials(provider: ProviderId): boolean {
+  return PROVIDER_ENV[provider].some((name) => Boolean(process.env[name]));
+}
+
+/**
+ * Pricing for a model spec.
+ *
+ * Never throws. An id this table has never heard of is usually a model newer
+ * than the table, and a run against an injected model (a replay, a dry run, a
+ * test) names no real provider at all. Both are costed at zero and say so,
+ * rather than being refused or invented a price for.
+ */
+export function getModel(id: string): ModelSpec {
+  return (
+    MODELS[id] ?? { id, label: id, inputPerMTok: 0, outputPerMTok: 0, ...CACHE, priced: false }
+  );
+}
+
+/** The language model behind a spec. Throws when the provider is unknown. */
+export function resolveLanguageModel(spec: string): LanguageModel {
+  const { provider, modelId } = parseModelSpec(spec);
+  switch (provider) {
+    case "anthropic":
+      return anthropic(modelId);
+    case "google":
+      return google(modelId);
+    case "openai":
+      return openai(modelId);
+  }
+}
+
+/**
+ * Map this project's effort levels onto the AI SDK's reasoning scale.
+ *
+ * Matching "effort" across providers is the obvious validity hole — Claude has
+ * `effort`, others have token budgets or their own enums, and any mapping
+ * invented here would be a criticism vector. The SDK exposes one `reasoning`
+ * scale and each provider maps it, so the mapping is documented and maintained
+ * upstream. The two scales line up one-to-one except that the SDK also offers
+ * `minimal`, and that `max` has no counterpart — `xhigh` is the top of the
+ * shared scale, so `max` saturates there. Stated here rather than buried in
+ * the loop, because it is a design decision the write-up has to defend.
+ */
+export function reasoningFor(effort: Effort | null): ReasoningLevel {
+  switch (effort) {
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    case "high":
+      return "high";
+    case "xhigh":
+    case "max":
+      return "xhigh";
+    default:
+      return "provider-default";
+  }
 }
 
 export interface TokenUsage {
@@ -110,6 +190,33 @@ export interface TokenUsage {
 }
 
 export const ZERO_USAGE: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+/** The part of the SDK's usage report that pricing depends on. */
+export interface UsageReport {
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  inputTokenDetails?: {
+    noCacheTokens?: number | undefined;
+    cacheReadTokens?: number | undefined;
+    cacheWriteTokens?: number | undefined;
+  };
+}
+
+/**
+ * A usage report reduced to the four numbers the cost table prices.
+ *
+ * `inputTokens` is the total; `noCacheTokens` is the part actually billed at
+ * the full input rate, and cached reads and writes are billed at their own
+ * multiples — so they are tracked apart rather than summed.
+ */
+export function tokenUsage(usage: UsageReport): TokenUsage {
+  return {
+    input: usage.inputTokenDetails?.noCacheTokens ?? usage.inputTokens ?? 0,
+    output: usage.outputTokens ?? 0,
+    cacheRead: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+    cacheWrite: usage.inputTokenDetails?.cacheWriteTokens ?? 0,
+  };
+}
 
 export function addUsage(a: TokenUsage, b: Partial<TokenUsage>): TokenUsage {
   return {

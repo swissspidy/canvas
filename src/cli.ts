@@ -10,8 +10,15 @@ import { join } from "node:path";
 import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
 import { FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "./feedback/index.js";
-import { MODELS, MODEL_SWEEP, DEFAULT_MODEL, parseEffort } from "./agent/models.js";
-import { CLAUDE_TIER_SWEEP, parseModelSpec, PRICING, PROVIDER_ENV, hasCredentials } from "./agent/providers.js";
+import {
+  DEFAULT_MODEL,
+  MODEL_SWEEP,
+  PROVIDER_ENV,
+  getModel,
+  hasCredentials,
+  parseEffort,
+  parseModelSpec,
+} from "./agent/models.js";
 import { DEFAULT_SWEEP, loadExistingScores, runSweep, sweepPaths, expandMatrix, type SweepConfig } from "./runner/run.js";
 import { buildReport, buildReportJson } from "./runner/report.js";
 import { renderStandaloneSvg } from "./render/svg.js";
@@ -76,27 +83,26 @@ Commands
   agreement --dir <sweepDir>  Compare human ratings against the judge.
 
 Cross-provider runs
-  --runner aisdk --models anthropic:claude-opus-5,google:<id>,openai:<id>
-  Model ids are provider-qualified. Prices live in PRICING in
-  src/agent/providers.ts; an unpriced model still runs, with cost reported
-  as unknown rather than silently wrong.
+  --models anthropic:claude-opus-5,google:<id>,openai:<id>
+  Every model runs through one loop on the Vercel AI SDK, so a difference
+  between two models is not a difference between two harnesses. Prices live
+  in MODELS in src/agent/models.ts; an unpriced model still runs, with cost
+  reported as unknown rather than silently wrong.
 
 Run options
   --tasks <sel>       Task selector: 'all', a family, an id, or a comma list. Default: all
   --surfaces <list>   Default: ${DEFAULT_SWEEP.surfaces.join(",")}
   --feedback <list>   Default: ${DEFAULT_SWEEP.feedback.join(",")}
-  --models <list>     Default: ${DEFAULT_MODEL}   (--models sweep = ${MODEL_SWEEP.join(",")};
-                      on --runner aisdk, sweep = ${CLAUDE_TIER_SWEEP.join(",")}. For the
-                      cross-provider check pass explicit ids: google:<id>,openai:<id>)
-  --runner <name>     'anthropic' (default, native loop, bare model ids) or
-                      'aisdk' (Vercel AI SDK, provider:model-id, every provider one loop)
+  --models <list>     Provider-qualified ids. Default: ${DEFAULT_MODEL}
+                      (--models sweep = ${MODEL_SWEEP.join(",")};
+                      for the cross-provider check pass explicit ids: google:<id>,openai:<id>)
   --repeats <n>       Repeats per cell. Default: ${DEFAULT_SWEEP.repeats}
   --effort <level>    low|medium|high|xhigh|max. Default: high
   --concurrency <n>   Default: ${DEFAULT_SWEEP.concurrency}
   --out <dir>         Output directory. Default: runs/<timestamp>
   --no-judge          Skip the LLM judge; deterministic checks only.
   --judge-model <id>  Default: ${DEFAULT_SWEEP.judgeModel}
-  --dry-run           Expand and wire the matrix with a scripted client; no API calls, no cost.
+  --dry-run           Expand and wire the matrix with a scripted model; no API calls, no cost.
   --force             Re-run cells that already have a result on disk.
   --estimate          Print the matrix size and stop.
 `;
@@ -178,20 +184,29 @@ function cmdRender(args: Args): void {
   console.log(`Wrote ${svgPath}\nWrote ${pngPath}`);
 }
 
+/**
+ * Flags that used to mean something.
+ *
+ * The parser puts any `--flag` it sees into the bag, so a retired one would
+ * otherwise be a silent no-op — and a sweep that quietly ignores a setting
+ * someone thought they had passed is a sweep whose results mean something
+ * other than what they think.
+ */
+const RETIRED_FLAGS: Record<string, string> = {
+  runner: "there is one agent loop now, on the AI SDK. Drop the flag; models are named provider:model-id.",
+  "eager-input": "eager input streaming was an Anthropic-only knob, and went with the native loop.",
+};
+
 function buildSweepConfig(args: Args): SweepConfig {
-  const tasks = resolveTasks(str(args.flags, "tasks", "all"));
-  const runner = str(args.flags, "runner", "anthropic") as "anthropic" | "aisdk";
-  if (runner !== "anthropic" && runner !== "aisdk") {
-    throw new Error(`Unknown runner '${runner}'. Use 'anthropic' or 'aisdk'.`);
+  for (const [flag, why] of Object.entries(RETIRED_FLAGS)) {
+    if (flag in args.flags) throw new Error(`--${flag} no longer exists: ${why}`);
   }
-  const defaultModel = runner === "aisdk" ? `anthropic:${DEFAULT_MODEL}` : DEFAULT_MODEL;
-  const modelsFlag = str(args.flags, "models", defaultModel);
+
+  const tasks = resolveTasks(str(args.flags, "tasks", "all"));
   const models =
-    modelsFlag === "sweep"
-      ? runner === "aisdk"
-        ? CLAUDE_TIER_SWEEP
-        : MODEL_SWEEP
-      : list(args.flags, "models", [defaultModel]);
+    str(args.flags, "models", DEFAULT_MODEL) === "sweep"
+      ? MODEL_SWEEP
+      : list(args.flags, "models", [DEFAULT_MODEL]);
   const surfaces = list(args.flags, "surfaces", DEFAULT_SWEEP.surfaces) as SurfaceId[];
   const feedback = list(args.flags, "feedback", DEFAULT_SWEEP.feedback) as FeedbackMode[];
 
@@ -201,27 +216,18 @@ function buildSweepConfig(args: Args): SweepConfig {
       throw new Error(`Unknown feedback mode '${f}'. Known: ${FEEDBACK_MODES.join(", ")}`);
     }
   }
-  if (runner === "aisdk") {
-    for (const m of models) {
-      const { provider } = parseModelSpec(m);
-      if (!(m in PRICING)) {
-        console.warn(`Note: no pricing for '${m}'; its cost is reported as unknown. Add it to PRICING in src/agent/providers.ts.`);
-      }
-      if (!bool(args.flags, "dry-run") && !hasCredentials(provider)) {
-        throw new Error(
-          `No credentials for provider '${provider}'. Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
-        );
-      }
+  for (const m of models) {
+    const { provider } = parseModelSpec(m);
+    if (!getModel(m).priced) {
+      console.warn(
+        `Note: no pricing for '${m}', so its cost is reported as unknown. ` +
+          `Add it to MODELS in src/agent/models.ts to include it in cost comparisons.`,
+      );
     }
-  } else {
-    for (const m of models) {
-      if (m.includes(":")) {
-        throw new Error(
-          `Model '${m}' is provider-qualified, which the native runner does not take. ` +
-            `Either drop the prefix or pass --runner aisdk.`,
-        );
-      }
-      if (!(m in MODELS)) console.warn(`Note: '${m}' is not in the model table; cost will be reported as $0.`);
+    if (!bool(args.flags, "dry-run") && !hasCredentials(provider)) {
+      throw new Error(
+        `No credentials for provider '${provider}'. Set one of: ${PROVIDER_ENV[provider].join(", ")}.`,
+      );
     }
   }
 
@@ -235,7 +241,6 @@ function buildSweepConfig(args: Args): SweepConfig {
     models,
     repeats: num(args.flags, "repeats", DEFAULT_SWEEP.repeats),
     concurrency: num(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
-    runner,
     judge: !bool(args.flags, "no-judge"),
     judgeModel: str(args.flags, "judge-model", DEFAULT_SWEEP.judgeModel),
     dryRun: bool(args.flags, "dry-run"),
@@ -244,7 +249,6 @@ function buildSweepConfig(args: Args): SweepConfig {
     // whole sweep on its first request.
     ...(typeof args.flags.effort === "string" ? { effort: parseEffort(args.flags.effort) } : {}),
     ...(args.flags["max-tokens"] ? { maxTokens: num(args.flags, "max-tokens", 16000) } : {}),
-    ...(bool(args.flags, "eager-input") ? { eagerInputStreaming: true } : {}),
   };
 }
 
@@ -264,7 +268,7 @@ async function cmdRun(args: Args): Promise<void> {
     return;
   }
 
-  console.log(`Runner: ${config.runner}${config.runner === "aisdk" ? " (Vercel AI SDK)" : " (native Anthropic loop)"}`);
+  console.log(`Models: ${config.models.join(", ")}`);
   console.log(`Output: ${config.outDir}${config.dryRun ? "  (dry run — no API calls)" : ""}\n`);
   const started = Date.now();
 

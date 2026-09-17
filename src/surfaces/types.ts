@@ -38,13 +38,6 @@ export interface ToolDef<TInput = unknown> {
   description: string;
   /** Validates the input and generates the JSON Schema sent to the model. */
   schema: z.ZodType<TInput>;
-  /**
-   * Stream this tool's input as it is generated rather than waiting for the
-   * server to buffer it. Worth setting only for tools whose inputs are large
-   * — `write_document` sends an entire document every call. The API stops
-   * validating eagerly streamed input, so the loop validates it itself.
-   */
-  eagerInput?: boolean;
   run(ctx: ToolContext, input: TInput): ToolOutcome;
 }
 
