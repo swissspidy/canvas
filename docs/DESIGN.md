@@ -64,6 +64,14 @@ So the defect is defined as **ink that something painted above it covers**:
 A card behind a headline occludes nothing, because it is painted below. A rect
 dropped on top of that headline occludes it. That matches what a reader sees.
 
+**The rule applies to the occluder as well as to the occluded.** A text element
+covers only the glyphs it paints, not the rectangle it was declared in — a
+headline in a tall box would otherwise bury every caption that box happens to
+span, which is neither what a reader sees nor a defect anyone would fix. The
+exception is a text element with its own block fill, which really does cover
+its whole box. Text that paints nothing — empty, or a fully transparent colour
+— occludes nothing.
+
 The structured feedback channel applies the same rule, and reports occlusion
 for **text** only — covering text destroys the only thing it carries, while a
 photo partly covered by a caption is ordinary composition. Non-text elements
@@ -72,7 +80,11 @@ are reported only when buried outright (≥ 90% hidden).
 Computing it needs exact polygon subtraction, not bounding boxes:
 `convexDifference` in `src/doc/geometry.ts` decomposes *subject minus clip*
 into convex pieces by walking the clip's edges, so hidden area is exact for
-rotated elements.
+rotated elements. Subtracting can split a piece up to four ways per clip, so
+the piece list is capped; when the cap trips the result falls back on the union
+bound, which under-reports visible area rather than over-reporting it. Erring
+toward *more* occlusion is the safe direction for a metric whose job is to
+catch hidden text.
 
 ---
 
@@ -194,13 +206,24 @@ is looking for.
 
 ### The contrast approximation
 
-Contrast is scored against the *effective backdrop*: the element's own fill if
-opaque, otherwise the topmost opaque thing under its centre, otherwise the
-canvas background. Computing it exactly would mean sampling rendered pixels.
+Contrast is scored against the *effective backdrop*: the stack of layers that
+actually cover the element's centre, composited bottom-up onto the canvas
+background and stopping at the first opaque one. Computing it exactly would
+mean sampling rendered pixels.
 
-The approximation is wrong for text straddling a hard edge between two fills —
-a headline half on a dark photo and half on a light margin. The task set avoids
-that case rather than pretending the metric handles it.
+Two things that stack has to get right, because both are ordinary design:
+
+- **A translucent scrim over a photo.** Compositing a 40%-white scrim onto the
+  page background instead of onto the photo under it reports the contrast of a
+  layout nobody is looking at. So the whole stack is composited, not just the
+  topmost layer opaque enough to count.
+- **A rotated card.** Its bounding box claims up to twice the area it paints,
+  so coverage is tested against its real corners.
+
+The approximation that remains is the single sample: it is wrong for text
+straddling a hard edge between two fills — a headline half on a dark photo and
+half on a light margin. The task set avoids that case rather than pretending
+the metric handles it.
 
 ---
 

@@ -77,9 +77,11 @@ buried under a decorative shape, an inverted stacking order, everything jammed
 against the edges.
 
 Each carries copy the agent must keep, so "fix it by deleting the problem"
-scores zero on `preservesElements`. Several also pin what must *not* move, via
-`inRegion` checks — `repair.z-order` is purely a restacking task and the checks
-say so.
+scores zero on `preservesElements` — and, where the brief says to keep the copy
+as it is, `textUnchanged` compares it verbatim, because shortening the body
+text is the cheapest way to clear an occlusion without doing any layout work.
+Several also pin what must *not* move, via `geometryUnchanged`; `repair.z-order`
+is purely a restacking task and the checks say so.
 
 ### `fit` — text that does not fit its box (4 tasks)
 
@@ -142,7 +144,11 @@ Task-specific checks:
 | `alignedOn` | Spread of a shared edge across a group |
 | `evenlySpaced` | Spread of gaps between consecutive elements |
 | `marginAtLeast` | Smallest distance to a canvas edge (full-bleed elements exempt) |
-| `inRegion` | An element's centre lies in a fractional region — used to pin what must not move |
+| `inRegion` | An element's centre lies in a fractional region |
+| `geometryUnchanged` | Boxes held still where a brief forbids moving or resizing |
+| `textUnchanged` | Copy held verbatim where a brief forbids rewriting it |
+| `outerMarginsBalanced` | The gap at each end of a row or column matches the other |
+| `typeBudget` | Per-type element caps, for a brief that says "no images" |
 | `typeHierarchy` | Ratio of largest to smallest font size, id-free |
 | `coverage` | Fraction of canvas occupied, via a 60×60 occupancy grid |
 | `usesImage` | An image element from a named set |

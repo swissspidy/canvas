@@ -78,7 +78,11 @@ so making a document worse is recorded as such.
 
 **Secondary, all pre-registered, all reported whatever they show:**
 
-1. Judge criteria score (0–1), reported raw.
+1. Judge criteria score (0–1), reported raw. A judgement whose returned
+   criteria do not line up one-for-one with the criteria it was asked for is
+   discarded rather than averaged: a run scored against three criteria is not
+   comparable with one scored against five, and the number would not show it.
+   The discard rate is reported.
 2. Cost per run, in dollars, and improvement per dollar.
 3. Tool-call failure rate — the share of calls rejected as invalid.
 4. Turns to completion.

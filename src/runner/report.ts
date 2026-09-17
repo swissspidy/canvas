@@ -272,6 +272,16 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
     );
     out.push("");
   }
+  const judgeFailures = scores.filter((s) => s.judgeError);
+  if (judgeFailures.length > 0) {
+    const reasons = [...new Set(judgeFailures.map((s) => s.judgeError!))].slice(0, 3);
+    out.push(
+      `> The judge was discarded on ${judgeFailures.length} of ${scores.length} runs ` +
+        `(${pct(judgeFailures.length / scores.length)}%), which are scored on constraints alone. ` +
+        `Reasons: ${reasons.join("; ")}.`,
+    );
+    out.push("");
+  }
   out.push("### Cost of a point");
   out.push("");
   out.push(
