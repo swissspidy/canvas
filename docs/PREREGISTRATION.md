@@ -340,6 +340,34 @@ Two new checks, `rotationWithin` and `sameRotation`, and a rotation option on
 `textOnFilledShape` so a tilted label on an upright rect is not scored as a
 ribbon. The confirmatory grid grows from 756 runs to 828.
 
+**2026-09-18 (third entry) — per-check weights, and the discretion in them.**
+Recorded because §3 fixes the composite weighting in advance and says nothing
+about the weights *inside* the constraint score, and both entries above changed
+many of them.
+
+They were set by hand, before any run, by watching what each starting document
+scored and adjusting until the failing checks carried the task rather than the
+"do not break this" checks around them. `noTextClipping` carries weight 6 on
+every `fit` task; `rotationWithin` carries 8 on `repair.tilted-stack`;
+`surfacesNoLighterThan` and `textNoDarkerThan` carry 4 each on
+`restyle.dark-mode`. The reasoning is in the task files, check by check, and it
+is a defensible way to spend the discretion — but it is discretion, exercised
+on the metric, by someone who could see the baselines move.
+
+Three things bound it, and they are the reason this is a disclosure rather than
+a problem:
+
+1. It happened before any run against a real model, so no result could have
+   informed it.
+2. The primary outcome normalizes against the baseline, so moving a weight
+   moves the floor and the ceiling together; it changes resolution, not rank.
+3. Every weight is in version control with a comment saying what it is for.
+
+**The weights are frozen as of this entry.** Changing one after the first
+confirmatory run is a deviation and gets its own entry here, with the affected
+analysis re-run from scratch. If a weight turns out to be wrong, the honest
+move is to say so in the write-up, not to re-cut the score.
+
 **2026-09-18 — the task set hardened, and three tasks added.** Written before
 any run against a real model, so nothing below was chosen after seeing results.
 
