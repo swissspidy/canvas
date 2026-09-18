@@ -30,7 +30,22 @@ import {
   type TokenUsage,
 } from "../agent/models.js";
 
-export const DEFAULT_JUDGE_MODEL = "anthropic:claude-opus-5";
+/**
+ * Sonnet rather than Opus, on both cost and behaviour.
+ *
+ * A sweep is one judge call per run — 828 of them at the pre-registered size —
+ * so the judge is a standing cost rather than a rounding error, and Sonnet is
+ * 2.5x cheaper per token on both rails. Measured over all 23 tasks it is also
+ * the better-behaved judge: it returned exactly the criteria asked for on 23 of
+ * 23, twice over, where Opus appended a row of its own often enough to need
+ * `alignCriteria` to drop one on about half of them.
+ *
+ * It also decouples the judge from the model under test. `claude-opus-5` is the
+ * confirmatory model in the study, so judging with Opus had it grading its own
+ * work — exactly the sibling-grading confound `--judge-model` exists to let
+ * anyone check.
+ */
+export const DEFAULT_JUDGE_MODEL = "anthropic:claude-sonnet-5";
 export const JUDGE_SCREENSHOT_WIDTH = 768;
 
 /** 1..5 per criterion. A 5-point scale is what the human raters also use. */
