@@ -368,10 +368,12 @@ async function cmdRun(args: Args): Promise<void> {
   console.log(`Output: ${config.outDir}${config.dryRun ? "  (dry run — no API calls)" : ""}\n`);
   const started = Date.now();
 
+  const warnings: string[] = [];
   const scores = await runSweep(config, {
     onCellSkipped: (cell, i, total) => {
       console.log(`[${i + 1}/${total}] skip  ${cell.runId} (already done)`);
     },
+    onWarnings: (messages) => warnings.push(...messages),
     onCellDone: (score, i, total) => {
       const flag = score.error ? ` !! ${score.stopReason}` : "";
       console.log(
@@ -389,6 +391,16 @@ async function cmdRun(args: Args): Promise<void> {
     `\nDone in ${((Date.now() - started) / 1000).toFixed(0)}s. ` +
       `${scores.length} runs, $${totalCost.toFixed(2)} total.`,
   );
+
+  // Scores survived, but something beside them did not — a render that would
+  // not write, a judge that could not be reached. None of it changes a result,
+  // and all of it means the sweep's artifacts are incomplete, which is only
+  // discoverable later and at the worst moment.
+  if (warnings.length > 0) {
+    console.log(`\n${warnings.length} warning(s); the scores are unaffected:`);
+    for (const warning of warnings.slice(0, 10)) console.log(`  - ${warning}`);
+    if (warnings.length > 10) console.log(`  ... and ${warnings.length - 10} more.`);
+  }
 
   // Said here as well as in the report, because a sweep is watched in a
   // terminal and a harness failure is the one outcome that wants acting on

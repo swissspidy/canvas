@@ -212,9 +212,9 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
     return [
       `# ${opts.title ?? "Surface comparison"}`,
       "",
-      `All ${allScores.length} run(s) here ended in a harness failure — no request reached a model, or none`,
-      "came back. There is nothing to aggregate: every number this report could print would be a property",
-      "of the starting documents rather than of any agent.",
+      `All ${allScores.length} run(s) here were cut off by the harness rather than finished by the model — an`,
+      "API error, or an abort. There is nothing to aggregate: whatever these runs reached before the",
+      "transport failed measures when it failed, not how the surfaces compare.",
       "",
       `Reasons: ${
         [...new Set(allScores.map((s) => s.error?.replace(/\s*\.\s*$/, "")).filter(Boolean))]
@@ -242,10 +242,12 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
   out.push("");
   if (lost > 0) {
     out.push(
-      `> ${lost} further run(s) ended in a harness failure — an API error or an abort — and are left out of ` +
-        `every table below except **How runs ended**. A run whose request never came back says nothing about ` +
-        `its surface, and averaging it in as an improvement of zero would penalise whichever cells happened ` +
-        `to collide with a rate limit. They are not cached as done: re-run the same command to fill them in.`,
+      `> ${lost} further run(s) were cut off by the harness — an API error or an abort — and are left out of ` +
+        `every table below except **How runs ended**. Such a run is excluded for being incomplete, not for ` +
+        `having achieved nothing: it may have done real work before the transport failed, and that is the ` +
+        `problem — what it scores is *when* the failure landed, which moves a surface's mean in whichever ` +
+        `direction the rate limiter happened to push it. They are not cached as done: re-run the same ` +
+        `command to fill them in.`,
     );
     out.push("");
   }

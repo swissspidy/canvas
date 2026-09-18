@@ -22,8 +22,28 @@ import { describe, expect, it } from "vitest";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** Packages whose presence means something reached for the network layer. */
-const FORBIDDEN = [/^node_modules\/ai\//, /^node_modules\/@ai-sdk\//, /^node_modules\/@resvg\//];
+/**
+ * What must not be in the bundle.
+ *
+ * The packages are the symptom, and naming only them would let this pass the
+ * day the agent loop stops importing an SDK directly. The modules below are
+ * the cause: the loop, the model registry and the judge belong to whatever
+ * *drives* the bench, not to the bench itself, and the page drives it over
+ * WebMCP precisely so it needs none of them. `models.ts` earns its line —
+ * reaching into it for one boolean is how six provider SDKs got in.
+ *
+ * `src/agent/events.ts` is deliberately absent: it is types and one string
+ * predicate, with nothing behind it, so there is no reason the page should not
+ * name a stop reason.
+ */
+const FORBIDDEN = [
+  /^node_modules\/ai\//,
+  /^node_modules\/@ai-sdk\//,
+  /^node_modules\/@resvg\//,
+  /^src\/agent\/loop\.ts$/,
+  /^src\/agent\/models\.ts$/,
+  /^src\/eval\/judge\.ts$/,
+];
 
 describe("the browser bundle", () => {
   it("pulls in no provider SDK, no agent loop and no Node-only renderer", async () => {

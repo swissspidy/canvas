@@ -166,15 +166,31 @@ Fixed in advance so the write-up cannot negotiate with itself later.
   surface and a budget, and that is what it did with them.
 - **Harness failures are not runs.** A cell that ends in `api_error` or
   `aborted` — an overloaded endpoint, an expired key, a dropped socket, a
-  Ctrl-C — never reached a model or never came back from one. The document is
-  as the task left it, so scoring it would enter a 0% improvement for whichever
-  cells happened to collide with a rate limit, and 828 cells against a
-  rate-limited API will produce some. They are excluded from every aggregate,
-  counted in the report, and **re-run rather than cached as finished**, so
-  resuming a sweep fills the holes instead of freezing them. The attrition
-  count is reported per surface alongside the stop reasons: a surface losing
-  cells at a different rate from its neighbours is a fact about the sweep worth
-  seeing, even though it is not a score.
+  Ctrl-C — was cut off by the transport rather than finished by the model.
+
+  Such a run is excluded because its execution is incomplete in a way the
+  agent had no part in, not because it achieved nothing. It may well have
+  achieved something: the failure can land before the first turn or four turns
+  into useful work, and the document left behind is whatever the agent had
+  reached at that moment. That is the problem. The score of a truncated run
+  measures **when the endpoint fell over**, which is a property of the
+  endpoint; pooled in, it moves its surface's mean by however much the agent
+  happened to have done — downwards for a cell that died early, and just as
+  wrongly upwards for one that died late on an easy task. 828 cells against a
+  rate-limited API will produce some of each, distributed by the rate limiter
+  rather than by anything under study.
+
+  They are excluded from every aggregate, counted in the report, and **re-run
+  rather than cached as finished**, so resuming a sweep fills the holes
+  instead of freezing them. The attrition count is reported per surface
+  alongside the stop reasons: a surface losing cells at a different rate from
+  its neighbours is a fact about the sweep worth seeing, even though it is not
+  a score.
+
+  The line between this and the rule above is *who* ended the run, not how
+  much got done. A run that exhausts its turn budget is also incomplete, and
+  is scored, because the budget is part of the condition the model was given.
+  A run that ends because the API returned 529 is not.
 
   This is a rule about the *harness*, not about the agent, and it is the one
   place where a run is dropped rather than scored. It is written down here
@@ -449,19 +465,27 @@ changes, and no run against a real model had been made when this was written.
 **2026-09-18 (fourth entry) — harness failures are not runs.** Written before
 any run against a real model, from a pilot rehearsal that never reached one.
 
-§5 said what to do with an incomplete run and nothing about a cell that never
-reached a model at all. The runner had been treating the two alike: a cell that
+§5 said what to do with a run the model left incomplete and nothing about one
+the transport cut off. The runner had been treating the two alike: a cell that
 ended in `api_error` was appended to `scores.jsonl`, pooled into every
-aggregate as a run that improved nothing, and — because run ids encode the cell
-and the resume path read every recorded id as finished — skipped forever after.
-A sweep that met a rate limit on forty cells kept forty zeros, and they landed
-wherever the limiter fell rather than where the surfaces differ.
+aggregate, and — because run ids encode the cell and the resume path read every
+recorded id as finished — skipped forever after.
+
+The first draft of this entry said those cells contributed zeros. They do not,
+and the truth is worse. The agent loop executes tool calls as it goes, so a
+failure three turns in leaves a real, partly-improved document: a rehearsal
+produced an `api_error` run carrying 80% improvement and $0.005 of spend. What
+such a run scores is how far the agent had got when the endpoint fell over —
+arbitrary with respect to everything under study, and capable of moving a
+surface's mean in *either* direction depending on when the rate limiter
+happened to hit. A permanent hole would have been easier to spot than that.
 
 Three things follow, and §5 now states them: such a cell is excluded from the
 aggregates, counted in the report, and re-run on the next pass. The stop-reason
 table still shows it, because attrition that differs by surface is worth
 seeing. `max_turns`, `max_tokens` and `refusal` are unaffected — they are
-outcomes, and are scored on the document left behind exactly as before.
+outcomes, and are scored on the document left behind exactly as before. The
+line is who ended the run, not how much of it got done.
 
 Nothing in the question, the hypotheses, the primary outcome or the analysis
 plan changes. It narrows what counts as an observation, in the direction of

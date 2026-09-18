@@ -120,14 +120,18 @@ the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
 judge) are fingerprinted, and resuming after changing one is refused rather
 than silently averaged.
 
-**A cell that never reached a model is not a run.** An overloaded endpoint, an
-expired key, a dropped socket: the document is as the task left it, so counting
-it as a run that improved nothing would penalise whichever cells happened to
-collide with a rate limit. Those cells are kept on disk, kept out of every
-aggregate, counted at the top of the report, and — crucially — **not recorded
-as finished**, so running the same command again retries exactly them. One
-cell falling over no longer takes the sweep down with it either; the other
-workers' in-flight cells used to be abandoned unrecorded.
+**A cell the transport cut off is not a run.** An overloaded endpoint, an
+expired key, a dropped socket. The agent may well have done real work first —
+a failure three turns in leaves a genuinely half-improved document — and that
+is the problem rather than the consolation: what such a cell scores is *when*
+the endpoint fell over, which moves its surface's mean by however much the
+agent happened to have finished by then. Those cells are kept on disk, kept
+out of every aggregate, counted at the top of the report, and — crucially —
+**not recorded as finished**, so running the same command again retries
+exactly them. One cell falling over no longer takes the sweep down with it
+either; the other workers' in-flight cells used to be abandoned unrecorded.
+A score that has been computed is never discarded for want of a file write,
+because that would spend the same money twice.
 
 ---
 

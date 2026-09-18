@@ -43,10 +43,15 @@ export type StopReason =
  * so they are scored on the document left behind and pooled into the results
  * exactly as `docs/PREREGISTRATION.md` §5 says. `api_error` and `aborted` are
  * not outcomes at all — a 529 from an overloaded endpoint, an expired key, a
- * dropped socket, a Ctrl-C. The document is untouched and the run says nothing
- * about the surface, so counting it as a 0%-improvement observation would let
- * whichever cells happened to collide with a rate limit drag their surface
- * down.
+ * dropped socket, a Ctrl-C.
+ *
+ * The run is cut off wherever the transport happened to fail, which may be
+ * before the first turn or four turns into useful work, so the document it
+ * leaves behind is real but arbitrary: its score measures how far the agent
+ * had got when the endpoint fell over. That is a fact about the endpoint. Pool
+ * it in and the cells that collided with a rate limit move their surface's
+ * mean by however much they had done at the time — down if they died early,
+ * and, just as wrongly, up if they died late on an easy task.
  *
  * So a harness failure is never cached as a finished cell (the sweep retries
  * it on the next pass) and never enters an aggregate (the report counts them

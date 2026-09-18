@@ -21,7 +21,7 @@ import { getSurface } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { runAgent } from "../agent/loop.js";
-import { DEFAULT_MODEL, getModel, type Effort } from "../agent/models.js";
+import { DEFAULT_MODEL, getModel, ZERO_USAGE, type Effort } from "../agent/models.js";
 import { dryRunModel } from "../agent/scripted.js";
 import { judgeRun, DEFAULT_JUDGE_MODEL } from "../eval/judge.js";
 import { baselineFor, normalize, scoreDocument, scoreRun, type RunScore } from "../eval/score.js";
@@ -160,7 +160,24 @@ function previousFingerprint(paths: SweepPaths): Record<string, unknown> | null 
 export function loadExistingScores(paths: SweepPaths): Map<string, RunScore> {
   const map = new Map<string, RunScore>();
   if (!existsSync(paths.scoresFile)) return map;
-  for (const line of readFileSync(paths.scoresFile, "utf8").split("\n")) {
+
+  // Deliberately fatal, and deliberately not the same call as the per-cell
+  // guards below. This runs before any cell does, so nothing is in flight and
+  // nothing is lost by stopping — whereas carrying on as though the file were
+  // empty would re-run every finished cell in the directory and bill for all
+  // of them, which is the one outcome resumability exists to prevent.
+  let raw: string;
+  try {
+    raw = readFileSync(paths.scoresFile, "utf8");
+  } catch (err) {
+    throw new Error(
+      `${paths.scoresFile} exists but could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+        `That file is how a sweep knows which cells are already done, so continuing would re-run — and re-bill ` +
+        `for — every cell in this directory. Fix or remove it, or use a different --out.`,
+    );
+  }
+
+  for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
       const score = JSON.parse(line) as RunScore;
@@ -203,6 +220,16 @@ export interface SweepProgress {
   onCellDone?(score: RunScore, index: number, total: number): void;
   onCellSkipped?(cell: Cell, index: number, total: number): void;
   onEvent?(cell: Cell, event: AgentEvent): void;
+  /**
+   * Something went wrong beside a cell without changing its score — a render
+   * that would not write, a judge that could not be reached. Not a failure of
+   * the run, so it does not stop anything; still worth saying, because a sweep
+   * that silently wrote no renders at all is one nobody can go back and look
+   * at.
+   */
+  onWarning?(cell: Cell, message: string): void;
+  /** Every warning raised during the sweep, once it has finished. */
+  onWarnings?(messages: string[]): void;
 }
 
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
@@ -224,6 +251,7 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
   const cells = expandMatrix(config);
   const existing = config.force ? new Map<string, RunScore>() : completedScores(paths);
   const results: RunScore[] = [];
+  const warnings: string[] = [];
   let index = 0;
 
   const worker = async (): Promise<void> => {
@@ -240,36 +268,63 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
       }
 
       progress.onCellStart?.(cell, i, cells.length);
+      const warn = (message: string): void => {
+        const text = `${cell.runId}: ${message}`;
+        warnings.push(text);
+        progress.onWarning?.(cell, message);
+      };
+
       // One cell's bad day is not the sweep's. `runAgent` already turns a
-      // failed request into a scored run, but everything around it — the
-      // judge's rasterizer, the render written to disk, the disk itself — can
-      // still throw, and an unhandled rejection here would take down every
-      // other worker mid-flight and lose whatever they had already paid for.
+      // failed request into a scored run, and `runCell` keeps the score it
+      // computed even if the transcript or the render cannot be written — so
+      // this catch is the backstop for a cell that fell over before there was
+      // a score at all. Without it an unhandled rejection takes down every
+      // other worker mid-flight and loses whatever they had already paid for.
       // Hundreds of cells in, that is the difference between a retry and an
       // afternoon.
-      const score = await runCell(cell, config, paths, (event) => progress.onEvent?.(cell, event)).catch(
+      const score = await runCell(cell, config, paths, (event) => progress.onEvent?.(cell, event), warn).catch(
         (err: unknown) => harnessFailureScore(cell, err),
       );
       results.push(score);
-      // Appended as each cell finishes, so an interrupted sweep keeps its work.
-      appendFileSync(paths.scoresFile, `${JSON.stringify(score)}\n`);
+
+      // Appended as each cell finishes, so an interrupted sweep keeps its
+      // work. Guarded for the same reason as everything else in this loop: a
+      // disk that has stopped accepting writes is a bad afternoon, not a
+      // reason to abandon the cells still in flight. It is the loudest
+      // warning of the lot, though — with no scores file there is nothing to
+      // resume from, so the sweep is running without a net.
+      try {
+        appendFileSync(paths.scoresFile, `${JSON.stringify(score)}\n`);
+      } catch (err) {
+        warn(
+          `its score could not be appended to ${paths.scoresFile} ` +
+            `(${err instanceof Error ? err.message : String(err)}). It is in this run's results but not on disk, ` +
+            `so resuming will not find it.`,
+        );
+      }
       progress.onCellDone?.(score, i, cells.length);
     }
   };
 
   const workers = Array.from({ length: Math.max(1, config.concurrency) }, worker);
   await Promise.all(workers);
+  if (warnings.length > 0) progress.onWarnings?.(warnings);
   return results;
 }
 
 /**
- * A cell that fell over outside the agent loop, recorded as the harness
- * failure it is.
+ * A cell that fell over before it had a score, recorded as the harness failure
+ * it is.
  *
- * Scored against the starting document, because that is what is on the page:
- * nothing ran. It carries `api_error`, so `completedScores` will hand it back
- * to the next pass and the report will keep it out of the aggregates — the
- * same treatment a failed request gets, which is what this is.
+ * Only reachable ahead of `scoreRun` — building the feedback channel, or the
+ * agent loop itself failing in a way it cannot report. Once a score exists
+ * `runCell` keeps it, because from that point the cell has been paid for and
+ * losing it would spend the money twice.
+ *
+ * Scored against the starting document, which is the honest reading of "the
+ * run produced nothing": no turn was taken, so there is no later state to
+ * score. It carries `api_error`, so `completedScores` hands it back to the
+ * next pass and the report keeps it out of the aggregates.
  */
 function harnessFailureScore(cell: Cell, err: unknown): RunScore {
   const { score, results } = scoreDocument(cell.task.initial(), cell.task);
@@ -312,6 +367,7 @@ async function runCell(
   config: SweepConfig,
   paths: SweepPaths,
   onEvent: (event: AgentEvent) => void,
+  onWarning: (message: string) => void,
 ): Promise<RunScore> {
   const run = await runAgent({
     runId: cell.runId,
@@ -328,58 +384,117 @@ async function runCell(
     onEvent,
   });
 
-  const judge =
-    config.judge && !config.dryRun
-      ? await judgeRun({
-          brief: cell.task.brief,
-          criteria: cell.task.judgeCriteria,
-          finalDoc: run.finalDoc,
-          initialDoc: run.initialDoc,
-          model: config.judgeModel,
-        })
-      : undefined;
+  // `judgeRun` handles its own request failures, but it rasterizes both
+  // documents before it gets that far, and that is outside its try. A render
+  // that dies here must not cost the run its turns: the agent's work is done
+  // and paid for, so the cell is scored without a judge, exactly as a judge
+  // that answered unusably would be.
+  let judge: Awaited<ReturnType<typeof judgeRun>> | undefined;
+  if (config.judge && !config.dryRun) {
+    try {
+      judge = await judgeRun({
+        brief: cell.task.brief,
+        criteria: cell.task.judgeCriteria,
+        finalDoc: run.finalDoc,
+        initialDoc: run.initialDoc,
+        model: config.judgeModel,
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      onWarning(`the judge could not be run: ${detail}`);
+      judge = {
+        criteriaScore: 0,
+        overallScore: 0,
+        judgement: { criteria: [], overall: 1, summary: "" },
+        model: config.judgeModel,
+        usage: { ...ZERO_USAGE },
+        costUsd: 0,
+        pricingKnown: getModel(config.judgeModel).priced,
+        error: detail,
+      };
+    }
+  }
 
   const score = scoreRun(run, cell.task, judge);
 
-  writeFileSync(
-    join(paths.runs, `${cell.runId}.json`),
-    JSON.stringify(
-      {
-        runId: cell.runId,
-        task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: cell.task.brief },
-        surface: cell.surface,
-        feedback: cell.feedback,
-        model: cell.model,
-        repeat: cell.repeat,
-        stopReason: run.stopReason,
-        error: run.error ?? null,
-        score,
-        judgement: judge?.judgement ?? null,
-        initialDoc: run.initialDoc,
-        finalDoc: run.finalDoc,
-        actions: run.session.actions.map((a) => ({
-          seq: a.seq,
-          tool: a.tool,
-          input: a.input,
-          ok: a.ok,
-          message: a.message,
-          touched: a.touched,
-          durationMs: a.durationMs,
-        })),
-        turnRecords: run.turnRecords,
-        transcript: run.transcript,
-      },
-      null,
-      2,
+  // From here the score exists, and the cell has been paid for. Everything
+  // below is bookkeeping — a transcript, a render — and none of it can be
+  // allowed to throw the score away. Losing it would discard the agent's work
+  // *and* mark the cell for a re-run, which is the same money spent twice for
+  // want of a file write.
+  writeArtifacts(cell, paths, run, judge, score, onWarning);
+  return score;
+}
+
+/**
+ * The per-run record, SVG and PNG. Best effort, and deliberately so.
+ *
+ * Each write is guarded on its own: a full disk is far likelier to stop the
+ * PNG than the JSON, and a cell that kept its transcript but lost its
+ * thumbnail is in much better shape than one that discarded both because the
+ * second write failed. Failures are reported through `onWarning` rather than
+ * swallowed — a sweep whose renders are all missing should say so — but they
+ * never change the score.
+ */
+function writeArtifacts(
+  cell: Cell,
+  paths: SweepPaths,
+  run: Awaited<ReturnType<typeof runAgent>>,
+  judge: Awaited<ReturnType<typeof judgeRun>> | undefined,
+  score: RunScore,
+  onWarning: (message: string) => void,
+): void {
+  const attempt = (what: string, write: () => void): void => {
+    try {
+      write();
+    } catch (err) {
+      onWarning(`${what} could not be written: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  attempt("the run record", () =>
+    writeFileSync(
+      join(paths.runs, `${cell.runId}.json`),
+      JSON.stringify(
+        {
+          runId: cell.runId,
+          task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: cell.task.brief },
+          surface: cell.surface,
+          feedback: cell.feedback,
+          model: cell.model,
+          repeat: cell.repeat,
+          stopReason: run.stopReason,
+          error: run.error ?? null,
+          score,
+          judgement: judge?.judgement ?? null,
+          initialDoc: run.initialDoc,
+          finalDoc: run.finalDoc,
+          actions: run.session.actions.map((a) => ({
+            seq: a.seq,
+            tool: a.tool,
+            input: a.input,
+            ok: a.ok,
+            message: a.message,
+            touched: a.touched,
+            durationMs: a.durationMs,
+          })),
+          turnRecords: run.turnRecords,
+          transcript: run.transcript,
+        },
+        null,
+        2,
+      ),
     ),
   );
 
   // Standalone, so an artifact opened months later still paints in the face
   // its line breaks were computed from.
-  writeFileSync(join(paths.renders, `${cell.runId}.svg`), renderStandaloneSvg(run.finalDoc));
-  writeFileSync(join(paths.renders, `${cell.runId}.png`), rasterize(run.finalDoc, { pixelWidth: 540 }));
-
-  return score;
+  attempt("the SVG", () =>
+    writeFileSync(join(paths.renders, `${cell.runId}.svg`), renderStandaloneSvg(run.finalDoc)),
+  );
+  attempt("the PNG", () =>
+    writeFileSync(join(paths.renders, `${cell.runId}.png`), rasterize(run.finalDoc, { pixelWidth: 540 })),
+  );
 }
 
 export const DEFAULT_SWEEP: Omit<SweepConfig, "outDir" | "taskIds"> = {

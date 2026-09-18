@@ -523,8 +523,12 @@ describe("harness failures in the report", () => {
 
   it("counts them at the top, so the hole in the grid is visible", () => {
     const md = buildReport(mixed());
-    expect(md).toContain("3 further run(s) ended in a harness failure");
+    expect(md).toContain("3 further run(s) were cut off by the harness");
     expect(md).toContain("not cached as done");
+    // Excluded for being incomplete, not for having achieved nothing — a
+    // truncated run can carry real progress, which is the reason to drop it
+    // rather than a reason to keep it.
+    expect(md).toContain("not for having achieved nothing");
     // The run count is of the usable runs, not of the rows on disk.
     expect(md).toContain(`${syntheticScores(0.2).length} runs —`);
   });
@@ -543,7 +547,7 @@ describe("harness failures in the report", () => {
       score({ taskId: "task-0", surfaceId: "coordinate", stopReason: "max_turns", normalizedScore: 0.1 }),
     ];
     const md = buildReport(withBudgetExhaustion);
-    expect(md).not.toContain("ended in a harness failure");
+    expect(md).not.toContain("cut off by the harness");
     expect(md).toContain("max_turns");
   });
 
@@ -552,7 +556,7 @@ describe("harness failures in the report", () => {
       score({ taskId: "t", surfaceId: "coordinate", stopReason: "api_error", error: "API key is invalid." }),
       score({ taskId: "t", surfaceId: "relational", stopReason: "api_error", error: "API key is invalid." }),
     ]);
-    expect(md).toContain("ended in a harness failure");
+    expect(md).toContain("cut off by the harness");
     expect(md).toContain("API key is invalid.");
     expect(md).not.toContain("## By tool surface");
   });
