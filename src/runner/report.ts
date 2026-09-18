@@ -19,7 +19,7 @@ export const BOOTSTRAP_ITERATIONS = 2000;
 export const BOOTSTRAP_SEED = 20260916;
 
 /** Deterministic PRNG so reports are reproducible. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -57,13 +57,18 @@ export interface Interval {
  * interval that is too narrow. Anything reported over runs goes through
  * `clusterBootstrapCI`, which is what `docs/PREREGISTRATION.md` specifies.
  */
-export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS, alpha = 0.05): Interval {
+export function bootstrapCI(
+  values: number[],
+  iterations = BOOTSTRAP_ITERATIONS,
+  alpha = 0.05,
+  seed = BOOTSTRAP_SEED,
+): Interval {
   const n = values.length;
   const m = mean(values);
   if (n === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
   if (n === 1) return { mean: m, low: m, high: m, n, sd: 0 };
 
-  const rand = mulberry32(BOOTSTRAP_SEED + n);
+  const rand = mulberry32(seed + n);
   const means: number[] = new Array(iterations);
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -93,6 +98,7 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   clusterOf: (item: T) => string = (s) => s.taskId,
   iterations = BOOTSTRAP_ITERATIONS,
   alpha = 0.05,
+  seed = BOOTSTRAP_SEED,
 ): Interval {
   const clusters = [...groupBy(items, clusterOf).values()].map((rows) => mean(rows.map(valueOf)));
   const k = clusters.length;
@@ -100,7 +106,7 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   if (k === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
   if (k === 1) return { mean: observed, low: observed, high: observed, n: items.length, sd: 0 };
 
-  const rand = mulberry32(BOOTSTRAP_SEED + k * 7919);
+  const rand = mulberry32(seed + k * 7919);
   const means: number[] = new Array(iterations);
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -140,6 +146,7 @@ export function pairedDifference(
   b: string,
   valueOf: (s: RunScore) => number = (s) => s.normalizedScore,
   iterations = BOOTSTRAP_ITERATIONS,
+  seed = BOOTSTRAP_SEED,
 ): PairedDifference {
   const perTask = new Map<string, { a: number[]; b: number[] }>();
   for (const score of scores) {
@@ -156,7 +163,7 @@ export function pairedDifference(
     deltas.push(mean(left) - mean(right));
   }
 
-  const interval = bootstrapCI(deltas, iterations);
+  const interval = bootstrapCI(deltas, iterations, 0.05, seed);
   return {
     a,
     b,
