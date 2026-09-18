@@ -70,7 +70,7 @@ checked price to `MODELS` in `src/agent/models.ts` to include them in cost
 comparisons.
 
 ```bash
-npm run cli -- tasks                        # the 18 tasks
+npm run cli -- tasks                        # the 21 tasks
 npm run cli -- surfaces                     # the surfaces and their tools
 npm run cli -- show repair.overlapping-stack  # a task's brief, start state and baseline
 npm run cli -- render fit.long-headline     # render a starting document to PNG
@@ -92,7 +92,7 @@ npm run cli -- run \
   --repeats 3 --concurrency 12 --out runs/leaderboard
 ```
 
-That is 18 tasks x 4 surfaces x 6 feedback conditions x however many models,
+That is 21 tasks x 4 surfaces x 6 feedback conditions x however many models,
 so price it before starting it. Run one task into the same `--out`, then ask:
 
 ```bash
@@ -204,15 +204,28 @@ throw away partial progress.
 - Text clipping — text that does not fit the box it was put in.
 - WCAG contrast against the effective backdrop.
 - Per-task checks: alignment, even spacing, margins, required copy, palette
-  conformance, type hierarchy, preserved elements, canvas coverage.
+  conformance and colour assignment, type hierarchy, legible type sizes,
+  preserved elements and preserved styles, reading order, stacking order,
+  canvas coverage.
 
 **A check reads the page or the document, never both by accident.** Anything
-asking what is *on the page* — the element count, the required copy, the type
-hierarchy, the colours, the coverage — sees only elements that paint something.
-Anything asking what is *in the document* — was this element kept, was its box
-held still, does anything hang off the canvas — sees them all. Before that
-split, a poster missing half its copy and set in one type size scored full
-marks by carrying the missing phrases in a text element at `opacity: 0`.
+asking what is *on the page* — the required copy, the type hierarchy, the
+colours, the coverage — sees only elements that paint something. Anything
+asking what is *in the document* — was this element kept, was its box held
+still, does anything hang off the canvas — sees them all. Before that split, a
+poster missing half its copy and set in one type size scored full marks by
+carrying the missing phrases in a text element at `opacity: 0`.
+
+"Paints something" is a threshold rather than a test against zero, because
+`opacity: 0.02` is the same blank page to a reader, and because a colour's own
+alpha multiplies the element's opacity rather than clearing a second hurdle.
+Five elements at 2% opacity used to lift a task from its 38% baseline to 85%.
+
+**A cheap way to satisfy a check is a bug in the check.** Shrink the type until
+it fits, fade the shape that is covering the text, shorten the copy, pour every
+line into one text element: each of those satisfied a task without doing what
+its brief describes, and each is now asserted in the task suite's own tests to
+score below the honest fix — which in turn has to be able to reach 1.0.
 
 **Overlap is measured as hidden ink, not as raw overlap area.** A headline
 sitting on a card overlaps it by 100%, and that is good design. Scoring raw
@@ -240,8 +253,8 @@ check to passing it, which is the cheapest imaginable way to look composed
 without composing anything.
 
 **Scores are normalized against the starting document.** A run that changes
-nothing already scores ~68% raw, because most checks measure defects it never
-introduced. The headline metric is the share of available headroom closed: 0%
+nothing already scores ~57% raw on average, because most checks measure defects
+it never introduced. The headline metric is the share of available headroom closed: 0%
 for changing nothing, 100% for satisfying everything, and negative for making
 the document worse.
 
@@ -320,7 +333,7 @@ src/
   render/     doc -> SVG, SVG -> PNG, doc -> structured description
   surfaces/   the three tool surfaces (+ hybrid), and the executor
   feedback/   the feedback channel, six modes
-  tasks/      18 tasks across five families
+  tasks/      21 tasks across five families
   eval/       checks, colour, blinded judge, scoring, human validation
   agent/      the agent loop, the model registry and pricing, events
   webmcp/     the polyfill, surface registration, and the host page

@@ -66,7 +66,7 @@ not appear where the mechanism predicts it is probably not the mechanism.
 | Tool surface | `coordinate`, `relational`, `document` | `hybrid` is exploratory, not in the confirmatory grid |
 | Feedback | `none`, `structured`, `screenshot`, `both` | `structured_plain` / `both_plain` are the confound control (§8) |
 | Model | `anthropic:claude-opus-5` confirmatory; a cross-provider set in a reduced grid | Provider-qualified (`provider:model-id`) throughout |
-| Task | 18 tasks across 5 families | Every condition sees every task |
+| Task | 21 tasks across 5 families | Every condition sees every task |
 | Repeat | 3 | Sampling cannot be pinned; see §7 |
 
 ### Dependent variables
@@ -101,7 +101,7 @@ will not be re-weighted after the fact.
 2. **Clustering.** Interval estimates resample **tasks**, not runs. Three
    repeats of one task are not three independent observations; treating them as
    such would produce intervals that are too narrow and manufacture resolved
-   differences out of eighteen tasks' worth of evidence.
+   differences out of twenty-one tasks' worth of evidence.
    (`clusterBootstrapCI` in `src/runner/report.ts`.)
 3. **Intervals.** Percentile bootstrap, 2000 iterations, seeded. Regenerating a
    report gives the same numbers; there is no re-rolling.
@@ -198,6 +198,8 @@ a refusal.
 | Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
 | Cost comparisons across unpriced models | A model absent from `MODELS` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
+| A task satisfiable without doing the work it describes | Every cheap path found so far — invisible elements, shrinking type out of legibility, shortening copy, hiding the layer that is in the way — is asserted in `src/tasks/tasks.test.ts` to score below the honest fix. |
+| A scored constraint the agent was never told about | Every constraint a check scores is stated in the task's brief. An unstated one would land unevenly across surfaces, which is the variable under study. |
 
 ---
 
@@ -213,17 +215,17 @@ breakdown is the one that matters; see the judge-trust rule in §5.
 
 ## 10. Sample size and cost
 
-Confirmatory grid: 18 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
-3 repeats = **648 runs**, plus 648 judge calls.
+Confirmatory grid: 21 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
+3 repeats = **756 runs**, plus 756 judge calls.
 
 Exploratory additions, run only after the confirmatory grid:
 
 - Model sweep: 2 further models × 3 surfaces × 2 feedback conditions
-  (`none`, `both`) × 18 tasks × 2 repeats = 432 runs.
-- Confound control: 3 surfaces × 2 plain feedback conditions × 18 tasks ×
-  3 repeats = 324 runs.
-- `hybrid` surface: 1 surface × 4 feedback conditions × 18 tasks × 3 repeats
-  = 216 runs.
+  (`none`, `both`) × 21 tasks × 2 repeats = 504 runs.
+- Confound control: 3 surfaces × 2 plain feedback conditions × 21 tasks ×
+  3 repeats = 378 runs.
+- `hybrid` surface: 1 surface × 4 feedback conditions × 21 tasks × 3 repeats
+  = 252 runs.
 
 **Run a pilot before committing to the full grid.** Per-run cost depends on how
 many turns each surface takes, which is itself one of the findings, so it
@@ -280,6 +282,32 @@ the real risk, and the pilot in §10 is where it would first show up.
 
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
+
+**2026-09-18 — the task set hardened, and three tasks added.** Written before
+any run against a real model, so nothing below was chosen after seeing results.
+
+The task set and the deterministic checks were reworked to close paths that
+scored well without doing the work the brief describes. The three that mattered
+most: a document could carry its required copy, its photograph and its element
+count in elements at 2% opacity and collect three quarters of the available
+improvement for painting nothing; every task in the `fit` family had a
+one-call solution in shrinking the type until it fitted, at any size; and
+`typeHierarchy` gave full marks to a document whose entire copy sat in one text
+element at one size, which is no hierarchy at all. Grading tolerances on
+alignment, spacing, occlusion, bounds and clipping were tightened, and every
+new constraint was written into the brief that is scored against it.
+
+Three tasks were added — `repair.mixed-defects`, `fit.two-column` and
+`arrange.card-grid` — taking the set from 18 to 21. The last two are in the two
+families H4 names, where two tasks was a thin basis for a per-family claim.
+§3 and §10 are updated for the new count; the confirmatory grid grows from 648
+runs to 756.
+
+Nothing in the question, the hypotheses, the primary outcome, the analysis plan
+or the decision rules changes. Baselines move — they are recomputed per task
+from the starting document, and `docs/TASKS.md` carries the new table — and the
+primary outcome normalizes against them, so the metric is unaffected by the
+shift. No comparison in §4 is added, removed or re-cut.
 
 **2026-09-17 — one harness, and the cross-loop check withdrawn.** The two agent
 loops were collapsed into one, on the Vercel AI SDK, which every model now runs
