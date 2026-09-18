@@ -318,8 +318,35 @@ describe("scoring a run", () => {
       model: "judge",
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       costUsd: 0,
+      pricingKnown: true,
     });
     expect(judged.composite).toBeCloseTo(CONSTRAINT_WEIGHT * bare.constraintScore + JUDGE_WEIGHT * 1, 9);
+  });
+
+  /**
+   * `costUsd` is the agent's spend plus the judge's, so `pricingKnown` has to
+   * cover both. A `--judge-model` newer than the price table used to
+   * contribute a confident $0 to every run in the sweep while the run still
+   * claimed its cost was known — the same silent-zero the model table guards
+   * against, one level up.
+   */
+  it("reports cost as unknown when the judge model is unpriced", async () => {
+    const run = await runScripted([{ text: "done" }]);
+    const judged = (pricingKnown: boolean) =>
+      scoreRun(run, task, {
+        criteriaScore: 0.8,
+        overallScore: 0.8,
+        judgement: { criteria: [], overall: 4, summary: "" },
+        model: "judge",
+        usage: { input: 2000, output: 300, cacheRead: 0, cacheWrite: 0 },
+        costUsd: 0,
+        pricingKnown,
+      });
+
+    expect(judged(true).efficiency.pricingKnown).toBe(true);
+    expect(judged(false).efficiency.pricingKnown).toBe(false);
+    // An unjudged run is priced on the agent alone, as before.
+    expect(scoreRun(run, task).efficiency.pricingKnown).toBe(true);
   });
 
   it("falls back to the constraint score when the judge errored", async () => {
@@ -331,6 +358,7 @@ describe("scoring a run", () => {
       model: "judge",
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       costUsd: 0,
+      pricingKnown: true,
       error: "timeout",
     });
     expect(score.composite).toBeCloseTo(score.constraintScore, 9);

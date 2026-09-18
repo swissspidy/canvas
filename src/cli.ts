@@ -26,7 +26,15 @@ import {
   parseModelSpec,
   runnableModels,
 } from "./agent/models.js";
-import { DEFAULT_SWEEP, loadExistingScores, runSweep, sweepPaths, expandMatrix, type SweepConfig } from "./runner/run.js";
+import {
+  DEFAULT_SWEEP,
+  completedScores,
+  loadExistingScores,
+  runSweep,
+  sweepPaths,
+  expandMatrix,
+  type SweepConfig,
+} from "./runner/run.js";
 import { buildReport, buildReportJson } from "./runner/report.js";
 import { renderStandaloneSvg } from "./render/svg.js";
 import { rasterize } from "./render/raster.js";
@@ -34,6 +42,7 @@ import { describeDoc } from "./render/describe.js";
 import { scoreDocument } from "./eval/score.js";
 import { buildRatingSheet, computeAgreement, sampleForRating } from "./eval/human.js";
 import { SURFACE_IDS, type SurfaceId } from "./surfaces/types.js";
+import { isHarnessFailure } from "./agent/events.js";
 import type { RunScore } from "./eval/score.js";
 
 interface Args {
@@ -306,12 +315,19 @@ function buildSweepConfig(args: Args): SweepConfig {
   const judge = !bool(args.flags, "no-judge");
   const judgeModel = str(args.flags, "judge-model", DEFAULT_SWEEP.judgeModel);
 
-  for (const m of models) checkModel(m, "model", !dryRun);
+  // `--estimate` makes no request, and refusing it for want of a key defeats
+  // the one job it has: it is what you run to decide whether the grid is worth
+  // committing to, which is a question you ask *before* going and getting keys
+  // for every provider in `--models all`. The spec is still parsed, so a typo
+  // is still caught here rather than at the first cell.
+  const live = !dryRun && !bool(args.flags, "estimate");
+
+  for (const m of models) checkModel(m, "model", live);
   // The judge is called once per cell, *after* that cell's agent turns. An
   // unparseable spec or a missing key for its provider would therefore surface
   // only once every cell had been paid for, as a failed judgement on every run
   // in the sweep. It costs nothing to find out now.
-  if (judge) checkModel(judgeModel, "judge model", !dryRun);
+  if (judge) checkModel(judgeModel, "judge model", live);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return {
@@ -352,10 +368,12 @@ async function cmdRun(args: Args): Promise<void> {
   console.log(`Output: ${config.outDir}${config.dryRun ? "  (dry run — no API calls)" : ""}\n`);
   const started = Date.now();
 
+  const warnings: string[] = [];
   const scores = await runSweep(config, {
     onCellSkipped: (cell, i, total) => {
       console.log(`[${i + 1}/${total}] skip  ${cell.runId} (already done)`);
     },
+    onWarnings: (messages) => warnings.push(...messages),
     onCellDone: (score, i, total) => {
       const flag = score.error ? ` !! ${score.stopReason}` : "";
       console.log(
@@ -373,7 +391,33 @@ async function cmdRun(args: Args): Promise<void> {
     `\nDone in ${((Date.now() - started) / 1000).toFixed(0)}s. ` +
       `${scores.length} runs, $${totalCost.toFixed(2)} total.`,
   );
-  console.log(`Report: ${join(config.outDir, "report.md")}`);
+
+  // Scores survived, but something beside them did not — a render that would
+  // not write, a judge that could not be reached. None of it changes a result,
+  // and all of it means the sweep's artifacts are incomplete, which is only
+  // discoverable later and at the worst moment.
+  if (warnings.length > 0) {
+    console.log(`\n${warnings.length} warning(s); the scores are unaffected:`);
+    for (const warning of warnings.slice(0, 10)) console.log(`  - ${warning}`);
+    if (warnings.length > 10) console.log(`  ... and ${warnings.length - 10} more.`);
+  }
+
+  // Said here as well as in the report, because a sweep is watched in a
+  // terminal and a harness failure is the one outcome that wants acting on
+  // rather than reading: those cells are not cached, so the fix is to run the
+  // same command again once whatever broke is fixed.
+  const failed = scores.filter((s) => isHarnessFailure(s.stopReason));
+  if (failed.length > 0) {
+    // Provider messages arrive punctuated or not, so the trailing stop is
+    // trimmed rather than doubled.
+    const reasons = [...new Set(failed.map((s) => (s.error ?? s.stopReason).replace(/\s*\.\s*$/, "")))].slice(0, 2);
+    console.log(
+      `\n${failed.length} of ${scores.length} run(s) failed in the harness rather than in the agent, and are ` +
+        `left out of the report's aggregates. Reasons: ${reasons.join("; ")}.\n` +
+        `They are not recorded as done — re-run the same command to retry just those cells.`,
+    );
+  }
+  console.log(`\nReport: ${join(config.outDir, "report.md")}`);
 }
 
 /**
@@ -401,7 +445,10 @@ function printEstimate(config: SweepConfig, cells: number): void {
   console.log(`Feedback: ${config.feedback.join(", ")}`);
 
   const paths = sweepPaths(config.outDir);
-  const done = existsSync(paths.scoresFile) ? [...loadExistingScores(paths).values()] : [];
+  // `completedScores`, not every row on disk: a cell that died on a rate limit
+  // cost about nothing, and averaging those zeros in would quote a grid price
+  // that is too low by exactly the failure rate of the pilot it was read from.
+  const done = existsSync(paths.scoresFile) ? [...completedScores(paths).values()] : [];
   const cellsPerModel = cells / Math.max(1, config.models.length);
 
   if (done.length === 0) {

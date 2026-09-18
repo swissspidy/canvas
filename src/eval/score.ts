@@ -148,7 +148,14 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
       outputTokens: run.usage.output,
       totalTokens,
       costUsd: run.costUsd + (judge?.costUsd ?? 0),
-      pricingKnown: run.pricingKnown,
+      // Both models, because the figure above is both models. An unpriced
+      // judge contributes a confident $0 to every run in the sweep — the same
+      // silent-zero problem the model table already guards against, one level
+      // up, where a `--judge-model` naming something newer than `MODELS` used
+      // to report the agent's spend as the whole bill. Read off the judge's
+      // own result rather than the registry: this module is bundled for the
+      // browser and must not reach for a provider SDK.
+      pricingKnown: run.pricingKnown && (judge?.pricingKnown ?? true),
       wallMs: run.wallMs,
     },
     toolUsage: run.toolUsage,

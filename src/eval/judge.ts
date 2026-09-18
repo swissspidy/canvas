@@ -57,6 +57,16 @@ export interface JudgeResult {
   model: string;
   usage: TokenUsage;
   costUsd: number;
+  /**
+   * False when the judge model is absent from the pricing table, so its
+   * `costUsd` is 0 and meaningless.
+   *
+   * Carried on the result rather than looked up by the scorer, because
+   * `scoreRun` adds this cost to the agent's and has to say whether the sum is
+   * known — and the scorer is one of the modules that must stay free of Node
+   * and of the provider SDKs, so it cannot reach for the model registry to ask.
+   */
+  pricingKnown: boolean;
   error?: string;
 }
 
@@ -147,6 +157,7 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
         model,
         usage,
         costUsd: costUsd(usage, spec),
+        pricingKnown: spec.priced,
         error: aligned.error,
       };
     }
@@ -159,6 +170,7 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       model,
       usage,
       costUsd: costUsd(usage, spec),
+      pricingKnown: spec.priced,
     };
   } catch (err) {
     // A call that produced no usable object still cost money, so bill what the
@@ -171,6 +183,7 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       model,
       usage,
       costUsd: costUsd(usage, spec),
+      pricingKnown: spec.priced,
       error: err instanceof Error ? err.message : String(err),
     };
   }
