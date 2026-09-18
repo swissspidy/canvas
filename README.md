@@ -12,7 +12,7 @@ Three tool surfaces over one shared document model:
 | Surface | The agent says | Tools |
 |---|---|---|
 | **Coordinate** | `move el_3 to x=340, y=1150` | `create`, `move`, `resize`, `set_style`, `delete` |
-| **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `align`, `distribute`, `fit_text`, `fit_within`, `avoid_overlap`, `set_style`, `delete` |
+| **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `rotate`, `align`, `distribute`, `fit_text`, `fit_within`, `avoid_overlap`, `set_style`, `delete` |
 | **Document-as-code** | here is the entire JSON, again | `read_document`, `write_document` |
 
 Crossed with what the agent sees after each action: **nothing**, a **structured
@@ -70,7 +70,7 @@ checked price to `MODELS` in `src/agent/models.ts` to include them in cost
 comparisons.
 
 ```bash
-npm run cli -- tasks                        # the 21 tasks
+npm run cli -- tasks                        # the 23 tasks
 npm run cli -- surfaces                     # the surfaces and their tools
 npm run cli -- show repair.overlapping-stack  # a task's brief, start state and baseline
 npm run cli -- render fit.long-headline     # render a starting document to PNG
@@ -92,7 +92,7 @@ npm run cli -- run \
   --repeats 3 --concurrency 12 --out runs/leaderboard
 ```
 
-That is 21 tasks x 4 surfaces x 6 feedback conditions x however many models,
+That is 23 tasks x 4 surfaces x 6 feedback conditions x however many models,
 so price it before starting it. Run one task into the same `--out`, then ask:
 
 ```bash
@@ -206,7 +206,7 @@ throw away partial progress.
 - Per-task checks: alignment, even spacing, margins, required copy, palette
   conformance and colour assignment, type hierarchy, legible type sizes,
   preserved elements and preserved styles, reading order, stacking order,
-  canvas coverage.
+  rotation, canvas coverage.
 
 **A check reads the page or the document, never both by accident.** Anything
 asking what is *on the page* — the required copy, the type hierarchy, the
@@ -253,7 +253,7 @@ check to passing it, which is the cheapest imaginable way to look composed
 without composing anything.
 
 **Scores are normalized against the starting document.** A run that changes
-nothing already scores ~57% raw on average, because most checks measure defects
+nothing already scores ~56% raw on average, because most checks measure defects
 it never introduced. The headline metric is the share of available headroom closed: 0%
 for changing nothing, 100% for satisfying everything, and negative for making
 the document worse.
@@ -333,7 +333,7 @@ src/
   render/     doc -> SVG, SVG -> PNG, doc -> structured description
   surfaces/   the three tool surfaces (+ hybrid), and the executor
   feedback/   the feedback channel, six modes
-  tasks/      21 tasks across five families
+  tasks/      23 tasks across five families
   eval/       checks, colour, blinded judge, scoring, human validation
   agent/      the agent loop, the model registry and pricing, events
   webmcp/     the polyfill, surface registration, and the host page

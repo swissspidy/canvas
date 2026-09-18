@@ -33,6 +33,7 @@ import {
   marginAtLeast,
   noOverlap,
   notCovered,
+  rotationWithin,
   styleUnchanged,
   textOnFilledShape,
   textSizeOrder,
@@ -252,6 +253,85 @@ export const composeTasks = [
       "Does the button read as a button — a filled shape with its label sitting on it?",
       "Is the price prominent enough to find at a glance?",
       "Is the description set at a size that is comfortable to read rather than shrunk to fit?",
+    ],
+    maxTurns: 30,
+  }),
+
+  /**
+   * The rotation task, and the one the feedback hypothesis rests on.
+   *
+   * A ribbon is the ordinary reason a designer rotates anything, and it is the
+   * case where the numbers in the document and the picture on the page come
+   * apart hardest: a 760 by 130 banner is comfortably inside a 32-unit margin
+   * on a 1080-unit canvas, and at -14 degrees it reaches 738 + 31 = 769 wide
+   * and 184 + 126 = 310 tall — a quarter again as tall as it was declared, and
+   * off the margin if it was placed by the numbers. `marginAtLeast` measures
+   * what an element paints, so it sees the rotated corners.
+   *
+   * Nothing in the brief explains that, and that is deliberate: the margin is
+   * stated, the technique is not. Working out where a tilted box actually
+   * lands is the difficulty, and whether a screenshot makes it easier than a
+   * list of coordinates is the question. `docs/PREREGISTRATION.md` H5.
+   */
+  defineTask({
+    id: "compose.sale-card",
+    title: "Sale card with a tilted ribbon",
+    family: "compose",
+    brief: [
+      "Make a closing-down sale card for a shop.",
+      "",
+      "Required copy, word for word:",
+      '  - Headline: "Everything Must Go"',
+      '  - Ribbon: "HALF PRICE"',
+      '  - Shop: "Ridgeline Supply Co."',
+      '  - Detail: "Last day Sunday the 26th"',
+      "",
+      "Constraints:",
+      '  - "HALF PRICE" runs at a tilt of -14 degrees, set on a filled shape turned to the same angle,',
+      "    so it reads as a ribbon across the card. It sits in the bottom third.",
+      "  - The headline is the largest type, at least twice the size of the smallest, and sits in the top third.",
+      "  - The shop name is set larger than the detail line.",
+      "  - Everything else stays square to the canvas — the ribbon and its shape are the only things tilted.",
+      "  - No text smaller than 24 units, and no two blocks of text overlapping.",
+      "  - Nothing may come within 32 units of a canvas edge.",
+    ].join("\n"),
+    initial: () => blank({ background: "#f7f4ee" }),
+    checks: [
+      containsText(["Everything Must Go", "HALF PRICE", "Ridgeline Supply Co.", "Last day Sunday the 26th"], 2),
+      rotationWithin(withText("HALF PRICE"), -14, 3, { tolerance: 2, label: "The ribbon runs at -14 degrees" }),
+      // A tilted label on an upright rect is not a ribbon, and the two
+      // bounding boxes overlap just as happily either way.
+      textOnFilledShape("HALF PRICE", 2, { rotationWithin: 3 }),
+      inRegion(withText("HALF PRICE"), { x0: 0, y0: 0.66, x1: 1, y1: 1 }, 1, "The ribbon sits in the bottom third"),
+      // "Everything else stays square." Without this the answer to a tilted
+      // ribbon is to tilt the whole card and call it a design.
+      rotationWithin(
+        (el) => visibleText(el) && !withText("HALF PRICE")(el),
+        0,
+        2,
+        { label: "The rest of the card is square to the canvas" },
+      ),
+      inRegion(
+        withText("Everything Must Go"),
+        { x0: 0, y0: 0, x1: 1, y1: 0.34 },
+        1,
+        "The headline sits in the top third",
+      ),
+      textSizeOrder(["Everything Must Go", "Ridgeline Supply Co.", "Last day Sunday the 26th"], 2),
+      typeHierarchy(2, 1),
+      fontSizeAtLeast(24, 1),
+      noOverlap(visibleText, 1, "Blocks of text do not overlap"),
+      // The check the rotation is really about: a tilted banner reaches
+      // further than its width and height say, and this measures what it
+      // paints rather than what it declared.
+      marginAtLeast(32, 3),
+      coverage(0.3, 0.98, 1),
+    ],
+    judgeCriteria: [
+      "Does the ribbon read as a ribbon — a banner tilted across the card with its words on it?",
+      "Is the tilt confined to the ribbon, with everything else square?",
+      "Is the headline unmistakably the dominant piece of type?",
+      "Does the card look composed, with the ribbon sitting deliberately rather than crossing the copy?",
     ],
     maxTurns: 30,
   }),

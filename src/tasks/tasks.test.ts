@@ -373,6 +373,86 @@ describe("the constraints the briefs state are actually scored", () => {
     expect(scoreOf(task, composed)).toBeCloseTo(1, 6);
   });
 
+  /**
+   * The rotation tasks are in the set because this is true, so it is asserted
+   * rather than assumed: a tilted element reaches further than its width and
+   * height say, and a run that places it by the numbers it declared lands
+   * outside the margin the brief gave it.
+   *
+   * 760 x 130 at -14 degrees paints 769 x 310. Tucking the declared box 32
+   * units above the bottom edge puts 58 units of the painted ribbon off the
+   * canvas — which is exactly the gap between what the document says and what
+   * the page shows, and the reason H5 expects a picture to help here.
+   */
+  it("charges a tilted ribbon for the room its rotation actually takes", () => {
+    const task = getTask("compose.sale-card");
+    const doc = task.initial();
+    const ribbon = (y: number): Element[] => [
+      { id: "ribbon", type: "rect", x: 160, y, width: 760, height: 130, rotation: -14, z: 0, style: { fill: "#a8352a" } },
+      {
+        id: "ribbon_label",
+        type: "text",
+        x: 160,
+        y,
+        width: 760,
+        height: 130,
+        rotation: -14,
+        z: 1,
+        text: "HALF PRICE",
+        style: { fontSize: 72, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
+      },
+    ];
+    // Placed by the declared box: its bottom edge sits exactly on the 32-unit
+    // margin, and 58 units of painted ribbon hang off the canvas.
+    const byTheNumbers: Doc = { ...doc, elements: ribbon(1188) };
+    // Placed by what it paints.
+    const byWhatItPaints: Doc = { ...doc, elements: ribbon(955) };
+
+    const naive = runChecks(byTheNumbers, [...universalChecks(), ...task.checks]);
+    const correct = runChecks(byWhatItPaints, [...universalChecks(), ...task.checks]);
+    expect(naive.results.find((r) => r.id === "margin")!.score).toBe(0);
+    expect(correct.results.find((r) => r.id === "margin")!.score).toBe(1);
+    expect(correct.score).toBeGreaterThan(naive.score);
+  });
+
+  it("penalises tilting the whole card instead of just the ribbon", () => {
+    const task = getTask("compose.sale-card");
+    const doc = task.initial();
+    const copy = (id: string, body: string, y: number, size: number, rotation: number): Element => ({
+      id,
+      type: "text",
+      x: 80,
+      y,
+      width: 920,
+      height: 120,
+      rotation,
+      z: 0,
+      text: body,
+      style: { fontSize: size, color: "#22223b", align: "center" },
+    });
+    const square: Doc = {
+      ...doc,
+      elements: [copy("head", "Everything Must Go", 200, 90, 0), copy("shop", "Ridgeline Supply Co.", 520, 48, 0)],
+    };
+    const allTilted: Doc = {
+      ...doc,
+      elements: [copy("head", "Everything Must Go", 200, 90, -14), copy("shop", "Ridgeline Supply Co.", 520, 48, -14)],
+    };
+    expect(scoreOf(task, square)).toBeGreaterThan(scoreOf(task, allTilted));
+  });
+
+  it("penalises straightening a knocked-about card by moving it instead", () => {
+    const task = getTask("repair.tilted-stack");
+    // Shoving the card left brings it back on the canvas and leaves every
+    // element as crooked as it was found.
+    const shoved = edit(task, (el) => (el.id === "card" ? { ...el, x: el.x - 40 } : el));
+    const straightened = edit(task, (el) =>
+      ["card", "title", "body", "stamp"].includes(el.id) ? { ...el, rotation: 0 } : el,
+    );
+    expect(scoreOf(task, straightened)).toBeGreaterThan(scoreOf(task, shoved));
+    expect(scoreOf(task, straightened)).toBeCloseTo(1, 6);
+  });
+
   it("penalises hiding the photograph instead of restacking it", () => {
     const task = getTask("repair.z-order");
     const faded = edit(task, (el) => (el.id === "hero_photo" ? { ...el, style: { ...el.style, opacity: 0 } } : el));

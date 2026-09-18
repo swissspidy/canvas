@@ -17,6 +17,7 @@ import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
 import { effectiveAlpha, occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
+import { normalizeAngle } from "../doc/schema.js";
 import {
   composite,
   contrastRatio,
@@ -1274,7 +1275,11 @@ function intersectionArea(a: Rect, b: Rect): number {
  * benefit of the doubt. That is the right way round for a check whose failure
  * mode should be "no shape at all".
  */
-export function textOnFilledShape(phrase: string, weight = 1): Check {
+export function textOnFilledShape(
+  phrase: string,
+  weight = 1,
+  opts: { rotationWithin?: number } = {},
+): Check {
   const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
   return check("text_on_shape", `"${phrase}" sits on a filled shape`, weight, (doc) => {
     const order = paintOrderOf(doc);
@@ -1286,7 +1291,7 @@ export function textOnFilledShape(phrase: string, weight = 1): Check {
     let best = 0;
     for (const label of labels) {
       // Its own fill is painted across its own box, so it covers the label by
-      // construction.
+      // construction — and turns with it, so it satisfies `rotationWithin` too.
       if (effectiveAlpha(label.style.fill ?? "transparent", label) >= 0.5) {
         best = 1;
         break;
@@ -1298,6 +1303,12 @@ export function textOnFilledShape(phrase: string, weight = 1): Check {
       for (const el of doc.elements) {
         if (el.type !== "rect" || order.indexOf(el.id) >= labelIndex) continue;
         if (effectiveAlpha(el.style.fill ?? "#cccccc", el) < 0.5) continue;
+        // A tilted label on an upright rect is not a ribbon, and the bounding
+        // boxes overlap just as happily either way — so where a brief asks for
+        // one, the shape has to be turned with it.
+        if (opts.rotationWithin !== undefined && angleBetween(el.rotation, label.rotation) > opts.rotationWithin) {
+          continue;
+        }
         best = Math.max(best, intersectionArea(bounds, aabb(el)) / area);
       }
     }
@@ -1311,6 +1322,78 @@ export function textOnFilledShape(phrase: string, weight = 1): Check {
           : `The shape behind "${phrase}" covers ${Math.round(best * 100)}% of it.`,
     };
   });
+}
+
+/**
+ * Elements sit at the angle the brief asks for.
+ *
+ * Rotation is the one transform the document model has always supported and
+ * nothing ever scored. `geometryUnchanged` counts it among the fields it holds
+ * still, which is the *don't* case; there was no way to say "put these back
+ * upright" or "this ribbon runs at -12 degrees", so no task could ask.
+ *
+ * Angles are compared the short way round, so 359 and -1 are one degree apart
+ * rather than 360. The document normalizes into (-180, 180], but a check that
+ * silently disagreed with arithmetic at the wrap point is the kind of thing
+ * that shows up once, in one run, and is never explained.
+ */
+export function rotationWithin(
+  selector: Selector,
+  degrees: number,
+  weight = 1,
+  opts: { tolerance?: number; budget?: number; label?: string } = {},
+): Check {
+  const tolerance = opts.tolerance ?? 1;
+  // Ten degrees off is a total failure, and a task whose brief says "square to
+  // the canvas" should pass something tighter still: at a 20-degree budget a
+  // card visibly askew by six scored seven tenths.
+  const budget = opts.budget ?? 10;
+  const target = normalizeAngle(degrees);
+  return check(
+    "rotation",
+    opts.label ?? `Elements sit at ${round(target, 1)} degrees`,
+    weight,
+    (doc) => {
+      const els = select(doc, selector);
+      if (els.length === 0) return { score: 0, detail: "No matching elements." };
+      const offenders: string[] = [];
+      const scores: number[] = [];
+      for (const el of els) {
+        const off = angleBetween(el.rotation, target);
+        scores.push(gradeDefect(off, tolerance, budget));
+        if (off > tolerance) offenders.push(`${el.id} at ${round(el.rotation, 1)} (${round(off, 1)} off)`);
+      }
+      return {
+        score: scores.reduce((a, b) => a + b, 0) / scores.length,
+        detail: offenders.length ? `Wrong angle: ${offenders.join(", ")}` : `All at ${round(target, 1)} degrees.`,
+      };
+    },
+  );
+}
+
+/**
+ * A group of elements shares one angle, whatever that angle is.
+ *
+ * The question "do these read as parallel", which is not the same as "are
+ * these at the angle I named": a ribbon and the label on it have to agree with
+ * each other, and a brief that fixes one of them is over-specifying the design.
+ */
+export function sameRotation(selector: Selector, weight = 1, tolerance = 1): Check {
+  return check("same_rotation", "Elements share one angle", weight, (doc) => {
+    const els = select(doc, selector);
+    if (els.length < 2) return { score: 0, detail: `${els.length} matching element(s).` };
+    const first = els[0]!.rotation;
+    const spread = Math.max(...els.map((el) => angleBetween(el.rotation, first)));
+    return {
+      score: gradeDefect(spread, tolerance, tolerance + 10),
+      detail: `Angles ${els.map((el) => round(el.rotation, 1)).join(", ")} (spread ${round(spread, 1)} degrees).`,
+    };
+  });
+}
+
+/** The short way round between two angles, in degrees: never more than 180. */
+function angleBetween(a: number, b: number): number {
+  return Math.abs(normalizeAngle(a - b));
 }
 
 /**

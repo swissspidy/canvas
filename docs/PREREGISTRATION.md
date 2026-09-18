@@ -52,8 +52,27 @@ measure text) and `arrange` (alignment and distribution, where a single call
 replaces per-element arithmetic), and smallest on `restyle` (no geometry
 involved).
 
+**H5 — Where a picture should pay for itself.** The feedback advantage is
+largest where the document's numbers and its appearance come apart, and
+rotation is that case. Every angle is in the description the agent is given;
+what the angles *imply* — that a 760×130 banner at −14° paints 769 wide and
+310 tall, that two labels at 6° and −5° swing into each other at their ends,
+that a card inset 60 units hangs off both edges once it is tilted — is
+trigonometry the agent has to do in its head, or read off a picture.
+*Predicted effect:* on the two rotation tasks, the gap between `screenshot`
+and `structured_plain` is larger than the same gap pooled across the other
+twenty-one.
+
+The comparison is against `structured_plain` — geometry only — and not against
+`structured`, deliberately. The analysis level *computes* out-of-bounds and
+overlap and hands the answers over, which is a substitute for looking at the
+page rather than a weaker version of it. Against `structured` the prediction
+would be testing whether a picture beats a solver, which is a different
+question and one this design cannot answer.
+
 If H4 fails while H1 holds, the H1 result is suspect: an advantage that does
-not appear where the mechanism predicts it is probably not the mechanism.
+not appear where the mechanism predicts it is probably not the mechanism. H5
+stands to H2 the same way.
 
 ---
 
@@ -66,7 +85,7 @@ not appear where the mechanism predicts it is probably not the mechanism.
 | Tool surface | `coordinate`, `relational`, `document` | `hybrid` is exploratory, not in the confirmatory grid |
 | Feedback | `none`, `structured`, `screenshot`, `both` | `structured_plain` / `both_plain` are the confound control (§8) |
 | Model | `anthropic:claude-opus-5` confirmatory; a cross-provider set in a reduced grid | Provider-qualified (`provider:model-id`) throughout |
-| Task | 21 tasks across 5 families | Every condition sees every task |
+| Task | 23 tasks across 5 families | Every condition sees every task |
 | Repeat | 3 | Sampling cannot be pinned; see §7 |
 
 ### Dependent variables
@@ -101,7 +120,7 @@ will not be re-weighted after the fact.
 2. **Clustering.** Interval estimates resample **tasks**, not runs. Three
    repeats of one task are not three independent observations; treating them as
    such would produce intervals that are too narrow and manufacture resolved
-   differences out of twenty-one tasks' worth of evidence.
+   differences out of twenty-three tasks' worth of evidence.
    (`clusterBootstrapCI` in `src/runner/report.ts`.)
 3. **Intervals.** Percentile bootstrap, 2000 iterations, seeded. Regenerating a
    report gives the same numbers; there is no re-rolling.
@@ -110,11 +129,17 @@ will not be re-weighted after the fact.
 5. **Interaction.** The spread of surface means versus the spread of feedback
    means, on the primary outcome (H2).
 6. **Family breakdown.** Surface × family, to test H4.
+7. **Rotation breakdown.** Feedback × the two rotation tasks versus feedback ×
+   the rest, on the primary outcome, comparing `screenshot` with
+   `structured_plain` (H5). Two tasks is a narrow base and the interval will
+   say so; it is pre-registered as a confirmatory comparison anyway, because
+   deciding afterwards whether two tasks were enough is exactly the move this
+   document exists to prevent.
 
 No multiple-comparison correction is applied, because the confirmatory set is
 small and fixed in advance. It is listed here in full so that nobody has to
 take that on trust: three surface contrasts, one interaction comparison, one
-family breakdown, one cost comparison.
+family breakdown, one rotation breakdown, one cost comparison.
 
 ---
 
@@ -189,7 +214,7 @@ a refusal.
 | Structured feedback that reports overlaps is doing relational work for the agent | `structured_plain` / `both_plain` supply the same description with derived layout notes removed. The headline feedback comparison is re-run against them. |
 | Surfaces differ in prose quality, not capability | The base system prompt is byte-identical; only the briefing differs. A test asserts the opening user message is identical across surfaces. |
 | Surfaces differ in error message quality | All errors are produced by one shared formatter with shared wording. |
-| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents. |
+| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents — for position, size, style, paint order **and rotation**. Rotation was the hole: `create` took an angle everywhere, but rotating an element that already existed was a `move` on the coordinate surface and unreachable on the relational one, where `place` took no angle and `set_style` is appearance, text and order. Relational now has `rotate`, `place` takes an angle, and the equivalence test covers it. |
 | Document-as-code sees the JSON and others do not | Every surface gets the exact starting JSON *and* the geometry description in the opening message. |
 | Tool-call arity differs (relational has more tools) | Cost and token counts are reported per surface; quality-per-dollar is a pre-registered secondary outcome. |
 | Strict tool schemas would hide malformed calls | Schema-enforced tool calling is deliberately not used. Rejected calls are a measured outcome. |
@@ -215,17 +240,20 @@ breakdown is the one that matters; see the judge-trust rule in §5.
 
 ## 10. Sample size and cost
 
-Confirmatory grid: 21 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
-3 repeats = **756 runs**, plus 756 judge calls.
+Confirmatory grid: 23 tasks × 3 surfaces × 4 feedback conditions × 1 model ×
+3 repeats = **828 runs**, plus 828 judge calls.
 
 Exploratory additions, run only after the confirmatory grid:
 
 - Model sweep: 2 further models × 3 surfaces × 2 feedback conditions
-  (`none`, `both`) × 21 tasks × 2 repeats = 504 runs.
-- Confound control: 3 surfaces × 2 plain feedback conditions × 21 tasks ×
-  3 repeats = 378 runs.
-- `hybrid` surface: 1 surface × 4 feedback conditions × 21 tasks × 3 repeats
-  = 252 runs.
+  (`none`, `both`) × 23 tasks × 2 repeats = 552 runs.
+- Confound control: 3 surfaces × 2 plain feedback conditions × 23 tasks ×
+  3 repeats = 414 runs. **H5 is tested here rather than in the confirmatory
+  grid**, since `structured_plain` is one of these two conditions; it is
+  pre-registered as confirmatory and the confound-control block is promoted to
+  run alongside the main grid rather than after it.
+- `hybrid` surface: 1 surface × 4 feedback conditions × 23 tasks × 3 repeats
+  = 276 runs.
 
 **Run a pilot before committing to the full grid.** Per-run cost depends on how
 many turns each surface takes, which is itself one of the findings, so it
@@ -282,6 +310,35 @@ the real risk, and the pilot in §10 is where it would first show up.
 
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
+
+**2026-09-18 (second entry) — rotation.** Written before any run against a
+real model.
+
+Rotation was in the document model, the renderer, the geometry and the
+structured description from the beginning, and no task ever set a non-zero
+angle and no check ever scored one. Two tasks now do: `repair.tilted-stack`
+(four elements knocked askew, every box already where it belongs, so
+straightening is the whole repair) and `compose.sale-card` (a ribbon that must
+run at −14° and stay inside a 32-unit margin, which its declared width and
+height do not tell you how to do). H5 in §2 states what they are for, §4 adds
+the breakdown, and §10 moves the confound-control block alongside the main grid
+because `structured_plain` is where H5 is measured.
+
+The surfaces had to be levelled first, and this is the part that matters
+independently of the hypothesis: **relational could not rotate an element that
+already existed.** `create` took an angle, `place` did not, and `set_style` is
+appearance, text and paint order — so "straighten these four" was one `move`
+per element on the coordinate surface and unreachable on the relational one.
+§8 claimed the three surfaces reach the same document states and the
+equivalence tests only ever checked placement. `place` now takes a rotation and
+relational has a `rotate` op that takes an angle or copies another element's;
+`surfaces.test.ts` tests all three surfaces reaching the same rotated document.
+Had this been found after the runs, every rotation result would have been a
+power difference wearing a mechanism's clothes.
+
+Two new checks, `rotationWithin` and `sameRotation`, and a rotation option on
+`textOnFilledShape` so a tilted label on an upright rect is not scored as a
+ribbon. The confirmatory grid grows from 756 runs to 828.
 
 **2026-09-18 — the task set hardened, and three tasks added.** Written before
 any run against a real model, so nothing below was chosen after seeing results.

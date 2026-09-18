@@ -139,6 +139,25 @@ const SOLUTIONS: Record<string, () => Doc> = {
     ],
   }),
 
+  // A 760x130 ribbon at -14 degrees paints 769 wide and 310 tall, so its
+  // centre has to sit at least 32 + 155 units above the bottom edge — not 32 +
+  // 65, which is what the declared height suggests.
+  "compose.sale-card": () => ({
+    width: W,
+    height: H,
+    background: "#f7f4ee",
+    elements: [
+      text("head", "Everything\nMust Go", { x: 80, y: 110, w: 920, h: 340, z: 0 }, { fontSize: 128, fontWeight: "bold", color: "#22223b", align: "center" }),
+      text("shop", "Ridgeline Supply Co.", { x: 80, y: 520, w: 920, h: 90, z: 1 }, { fontSize: 56, color: "#3d3d56", align: "center" }),
+      text("detail", "Last day Sunday the 26th", { x: 80, y: 640, w: 920, h: 70, z: 2 }, { fontSize: 36, color: "#55556b", align: "center" }),
+      { id: "ribbon", type: "rect", x: 160, y: 955, width: 760, height: 130, rotation: -14, z: 3, style: { fill: "#a8352a", radius: 8 } },
+      {
+        ...text("ribbon_label", "HALF PRICE", { x: 160, y: 955, w: 760, h: 130, z: 4 }, { fontSize: 72, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" }),
+        rotation: -14,
+      },
+    ],
+  }),
+
   // --- repair: edits of the broken document --------------------------------
 
   "repair.overlapping-stack": () =>
@@ -184,6 +203,12 @@ const SOLUTIONS: Record<string, () => Doc> = {
       if (el.id === "footer") return { ...el, x: 60, y: 1234, width: 960, height: 56 };
       return el;
     }),
+
+  // Every box is already right, so the whole repair is four angles.
+  "repair.tilted-stack": () =>
+    edit("repair.tilted-stack", (el) =>
+      ["card", "title", "body", "stamp"].includes(el.id) ? { ...el, rotation: 0 } : el,
+    ),
 
   "repair.mixed-defects": () =>
     edit("repair.mixed-defects", (el) => {

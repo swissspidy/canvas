@@ -1,6 +1,6 @@
 # The task set
 
-Twenty-one tasks across five families. Enough that a per-family breakdown has
+Twenty-three tasks across five families. Enough that a per-family breakdown has
 something to say; few enough that a full sweep across surfaces, feedback
 conditions, models and repeats stays affordable.
 
@@ -35,12 +35,14 @@ headline improvement metric.
 | compose | `compose.event-flyer` | 37.5% | 30 | 15 |
 | compose | `compose.quote-card` | 53.3% | 25 | 13 |
 | compose | `compose.product-card` | 31.6% | 30 | 15 |
+| compose | `compose.sale-card` | 33.3% | 30 | 16 |
 | compose | `compose.title-card` | 60.0% | 25 | 13 |
 | repair | `repair.overlapping-stack` | 64.0% | 30 | 11 |
 | repair | `repair.off-canvas` | 61.8% | 30 | 12 |
 | repair | `repair.buried-text` | 71.4% | 25 | 12 |
 | repair | `repair.z-order` | 57.4% | 20 | 10 |
 | repair | `repair.crowded-margins` | 67.2% | 30 | 10 |
+| repair | `repair.tilted-stack` | 56.5% | 25 | 10 |
 | repair | `repair.mixed-defects` | 54.0% | 35 | 14 |
 | fit | `fit.long-headline` | 65.0% | 20 | 11 |
 | fit | `fit.body-overflow` | 63.2% | 20 | 10 |
@@ -68,10 +70,11 @@ nearly solved wastes every cell it appears in.
 
 ---
 
-## Two facts about the document model the checks have to respect
+## Three facts about the document model the checks have to respect
 
-Both of these were being got wrong, in opposite directions, and between them
-they account for most of what changed when the task set was hardened.
+The first two were being got wrong, in opposite directions, and between them
+they account for most of what changed when the task set was hardened. The
+third was not being got wrong so much as not being used at all.
 
 **A newline is a hard line break.** One text element can hold a title over two
 lines, or a date, a venue and a call to action as three. The system prompt says
@@ -109,11 +112,36 @@ None of this touches the checks that ask what is *in the document* —
 never be a way to satisfy "keep every element", and making something invisible
 must never be a way to dodge a penalty.
 
+**An element can be rotated, and a rotated box is bigger than the numbers that
+declare it.** Rotation has been in the model, the renderer, the exact
+out-of-bounds geometry, the occlusion polygons and the structured description
+from the start, and until now no task set a non-zero angle and no check scored
+one. All of that machinery was dead weight.
+
+It is worth using because rotation is the one transform where the document's
+numbers and its appearance come apart. A 760×130 banner is comfortably inside
+a 32-unit margin on a 1080-unit canvas; at −14° it paints 769 wide and 310
+tall, a quarter again as tall as declared, and hangs off the edge if it was
+placed by its width and height. `marginAtLeast` and `inBounds` measure what an
+element paints, so they see it. That gap is what H5 in the pre-registration is
+about, and `compose.sale-card` and `repair.tilted-stack` are the two tasks it
+rests on.
+
+Levelling the surfaces came first. `create` took an angle on all three, but
+rotating an element that *already existed* was a `move` on the coordinate
+surface, a whole-document write on document-as-code, and **unreachable on the
+relational surface** — `place` took no angle and `set_style` is appearance,
+text and paint order. The pre-registration claims the three surfaces reach the
+same document states; the equivalence tests only ever checked placement, so
+nothing said otherwise. `place` now takes a rotation, relational has a `rotate`
+that takes an angle or copies another element's, and the equivalence test
+covers it.
+
 ---
 
 ## Families
 
-### `compose` — build from a brief (5 tasks)
+### `compose` — build from a brief (6 tasks)
 
 Start near-empty. Every element's position has to be decided from nothing;
 there is no existing layout to imitate and no id to align to. This is where the
@@ -130,9 +158,12 @@ satisfied "the title should dominate" completely.
 
 `compose.product-card` also asks whether the button label sits on a filled
 shape (`textOnFilledShape`), which is the id-free form of "does this read as a
-button".
+button". `compose.sale-card` asks the same question of a ribbon, and adds the
+angle: a tilted label on an upright rect is not a ribbon, however well their
+bounding boxes agree. It is also the task where the margin is decided by
+geometry the numbers do not show — see the third fact above.
 
-### `repair` — fix a broken layout (6 tasks)
+### `repair` — fix a broken layout (7 tasks)
 
 Each starting document breaks in one specific way, so a failure is
 attributable: elements piled on each other, elements drifted off-canvas, text
@@ -152,6 +183,13 @@ moving it, fading out the layer that is on top. `repair.z-order` scores the
 stacking itself (`paintOrder`) rather than only the occlusion it causes, since
 occlusion has a second cure — make the top layer invisible — that leaves the
 document exactly as wrong as it was found.
+
+`repair.tilted-stack` is the rotation task: four elements knocked askew at four
+different angles, every box already exactly where it belongs, and a card that
+hangs off both edges purely because it is tilted. Straightening is the whole
+repair — rotation turns an element about its own centre, so nothing needs to
+move — which makes it one defect and one lever, and makes "fix the overhang by
+shoving the card left" a visibly different answer.
 
 `repair.mixed-defects` is the deliberate exception to the one-defect rule: an
 opener that is off-canvas, mis-stacked and crowded at once, where fixing one
@@ -266,6 +304,8 @@ Task-specific checks:
 | `textSizeOrder` | Named *copy* in decreasing font size — `fontSizeOrder` without the ids |
 | `fontSizeOrder` | Named elements in decreasing font size |
 | `fontSizeAtLeast` | Nothing set below a legible size |
+| `rotationWithin` | Elements sit at the angle the brief asks for, measured the short way round |
+| `sameRotation` | A group shares one angle, whatever it is |
 | `sameFontSize` | A group of blocks treated as one, at one size |
 | `coverage` | Fraction of canvas occupied, via a 60×60 occupancy grid, ignoring a full-canvas background and anything invisible |
 | `usesImage` | An image element from a named set |
@@ -276,7 +316,7 @@ Task-specific checks:
 | `noOverlap` | Elements in a group not painted across each other |
 | `verticalOrder` | The named elements still read top to bottom in order |
 | `paintOrder` | The stacking itself, rather than the occlusion it causes |
-| `textOnFilledShape` | A piece of copy sits on a filled shape — "does it read as a button" |
+| `textOnFilledShape` | A piece of copy sits on a filled shape — "does it read as a button", and optionally "turned with it" |
 | `surfacesNoLighterThan` | Large painted surfaces are dark enough |
 | `textNoDarkerThan` | Text is light enough, measured against its backdrop |
 
@@ -327,6 +367,11 @@ something:
 - Hiding the photograph scores below restacking it.
 - A palette applied to the wrong elements scores below the assignment the brief
   gives.
+- A tilted ribbon placed by its declared box breaks the margin its painted box
+  has to respect, and placing it by what it paints scores higher.
+- Tilting the whole card scores below tilting only the ribbon.
+- Straightening a knocked-about card scores above shoving it back on canvas
+  while leaving it crooked.
 
 ---
 

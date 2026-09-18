@@ -32,6 +32,7 @@ import {
   notCovered,
   paintOrder,
   preservesElements,
+  rotationWithin,
   styleUnchanged,
   textUnchanged,
   verticalOrder,
@@ -223,6 +224,59 @@ const mixedDefects = () =>
     }),
   ], { background: "#f4f1ea" });
 
+/**
+ * A notice knocked askew: four elements, four different angles, and a
+ * consequence that follows from the angles rather than from the boxes — a card
+ * that fits the canvas with 60 units to spare at every edge reaches 75 units
+ * wider than the canvas at twelve degrees, so both of its sides hang off.
+ *
+ * Every box is where it belongs. Rotation turns an element about its own
+ * centre, so straightening is the whole repair, and it needs nothing moved.
+ * One defect, one lever, which is what keeps the family attributable.
+ *
+ * It is also the task where the document's numbers and its appearance come
+ * apart hardest, which is why it is one of the two the rotation hypothesis
+ * rests on: every angle is in the description the agent is given, and what
+ * they add up to is trigonometry it has to do in its head — or read off a
+ * picture. `docs/PREREGISTRATION.md` H5.
+ */
+const tiltedStack = () =>
+  doc([
+    rect({
+      id: "card",
+      x: 60,
+      y: 160,
+      w: 960,
+      h: 1040,
+      rot: -12,
+      z: 0,
+      style: { fill: "#ffffff", radius: 20, strokeColor: "#e0dcd4", strokeWidth: 2 },
+    }),
+    text({
+      id: "title",
+      x: 140,
+      y: 260,
+      w: 800,
+      h: 150,
+      rot: 6,
+      z: 1,
+      text: "Closing for the Season",
+      style: { fontSize: 62, fontWeight: "bold", color: "#22223b" },
+    }),
+    text({
+      id: "body",
+      x: 140,
+      y: 440,
+      w: 800,
+      h: 380,
+      rot: -5,
+      z: 2,
+      text: "The shop shuts on the last Sunday in October and opens again when the pass is clear, which is usually the second week of May. Orders placed before then ship in the spring.",
+      style: { fontSize: 34, color: "#3d3d56", lineHeight: 1.45 },
+    }),
+    rect({ id: "stamp", x: 700, y: 900, w: 240, h: 240, rot: 14, z: 3, style: { fill: "#d94f3d", radius: 24 } }),
+  ], { background: "#efeae1" });
+
 export const repairTasks = [
   defineTask({
     id: "repair.overlapping-stack",
@@ -405,6 +459,47 @@ export const repairTasks = [
       "Do the margins look like a deliberate grid rather than four different guesses?",
     ],
     maxTurns: 30,
+  }),
+
+  defineTask({
+    id: "repair.tilted-stack",
+    title: "Straighten a card knocked askew",
+    family: "repair",
+    brief: [
+      "Every element on this notice has been knocked askew, each by a different amount, and the card now hangs",
+      "off both sides of the canvas because of it.",
+      "",
+      "Put all four back upright — square to the canvas, at zero degrees.",
+      "Nothing needs to move or resize: every box is already where it belongs, and turning an element about its",
+      "own centre is enough. So do not change any element's position or size, do not delete anything,",
+      "and do not rewrite the copy.",
+    ].join("\n"),
+    initial: tiltedStack,
+    checks: [
+      preservesElements(["card", "title", "body", "stamp"], 2),
+      // Budget 5, not the default 10: "square to the canvas" has no band of
+      // acceptable tilt, and a reader sees three degrees.
+      rotationWithin(["card", "title", "body", "stamp"], 0, 8, {
+        budget: 5,
+        label: "Everything is square to the canvas",
+      }),
+      // The boxes are already right, so straightening is the whole repair —
+      // and a run that "fixes" the overhang by shoving the card left has not
+      // done it.
+      geometryUnchanged(tiltedStack(), ["card", "title", "body", "stamp"], 2, {
+        fields: ["x", "y", "width", "height"],
+      }),
+      inBounds(2),
+      textUnchanged(tiltedStack(), ["title", "body"], 1),
+      marginAtLeast(40, 1),
+    ],
+    judgeCriteria: [
+      "Is everything square to the canvas?",
+      "Is the card fully on the canvas, with the margins looking even?",
+      "Are the title and the body clear of each other and comfortable to read?",
+      "Does the notice look like it was never knocked about, rather than patched up?",
+    ],
+    maxTurns: 25,
   }),
 
   defineTask({

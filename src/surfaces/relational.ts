@@ -267,31 +267,110 @@ const createTool: ToolDef<z.infer<typeof zCreateInput>> = {
   },
 };
 
-const zPlaceInput = z.strictObject({ id: zElementId, ...zPlacement });
+const zPlaceInput = z.strictObject({
+  id: zElementId,
+  rotation: z
+    .number()
+    .min(-360)
+    .max(360)
+    .optional()
+    .describe("Set the element's rotation before placing it, in clockwise degrees. Left unchanged if omitted."),
+  ...zPlacement,
+});
 
 const placeTool: ToolDef<z.infer<typeof zPlaceInput>> = {
   name: "place",
   description:
-    "Move an element relative to another element or to the canvas. Positions are computed for you from the " +
-    "target's current bounding box.",
+    "Move an element relative to another element or to the canvas, optionally setting its rotation at the same " +
+    "time. Positions are computed for you from the target's current bounding box.",
   schema: zPlaceInput,
   run(ctx, input) {
     const el = requireElement(ctx.doc, input.id);
-    const box = aabb(el);
-    const placement = computePlacement(ctx.doc, box, input, input.id);
-
     let doc = ctx.doc;
+    let subject = el;
+    // Rotation first, placement second, and in that order because a rotated
+    // box is wider and taller than its declared size. `create` already worked
+    // this way; placing first and rotating afterwards would put the element
+    // where its *unrotated* box belonged and then swing it out of position.
+    if (input.rotation !== undefined && input.rotation !== el.rotation) {
+      doc = patchElement(doc, el.id, { rotation: input.rotation });
+      subject = requireElement(doc, el.id);
+    }
+    const box = aabb(subject);
+    const placement = computePlacement(doc, box, input, input.id);
+
     if (placement.width !== undefined && placement.height !== undefined) {
+      // `cover` and `fill_canvas` dictate the box outright, so they land
+      // axis-aligned and any rotation asked for is dropped — the same thing
+      // `create` does with a placement that carries a size.
       doc = patchElement(doc, el.id, { width: placement.width, height: placement.height, rotation: 0 });
       doc = moveAabbTo(doc, requireElement(doc, el.id), placement.x, placement.y);
     } else {
-      doc = moveAabbTo(doc, el, placement.x, placement.y);
+      doc = moveAabbTo(doc, subject, placement.x, placement.y);
     }
     const after = requireElement(doc, input.id);
     return {
       doc,
       message: `Placed ${input.id} ${placement.label}. It now sits at x=${round(after.x, 1)} y=${round(after.y, 1)}, ${round(after.width, 1)}x${round(after.height, 1)}.`,
       touched: [input.id],
+    };
+  },
+};
+
+// --- rotate ----------------------------------------------------------------
+
+const zRotateInput = z.strictObject({
+  ids: z.array(zElementId).min(1).describe("Elements to rotate. Each turns about its own center, so nothing moves."),
+  degrees: z
+    .number()
+    .min(-360)
+    .max(360)
+    .optional()
+    .describe("The angle to set, in clockwise degrees. An absolute angle, not a change to the current one."),
+  to: zElementId.optional().describe("Copy this element's angle instead of naming one."),
+});
+
+/**
+ * Set the angle of one or more elements.
+ *
+ * This surface could place a rotated element and could create one, and could
+ * not rotate an element that already existed: `place` took no angle and
+ * `set_style` is appearance, text and paint order. So "straighten these four"
+ * was unreachable here and a `move` away on the coordinate surface — a
+ * difference in raw *power* between two surfaces whose whole comparison
+ * assumes they differ only in vocabulary. `docs/PREREGISTRATION.md` §8 lists
+ * that parity as a controlled confound, and `surfaces.test.ts` now tests it on
+ * rotation as well as on placement.
+ *
+ * Group-shaped and angle-relative, because that is this surface's vocabulary:
+ * `to` copies another element's angle the way `align` lines up on another
+ * element's edge. A designer straightening a knocked-about card says "put
+ * these back upright", not "set each of these four to zero".
+ */
+const rotateTool: ToolDef<z.infer<typeof zRotateInput>> = {
+  name: "rotate",
+  description:
+    "Set the rotation of one or more elements, either to an angle or to match another element's. Each element " +
+    "turns about its own center, so nothing moves.",
+  schema: zRotateInput,
+  run(ctx, input) {
+    if ((input.degrees === undefined) === (input.to === undefined)) {
+      throw new ToolError(
+        "Rotate needs exactly one of 'degrees' or 'to'.",
+        "Pass 'degrees' for an angle, or 'to' with the id of an element whose angle to copy.",
+      );
+    }
+    const angle = input.degrees ?? requireElement(ctx.doc, input.to!).rotation;
+    // Resolve every id before changing anything, so a typo in the third id
+    // does not leave the first two rotated.
+    requireElements(ctx.doc, input.ids);
+    let doc = ctx.doc;
+    for (const id of input.ids) doc = patchElement(doc, id, { rotation: angle });
+    const source = input.to ? ` to match ${input.to}` : "";
+    return {
+      doc,
+      message: `Rotated ${input.ids.join(", ")} to ${round(angle, 1)} degrees${source}. Centers are unchanged.`,
+      touched: [...input.ids],
     };
   },
 };
@@ -628,6 +707,7 @@ function countOverlappingPairs(boxes: Map<string, Rect>, ids: string[], padding:
 export const relationalTools = [
   createTool,
   placeTool,
+  rotateTool,
   alignTool,
   distributeTool,
   fitTextTool,
@@ -642,7 +722,8 @@ export const relationalSurface: ToolSurface = {
     "You edit the document by describing relationships, not coordinates. There is no tool that takes an x or a y:",
     "you say what an element should be placed relative to, what it should line up with, or what it should fit inside,",
     "and the exact geometry is computed for you. Relations work on what is visible on screen, so an element's",
-    "rotation is already accounted for. Each tool reports the numbers it worked out, so you can see where things landed.",
+    "rotation is already accounted for, and rotating one turns it about its own center without moving it.",
+    "Each tool reports the numbers it worked out, so you can see where things landed.",
   ].join(" "),
   tools: [...relationalTools, setStyleTool, deleteTool],
 };

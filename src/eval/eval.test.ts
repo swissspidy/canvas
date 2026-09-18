@@ -19,7 +19,9 @@ import {
   noTextOcclusion,
   notCovered,
   paintOrder,
+  rotationWithin,
   sameFontSize,
+  sameRotation,
   styleUnchanged,
   textOnFilledShape,
   typeHierarchy,
@@ -934,6 +936,45 @@ describe("the checks that close a loophole", () => {
   it("will not find copy in an element nobody can see", () => {
     const d = doc(copy("ghost", "Ridgeline Festival", { fontSize: 90, opacity: 0.01 }));
     expect(d.elements.filter(withText("Ridgeline Festival"))).toHaveLength(0);
+  });
+
+  describe("rotation", () => {
+    const tilted = (rotation: number) => el({ id: "ribbon", width: 600, height: 120, rotation });
+
+    it("grades how far off the angle is", () => {
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(-14))).score).toBe(1);
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(-12))).score).toBeGreaterThan(0.7);
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(0))).score).toBe(0);
+    });
+
+    // The document normalizes angles into (-180, 180], and a check that
+    // disagreed with that arithmetic at the wrap point would be wrong once, in
+    // one run, and never explained.
+    it("measures the short way round, so 359 and -1 are one degree apart", () => {
+      const outcome = rotationWithin(["ribbon"], 359).run(doc(tilted(0)));
+      expect(outcome.score).toBe(1);
+      expect(rotationWithin(["ribbon"], -179).run(doc(tilted(179))).score).toBeGreaterThan(0.7);
+    });
+
+    it("asks whether a group agrees, without naming the angle", () => {
+      const pair = (a: number, b: number) =>
+        doc(el({ id: "ribbon", rotation: a }), el({ id: "label", x: 400, rotation: b }));
+      expect(sameRotation(["ribbon", "label"]).run(pair(-14, -14)).score).toBe(1);
+      expect(sameRotation(["ribbon", "label"]).run(pair(-14, 0)).score).toBe(0);
+    });
+  });
+
+  // A tilted label on an upright rect is not a ribbon, and their bounding
+  // boxes overlap just as happily either way.
+  it("wants the shape under a tilted label turned with it", () => {
+    const label = copy("label", "HALF PRICE", { fontSize: 60 }, { x: 100, y: 100, width: 600, height: 120, z: 1, rotation: -14 });
+    const turned = el({ id: "ribbon", x: 100, y: 100, width: 600, height: 120, z: 0, rotation: -14, style: { fill: "#a8352a" } });
+    const upright = el({ id: "ribbon", x: 100, y: 100, width: 600, height: 120, z: 0, rotation: 0, style: { fill: "#a8352a" } });
+
+    expect(textOnFilledShape("HALF PRICE", 1, { rotationWithin: 3 }).run(doc(turned, label)).score).toBe(1);
+    expect(textOnFilledShape("HALF PRICE", 1, { rotationWithin: 3 }).run(doc(upright, label)).score).toBe(0);
+    // Without the option it is the same check it always was.
+    expect(textOnFilledShape("HALF PRICE").run(doc(upright, label)).score).toBeGreaterThan(0);
   });
 
   describe("the type hierarchy check", () => {

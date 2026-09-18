@@ -143,6 +143,78 @@ describe("equivalence: the same intent reaches the same document", () => {
     expect(find(rel.doc, "el_1")).toEqual(find(coord.doc, "el_1"));
   });
 
+  /**
+   * Rotation was the hole in this claim. `create` took an angle on every
+   * surface, so a *new* rotated element was reachable everywhere — but
+   * rotating one that already existed was a `move` away on the coordinate
+   * surface, a whole-document write on document-as-code, and unreachable on
+   * relational, where `place` took no angle and `set_style` is appearance,
+   * text and paint order. The equivalence tests only covered placement, so
+   * nothing said so, and `docs/PREREGISTRATION.md` §8 claimed a parity the
+   * surfaces did not have.
+   */
+  it("straightens an existing element identically on all three surfaces", () => {
+    const start = docWith(el("a", { x: 100, y: 120, width: 300, height: 80, rotation: 7 }));
+
+    const coord = session(start);
+    expect(executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 100, y: 120, rotation: 0 }).ok).toBe(true);
+
+    const rel = session(start);
+    expect(executeToolCall(rel, relationalSurface, "rotate", { ids: ["a"], degrees: 0 }).ok).toBe(true);
+
+    const asCode = session(start);
+    expect(
+      executeToolCall(asCode, documentSurface, "write_document", {
+        document: {
+          ...emptyDoc(1000, 1000),
+          elements: [
+            { id: "a", type: "rect", x: 100, y: 120, width: 300, height: 80, rotation: 0, z: 0, style: { fill: "#ff0000" } },
+          ],
+        },
+      }).ok,
+    ).toBe(true);
+
+    expect(find(rel.doc, "a")).toEqual(find(coord.doc, "a"));
+    expect(find(asCode.doc, "a")).toEqual(find(coord.doc, "a"));
+    expect(find(rel.doc, "a").rotation).toBe(0);
+  });
+
+  // Rotating about the center is what the model says it does, and it is what
+  // makes "straighten these" expressible without also repositioning them.
+  it("rotates about the center, so nothing moves", () => {
+    const start = docWith(el("a", { x: 100, y: 120, width: 300, height: 80, rotation: 0 }));
+    const rel = session(start);
+    executeToolCall(rel, relationalSurface, "rotate", { ids: ["a"], degrees: 30 });
+    const after = find(rel.doc, "a");
+    expect(after).toMatchObject({ x: 100, y: 120, width: 300, height: 80, rotation: 30 });
+  });
+
+  it("copies another element's angle", () => {
+    const start = {
+      ...docWith(el("a", { rotation: 12 })),
+      elements: [el("a", { rotation: 12 }), el("b", { x: 400, rotation: 0 })],
+    };
+    const rel = session(start);
+    const r = executeToolCall(rel, relationalSurface, "rotate", { ids: ["b"], to: "a" });
+    expect(r.ok).toBe(true);
+    expect(find(rel.doc, "b").rotation).toBe(12);
+  });
+
+  it("refuses a rotate that names neither an angle nor an element", () => {
+    const rel = session(docWith(el("a")));
+    const r = executeToolCall(rel, relationalSurface, "rotate", { ids: ["a"] });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/exactly one of 'degrees' or 'to'/);
+  });
+
+  it("leaves every element alone when one id in the batch is wrong", () => {
+    const start = { ...docWith(el("a")), elements: [el("a"), el("b", { x: 400 })] };
+    const rel = session(start);
+    const r = executeToolCall(rel, relationalSurface, "rotate", { ids: ["a", "nope"], degrees: 45 });
+    expect(r.ok).toBe(false);
+    expect(find(rel.doc, "a").rotation).toBe(0);
+  });
+
   it("reaches the same document through whole-document rewriting", () => {
     const coord = session();
     executeToolCall(coord, coordinateSurface, "create", { ...spec, x: 400, y: 450 });
