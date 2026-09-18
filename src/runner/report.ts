@@ -203,8 +203,8 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
 
   // Harness failures are held out of every aggregate below, and only of those.
   // The stop-reason table at the end still reads from `allScores`, because how
-  // many cells a surface lost to the transport is worth seeing even though it
-  // is not a score.
+  // many cells a surface lost to something outside the run is worth seeing
+  // even though it is not a score.
   const scores = allScores.filter((s) => !isHarnessFailure(s.stopReason));
   const lost = allScores.length - scores.length;
 
@@ -212,9 +212,9 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
     return [
       `# ${opts.title ?? "Surface comparison"}`,
       "",
-      `All ${allScores.length} run(s) here were cut off by the harness rather than finished by the model — an`,
-      "API error, or an abort. There is nothing to aggregate: whatever these runs reached before the",
-      "transport failed measures when it failed, not how the surfaces compare.",
+      `All ${allScores.length} run(s) here were ended by the harness rather than finished by the model — an`,
+      "API error, or an abort. There is nothing to aggregate: whatever these runs reached before they were",
+      "cut off measures where that happened, not how the surfaces compare.",
       "",
       `Reasons: ${
         [...new Set(allScores.map((s) => s.error?.replace(/\s*\.\s*$/, "")).filter(Boolean))]
@@ -244,8 +244,8 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
     out.push(
       `> ${lost} further run(s) were cut off by the harness — an API error or an abort — and are left out of ` +
         `every table below except **How runs ended**. Such a run is excluded for being incomplete, not for ` +
-        `having achieved nothing: it may have done real work before the transport failed, and that is the ` +
-        `problem — what it scores is *when* the failure landed, which moves a surface's mean in whichever ` +
+        `having achieved nothing: it may have done real work before it was cut off, and that is the ` +
+        `problem — what it scores is *where* it was cut off, which moves a surface's mean in whichever ` +
         `direction the rate limiter happened to push it. They are not cached as done: re-run the same ` +
         `command to fill them in.`,
     );
@@ -481,7 +481,7 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
   // Over every run, harness failures included. This is the one table where
   // they belong: `max_turns` per surface is a pre-registered outcome
   // (`docs/PREREGISTRATION.md` §5), and a surface losing cells to the
-  // transport at a different rate from its neighbours is a fact about the
+  // harness at a different rate from its neighbours is a fact about the
   // sweep that the aggregates above deliberately cannot show.
   out.push("## How runs ended");
   out.push("");

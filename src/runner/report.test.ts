@@ -556,7 +556,7 @@ describe("harness failures in the report", () => {
       score({ taskId: "t", surfaceId: "coordinate", stopReason: "api_error", error: "API key is invalid." }),
       score({ taskId: "t", surfaceId: "relational", stopReason: "api_error", error: "API key is invalid." }),
     ]);
-    expect(md).toContain("cut off by the harness");
+    expect(md).toContain("ended by the harness rather than finished by the model");
     expect(md).toContain("API key is invalid.");
     expect(md).not.toContain("## By tool surface");
   });

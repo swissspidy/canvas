@@ -22,8 +22,8 @@ import type { RunScore } from "../eval/score.js";
  * The agent loop has always turned a failed request into a scored run. What it
  * could not do is speak for the code around it — the judge's rasterizer, the
  * renders written per cell, the disk they go to — and a sweep is thousands of
- * calls against a rate-limited API, so "the transport had a bad minute" is the
- * normal case rather than the exotic one.
+ * calls against a rate-limited API, so "something other than the model ended
+ * this run" is the normal case rather than the exotic one.
  *
  * Three rules follow, and the order matters because they pull against each
  * other. Nothing that goes wrong beside a cell may stop the sweep. A cell that
