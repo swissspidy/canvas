@@ -31,12 +31,12 @@ headline improvement metric.
 
 | Family | Task | Baseline | Budget | Checks |
 |---|---|---|---|---|
-| compose | `compose.festival-poster` | 37.5% | 30 | 14 |
+| compose | `compose.festival-poster` | 31.6% | 30 | 15 |
 | compose | `compose.event-flyer` | 37.5% | 30 | 15 |
 | compose | `compose.quote-card` | 53.3% | 25 | 13 |
 | compose | `compose.product-card` | 31.6% | 30 | 15 |
 | compose | `compose.sale-card` | 33.3% | 30 | 16 |
-| compose | `compose.title-card` | 60.0% | 25 | 13 |
+| compose | `compose.title-card` | 62.5% | 25 | 14 |
 | repair | `repair.overlapping-stack` | 64.0% | 30 | 11 |
 | repair | `repair.off-canvas` | 61.8% | 30 | 12 |
 | repair | `repair.buried-text` | 71.4% | 25 | 12 |
@@ -50,7 +50,7 @@ headline improvement metric.
 | fit | `fit.caption-under-image` | 65.0% | 20 | 9 |
 | fit | `fit.two-column` | 70.8% | 25 | 13 |
 | restyle | `restyle.palette-swap` | 69.6% | 25 | 11 |
-| restyle | `restyle.dark-mode` | 66.7% | 25 | 12 |
+| restyle | `restyle.dark-mode` | 68.9% | 25 | 14 |
 | arrange | `arrange.ragged-column` | 44.4% | 25 | 10 |
 | arrange | `arrange.uneven-row` | 50.1% | 25 | 11 |
 | arrange | `arrange.card-grid` | 39.5% | 30 | 18 |
@@ -111,6 +111,21 @@ None of this touches the checks that ask what is *in the document* —
 `preservesElements`, `geometryUnchanged`, `inBounds`. Hiding an element must
 never be a way to satisfy "keep every element", and making something invisible
 must never be a way to dodge a penalty.
+
+There is a third way the same loophole came back, one level up: not padding a
+document with ghosts but *deleting* it into one. Every check that measures the
+page answers vacuously when there is no page — "no text elements, so nothing is
+unreadable" — and on `restyle.dark-mode`, a dark canvas behind a document faded
+to `opacity: 0` collected eight of those answers in a row and scored **92.7%**,
+closing 78% of the available improvement on a task whose brief says in as many
+words that fading things out is not a dark theme.
+
+So a check **scoped to explicit ids** whose elements are in the document and
+paint nothing scores zero rather than passing vacuously: being named means the
+brief asked about those elements. A check with no selector keeps the vacuous
+pass, because there the question really is "is anything wrong with what is on
+the page" — and penalising those would make padding a document with ghosts
+*lower* the score, which is the same loophole pointing the other way.
 
 **An element can be rotated, and a rotated box is bigger than the numbers that
 declare it.** Rotation has been in the model, the renderer, the exact
@@ -313,6 +328,9 @@ Task-specific checks:
 | `textSizeOrder` | Named *copy* in decreasing font size — `fontSizeOrder` without the ids |
 | `fontSizeOrder` | Named elements in decreasing font size |
 | `fontSizeAtLeast` | Nothing set below a legible size, graded over a quarter of the floor |
+| `fullyOpaque` | The named elements are painted at full strength |
+| `coversCanvas` | Something matching covers the whole canvas — what "as a background" means |
+| `minFillContrast` | A filled shape is distinguishable from what it sits on |
 | `rotationWithin` | Elements sit at the angle the brief asks for, measured the short way round |
 | `sameRotation` | A group shares one angle, whatever it is |
 | `sameFontSize` | A group of blocks treated as one, at one size |

@@ -275,7 +275,7 @@ const SOLUTIONS: Record<string, () => Doc> = {
         if (el.id === "title") style.color = "#f4f1ea";
         if (el.id === "standfirst") style.color = "#cfcadd";
         if (el.id === "byline") style.color = "#b3aec6";
-        if (el.id === "tag") style.fill = "#3a2f5a";
+        if (el.id === "tag") style.fill = "#4a3d72";
         if (el.id === "tag_label") style.color = "#e9e4f2";
         return { ...el, style };
       },

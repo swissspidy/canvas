@@ -24,8 +24,10 @@ import { defineTask } from "./types.js";
 import { doc, image, rect, text, POSTER_H, POSTER_W } from "./helpers.js";
 import {
   colorRoles,
+  fullyOpaque,
   geometryUnchanged,
   minContrast,
+  minFillContrast,
   preservesElements,
   styleUnchanged,
   surfacesNoLighterThan,
@@ -225,11 +227,26 @@ export const restyleTasks = [
       textNoDarkerThan(0.4, 4, ["title", "standfirst", "byline", "tag_label"]),
       // "do not move or resize anything".
       geometryUnchanged(darkMode(), DARK_MODE_IDS, 2),
+      // "The tag keeps its role: a filled chip with a legible label on it."
+      // Every other check on this task is about the label, so setting the
+      // chip's fill to `transparent` left the label perfectly readable against
+      // the sheet and scored 100% — a conversion that deleted one of the
+      // elements it was told to keep, in the only sense a reader cares about.
+      // `textOnFilledShape` does not close it: the full-width sheet is a
+      // filled rect painted below the label and satisfies that check.
+      minFillContrast(1.5, 2, ["tag"]),
       // "The photograph is left exactly as it is." Geometry and id were held;
       // the asset, the opacity and a fill dropped on top of it were not, and
       // dimming the photo to 10% is the cheapest way to make a page look dark.
       styleUnchanged(darkMode(), ["photo"], 3),
-      styleUnchanged(darkMode(), DARK_MODE_IDS, 2, { keys: [...TYPE_KEYS, "opacity"] }),
+      styleUnchanged(darkMode(), DARK_MODE_IDS, 2, { keys: [...TYPE_KEYS] }),
+      // "Fading elements out is not a dark theme — everything stays fully
+      // opaque." Held as its own check rather than as one key averaged in with
+      // seven others: at `opacity: 0` on all seven elements that arrangement
+      // lost 7 comparisons of 56, and every check that measures the page then
+      // reported nothing wrong with it, because there was nothing left to
+      // measure. A dark canvas behind an invisible document scored 92.7%.
+      fullyOpaque(DARK_MODE_IDS, 3),
       textUnchanged(darkMode(), ["title", "standfirst", "byline", "tag_label"], 1),
     ],
     judgeCriteria: [

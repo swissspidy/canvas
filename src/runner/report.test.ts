@@ -371,14 +371,36 @@ describe("the per-check breakdown", () => {
 
   it("carries the same numbers into the JSON, cut three ways", () => {
     const json = buildReportJson(withChecks()) as {
-      aggregates: { check: Record<string, { mean: number; bySurface: Record<string, { mean: number }>; byFeedback: unknown; byTask: unknown }> };
+      aggregates: {
+        check: Record<
+          string,
+          {
+            mean: number;
+            bySurface: Record<string, { mean: number }>;
+            byFeedback: unknown;
+            byModel: unknown;
+            byFamily: unknown;
+            byTask: unknown;
+          }
+        >;
+      };
     };
     const margin = json.aggregates.check.margin!;
     expect(margin.mean).toBeCloseTo(0.55, 6);
     expect(margin.bySurface.coordinate!.mean).toBeCloseTo(0.2, 6);
     expect(margin.bySurface.relational!.mean).toBeCloseTo(0.9, 6);
     expect(Object.keys(margin.byTask as object)).toHaveLength(3);
-    expect(margin.byFeedback).toBeTruthy();
+    // Cut the same ways the run-level aggregates are, so a plot does not have
+    // to fall back to scores.jsonl to ask "which model failed this".
+    for (const cut of ["byFeedback", "byModel", "byFamily"] as const) {
+      const rows = margin[cut] as Record<string, { n: number; mean: number; passRate: number }>;
+      expect(Object.keys(rows).length, cut).toBeGreaterThan(0);
+      for (const row of Object.values(rows)) {
+        expect(row.n).toBeGreaterThan(0);
+        expect(row.mean).toBeGreaterThanOrEqual(0);
+        expect(row.passRate).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 
   // A surface that never met a check has no score for it, and reporting the
@@ -391,6 +413,32 @@ describe("the per-check breakdown", () => {
     const md = buildReport(onlyCoordinate);
     const line = md.split("\n").find((l) => l.startsWith("| margin "))!;
     expect(line).toMatch(/\| — \|$/);
+  });
+
+  // "The surfaces scored this identically" and "one surface never met this"
+  // are different facts, and a dash for both hid the first behind the second —
+  // in the column the table is sorted by.
+  it("tells an agreed check apart from an incomparable one", () => {
+    const md = buildReport(withChecks());
+    const contrast = md.split("\n").find((l) => l.startsWith("| contrast "))!;
+    expect(contrast).toMatch(/\| 0\.0pt \|$/);
+
+    const partial = withChecks().map((s) =>
+      s.surfaceId === "relational" ? { ...s, checkResults: s.checkResults.filter((r) => r.id !== "contrast") } : s,
+    );
+    const line = buildReport(partial).split("\n").find((l) => l.startsWith("| contrast "))!;
+    expect(line).toMatch(/\| — \|$/);
+  });
+
+  // An incomparable spread is the row with the least to say about the
+  // surfaces, so it sorts last rather than as a zero.
+  it("sorts an incomparable check below one the surfaces agreed on", () => {
+    const partial = withChecks().map((s) =>
+      s.surfaceId === "relational" ? { ...s, checkResults: s.checkResults.filter((r) => r.id !== "margin") } : s,
+    );
+    const md = buildReport(partial);
+    const section = md.slice(md.indexOf("## Which constraints separated the surfaces"));
+    expect(section.indexOf("| contrast ")).toBeLessThan(section.indexOf("| margin "));
   });
 });
 

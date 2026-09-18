@@ -722,7 +722,11 @@ function spreadComparison(scores: RunScore[], surfaces: string[], feedbacks: str
 function checkBreakdown(scores: RunScore[], surfaces: string[]): string {
   const ids = [...new Set(scores.flatMap((s) => s.checkResults.map((r) => r.id)))];
 
-  const rows: { id: string; label: string; overall: number; bySurface: (number | null)[]; spread: number }[] = [];
+  // `spread: null` is "not comparable", which is not the same fact as "the
+  // surfaces agreed" and must not render the same way. Both were printing as a
+  // dash, so a check the surfaces scored identically and a check one surface
+  // never met were indistinguishable in the one column the table is sorted by.
+  const rows: { id: string; label: string; overall: number; bySurface: (number | null)[]; spread: number | null }[] = [];
   for (const id of ids) {
     const all = scores.flatMap((s) => s.checkResults.filter((r) => r.id === id));
     if (all.length === 0) continue;
@@ -740,13 +744,17 @@ function checkBreakdown(scores: RunScore[], surfaces: string[]): string {
       bySurface,
       // Only comparable when every surface met the check; a check one surface
       // never saw would otherwise report a spread that is really an absence.
-      spread: present.length === surfaces.length ? Math.max(...present) - Math.min(...present) : 0,
+      spread: present.length === surfaces.length ? Math.max(...present) - Math.min(...present) : null,
     });
   }
 
   // A check nothing ever fails is a check that is not doing any work in this
   // grid, and a table of them buries the ones that are.
-  const interesting = rows.filter((r) => r.overall < 0.999).sort((a, b) => b.spread - a.spread || a.overall - b.overall);
+  const interesting = rows
+    .filter((r) => r.overall < 0.999)
+    // An incomparable spread sorts last rather than as a zero: it is the row
+    // with the least to say about the surfaces, not the row where they agreed.
+    .sort((a, b) => (b.spread ?? -1) - (a.spread ?? -1) || a.overall - b.overall);
   if (interesting.length === 0) {
     return ["## Which constraints separated the surfaces", "", "Every check passed in every run.", ""].join("\n");
   }
@@ -769,7 +777,7 @@ function checkBreakdown(scores: RunScore[], surfaces: string[]): string {
         r.label,
         `${pct(r.overall)}%`,
         ...r.bySurface.map((v) => (v === null ? "—" : `${pct(v)}%`)),
-        r.spread > 0 ? `${pct(r.spread)}pt` : "—",
+        r.spread === null ? "—" : `${pct(r.spread)}pt`,
       ]),
     ),
   );
@@ -820,8 +828,15 @@ export function buildReportJson(scores: RunScore[]): unknown {
     cell: (s: RunScore) => `${s.model}|${s.surfaceId}|${s.feedbackMode}`,
   };
 
-  // Per check, pooled across tasks and cut by surface and feedback. The same
-  // numbers the report's constraint table shows, in a shape a plot can read.
+  // Per check, pooled across tasks and cut the same ways the run-level
+  // aggregates are. The same numbers the report's constraint table shows, in a
+  // shape a plot can read.
+  //
+  // Not cut by cell. The run-level `cell` dimension exists because every other
+  // run-level dimension is a marginal of it, which is worth the size; a check
+  // appears on a handful of tasks rather than all of them, so per check per
+  // cell is a table of single-digit n at the pre-registered three repeats, and
+  // `byTask` already supports any faceting someone wants to do with it.
   const checkIds = [...new Set(scores.flatMap((s) => s.checkResults.map((r) => r.id)))];
   const byCheck: Record<string, unknown> = {};
   for (const id of checkIds) {
@@ -847,6 +862,8 @@ export function buildReportJson(scores: RunScore[]): unknown {
       passRate: all.filter((r) => r.passed).length / all.length,
       bySurface: cut((s) => s.surfaceId),
       byFeedback: cut((s) => s.feedbackMode),
+      byModel: cut((s) => s.model),
+      byFamily: cut((s) => s.taskFamily),
       byTask: cut((s) => s.taskId),
     };
   }

@@ -23,6 +23,7 @@
 
 import { z } from "zod";
 import { aabb, round } from "../doc/geometry.js";
+import { normalizeAngle } from "../doc/schema.js";
 import { patchElement, requireElement, requireElements, ToolError } from "../doc/ops.js";
 import type { Doc, Element, Rect } from "../doc/types.js";
 import { largestFittingFontSize, layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
@@ -96,6 +97,26 @@ const CANVAS_RELATIONS = [
 ] as const;
 const ALL_RELATIONS = [...TARGET_RELATIONS, ...CANVAS_RELATIONS] as const;
 type Relation = (typeof ALL_RELATIONS)[number];
+
+/**
+ * The two relations that dictate the box outright, and so land axis-aligned.
+ *
+ * An argument a tool accepts and then throws away is worse than one it refuses:
+ * the call succeeds, the model is told where the element landed, and nothing
+ * mentions that the rotation it asked for is gone. On a surface that is itself
+ * the variable under study, a silent no-op is a measurement error — the agent
+ * believes the document holds something it does not.
+ */
+const SIZED_RELATIONS: readonly Relation[] = ["cover", "fill_canvas"];
+
+function refuseRotation(relation: Relation, rotation: number | undefined): void {
+  if (rotation === undefined || normalizeAngle(rotation) === 0) return;
+  if (!SIZED_RELATIONS.includes(relation)) return;
+  throw new ToolError(
+    `Relation '${relation}' sets the box outright, so it cannot carry a rotation.`,
+    "Place it first, then rotate it — or use a relation that keeps the size you gave.",
+  );
+}
 
 const zPlacement = {
   relation: z.enum(ALL_RELATIONS).describe(
@@ -242,6 +263,7 @@ const createTool: ToolDef<z.infer<typeof zCreateInput>> = {
   description: "Add a new element, placed relative to another element or to the canvas.",
   schema: zCreateInput,
   run(ctx, input) {
+    refuseRotation(input.relation, input.rotation);
     const rotation = input.rotation ?? 0;
     // Every relation here is defined on the painted bounding box — that is what
     // `place` computes against, and "below this, with a 50 unit gap" has to
@@ -285,6 +307,7 @@ const placeTool: ToolDef<z.infer<typeof zPlaceInput>> = {
     "time. Positions are computed for you from the target's current bounding box.",
   schema: zPlaceInput,
   run(ctx, input) {
+    refuseRotation(input.relation, input.rotation);
     const el = requireElement(ctx.doc, input.id);
     let doc = ctx.doc;
     let subject = el;
@@ -301,8 +324,9 @@ const placeTool: ToolDef<z.infer<typeof zPlaceInput>> = {
 
     if (placement.width !== undefined && placement.height !== undefined) {
       // `cover` and `fill_canvas` dictate the box outright, so they land
-      // axis-aligned and any rotation asked for is dropped — the same thing
-      // `create` does with a placement that carries a size.
+      // axis-aligned. A rotation asked for alongside one of them was refused
+      // above rather than dropped here; an element that was *already* rotated
+      // is squared up, which is what "make this cover that" means.
       doc = patchElement(doc, el.id, { width: placement.width, height: placement.height, rotation: 0 });
       doc = moveAabbTo(doc, requireElement(doc, el.id), placement.x, placement.y);
     } else {

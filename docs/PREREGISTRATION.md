@@ -223,7 +223,8 @@ a refusal.
 | Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
 | Cost comparisons across unpriced models | A model absent from `MODELS` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
-| A task satisfiable without doing the work it describes | Every cheap path found so far — invisible elements, shrinking type out of legibility, shortening copy, hiding the layer that is in the way — is asserted in `src/tasks/tasks.test.ts` to score below the honest fix. |
+| A task satisfiable without doing the work it describes | Every cheap path found so far — invisible elements, a document faded out of existence, shrinking type out of legibility, shortening copy, hiding the layer that is in the way, a background image that is not a background, deleting an element and recreating it under a new id — is asserted in `src/tasks/tasks.test.ts` to score below the honest fix. |
+| A tool that accepts an argument and discards it | A surface that reports success for a document it did not produce is a measurement error, not a rough edge: the agent believes the document holds something it does not. `place` and `create` refuse a rotation that a sizing relation would reset rather than dropping it silently, and `surfaces.test.ts` covers the combination. |
 | A scored constraint the agent was never told about | Every constraint a check scores is stated in the task's brief. An unstated one would land unevenly across surfaces, which is the variable under study. |
 
 ---

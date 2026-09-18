@@ -123,8 +123,17 @@ function withOpacity(c: Rgba, opacity: number | undefined): Rgba {
  * the renderer multiplies the two, so does this.
  */
 export function effectiveTextColor(el: Element): string {
-  const parsed = parseColor(el.style.color ?? "#111111");
-  if (!parsed) return el.style.color ?? "#111111";
+  return withElementOpacity(el.style.color ?? "#111111", el);
+}
+
+/**
+ * A colour as the element paints it: its own alpha, scaled by the element's
+ * opacity. The text form of this is `effectiveTextColor`; a shape's fill needs
+ * the same treatment for the same reason.
+ */
+export function withElementOpacity(color: string, el: Element): string {
+  const parsed = parseColor(color);
+  if (!parsed) return color;
   const withAlpha = withOpacity(parsed, el.style.opacity);
   const a = Math.round(Math.max(0, Math.min(1, withAlpha.a)) * 255)
     .toString(16)

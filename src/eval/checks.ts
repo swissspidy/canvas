@@ -25,6 +25,7 @@ import {
   effectiveTextColor,
   parseColor,
   relativeLuminance,
+  withElementOpacity,
 } from "./color.js";
 
 export interface CheckOutcome {
@@ -75,6 +76,37 @@ export const isImage = (el: Element) => el.type === "image";
  */
 export const visibleText = (el: Element) => el.type === "text" && paintsAnything(el);
 export const visibleImage = (el: Element) => el.type === "image" && paintsAnything(el);
+
+/**
+ * "The elements you named are all invisible", when that is what happened.
+ *
+ * Most checks here answer a question about what a reader sees, and every one
+ * of them has to decide what to say when there is nothing to look at. "No text
+ * elements, so nothing is unreadable" is the right answer for a task with no
+ * text — and the wrong one for a task whose text was faded to nothing, where
+ * it hands out a free pass for deleting the page.
+ *
+ * It was worth a lot. On `restyle.dark-mode`, setting every element to
+ * `opacity: 0` and the canvas to a dark colour scored **92.7%**, closing 78%
+ * of the available improvement, because eight checks in a row reported that
+ * there was no text to find fault with. The document was a black rectangle.
+ *
+ * The rule: a check scoped to explicit ids, whose ids are in the document and
+ * paint nothing, scores zero. Named means the brief asked about those
+ * elements, so they cannot answer vacuously. A check with no selector keeps
+ * the vacuous pass, because there the question really is "is there anything
+ * wrong with what is on the page" — and because penalising an unselected check
+ * for invisible elements would make padding a document with ghosts *lower* the
+ * score, which is a different loophole pointing the other way.
+ */
+function allNamedAreInvisible(doc: Doc, selector: Selector | undefined): boolean {
+  if (!selector || !Array.isArray(selector)) return false;
+  const named = select(doc, selector);
+  return named.length > 0 && named.every((el) => !paintsAnything(el));
+}
+
+/** The one wording for it, so the detail line reads the same everywhere. */
+const ALL_INVISIBLE = "Every named element paints nothing.";
 
 /** Case- and whitespace-insensitive, so copy matches however it was set. */
 function normalizeCopy(text: string): string {
@@ -224,6 +256,7 @@ export function inBounds(weight = 1, selector?: Selector): Check {
  */
 export function noTextClipping(weight = 1, selector?: Selector): Check {
   return check("no_text_clipping", "No text is clipped by its own box", weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
@@ -254,6 +287,7 @@ export function noTextClipping(weight = 1, selector?: Selector): Check {
 /** WCAG contrast for every text element against what is behind it. */
 export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check {
   return check("contrast", `Text contrast is at least ${ratio}:1`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
@@ -776,6 +810,7 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
  */
 export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Selector): Check {
   return check("text_luminance", `Text is at least ${minLuminance} light`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
@@ -1389,8 +1424,17 @@ export function sameRotation(selector: Selector, weight = 1, tolerance = 1): Che
   return check("same_rotation", "Elements share one angle", weight, (doc) => {
     const els = select(doc, selector);
     if (els.length < 2) return { score: 0, detail: `${els.length} matching element(s).` };
-    const first = els[0]!.rotation;
-    const spread = Math.max(...els.map((el) => angleBetween(el.rotation, first)));
+    // Every pair, not every element against the first. Angles do not live on a
+    // line — they wrap — so the distance from a baseline is not the width of
+    // the set: [0, 10, -10] measured against 0 reports 10 degrees and the same
+    // three elements listed as [10, 0, -10] report 20, which made the score
+    // depend on the order the ids were written in.
+    let spread = 0;
+    for (let i = 0; i < els.length; i++) {
+      for (let j = i + 1; j < els.length; j++) {
+        spread = Math.max(spread, angleBetween(els[i]!.rotation, els[j]!.rotation));
+      }
+    }
     return {
       score: gradeDefect(spread, tolerance, tolerance + 10),
       detail: `Angles ${els.map((el) => round(el.rotation, 1)).join(", ")} (spread ${round(spread, 1)} degrees).`,
@@ -1433,6 +1477,122 @@ export function noOverlap(selector: Selector, weight = 1, label = "Elements do n
     return {
       score: gradeDefect(area > 0 ? overlap / area : 0, 0.001, 0.12),
       detail: pairs.length ? `Overlapping: ${pairs.join(", ")}` : "Nothing overlaps.",
+    };
+  });
+}
+
+/**
+ * Something matching covers the whole canvas — the check "use it as a
+ * background" needs and `usesImage` cannot make.
+ *
+ * `usesImage` asks whether an asset is on the page at all, so a brief saying
+ * "use the photo as a background image covering the whole canvas" was
+ * satisfied by a 120x90 stamp in a corner: the poster scored full marks with
+ * no background at all, because `coverage` was independently happy with the
+ * type. Id-free, because the compose family invents its own ids.
+ *
+ * Graded on the share of the canvas the best single match paints, so a
+ * background inset by a few units is nearly right and one covering a third of
+ * the page is not.
+ */
+export function coversCanvas(selector: Selector, weight = 1, label = "Something covers the whole canvas"): Check {
+  return check("covers_canvas", label, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No visible matching elements." };
+    const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+    const area = doc.width * doc.height;
+    let best = 0;
+    let bestId = els[0]!.id;
+    for (const el of els) {
+      const painted = paintedBounds(el);
+      if (!painted) continue;
+      const covered = intersectionArea(painted, canvas) / area;
+      if (covered > best) {
+        best = covered;
+        bestId = el.id;
+      }
+    }
+    return {
+      score: gradeDefect(Math.max(0, 1 - best), 0.01, 0.35),
+      detail: `${bestId} covers ${Math.round(best * 100)}% of the canvas.`,
+    };
+  });
+}
+
+/**
+ * The named elements are painted at full strength.
+ *
+ * `styleUnchanged` can hold an opacity, but it averages it in with every other
+ * style key it was given — so on a seven-element restyle, fading the entire
+ * document to nothing cost seven comparisons out of fifty-six and left the
+ * checks that measure the page reporting that there was nothing wrong with it.
+ * A brief that says "everything stays fully opaque" is stating one constraint,
+ * and it gets one check.
+ *
+ * An unset opacity is 1, which is the renderer's reading and the only one that
+ * makes "unchanged" mean anything.
+ */
+export function fullyOpaque(selector: Selector, weight = 1): Check {
+  return check("fully_opaque", "Nothing is faded out", weight, (doc) => {
+    const els = select(doc, selector);
+    if (els.length === 0) return { score: 0, detail: "No matching elements." };
+    const faded: string[] = [];
+    let total = 0;
+    for (const el of els) {
+      const opacity = Math.max(0, Math.min(1, el.style.opacity ?? 1));
+      total += opacity;
+      if (opacity < 1) faded.push(`${el.id} (${round(opacity, 2)})`);
+    }
+    return {
+      score: total / els.length,
+      detail: faded.length ? `Faded: ${faded.join(", ")}` : "Everything is fully opaque.",
+    };
+  });
+}
+
+/**
+ * A filled shape is distinguishable from whatever it sits on.
+ *
+ * "The tag keeps its role: a filled chip with a legible label on it" is a
+ * requirement about the chip, and every check on that task was about the
+ * label. Setting the chip's fill to `transparent` left the label perfectly
+ * readable against the sheet behind it and scored 100%: a dark-mode conversion
+ * that deleted one of the elements it was asked to keep, in the only sense
+ * that matters to a reader.
+ *
+ * `textOnFilledShape` does not close it — that one accepts any filled rect
+ * painted below the label, and on this layout the full-width sheet is one.
+ * This asks the narrower question: does *this* shape read as a shape.
+ */
+export function minFillContrast(ratio = 1.5, weight = 1, selector?: Selector): Check {
+  return check("fill_contrast", `Shapes stand out from their backdrop by ${ratio}:1`, weight, (doc) => {
+    const els = select(doc, selector ?? ((el) => el.type === "rect"));
+    if (els.length === 0) return { score: 0, detail: "No matching elements." };
+    const offenders: string[] = [];
+    let worst = 21;
+    for (const el of els) {
+      const fill = el.style.fill;
+      // An invisible shape is not a shape, and nor is one with no fill to
+      // speak of: both are the failure this check exists to name.
+      if (!fill || !paintsAnything(el)) {
+        offenders.push(`${el.id} paints no fill`);
+        worst = 1;
+        continue;
+      }
+      const painted = withElementOpacity(fill, el);
+      // Asked without its own fill. `effectiveBackdrop` puts an element's fill
+      // at the top of the stack, which is right for text — the block fill is
+      // painted behind the glyphs and is what they are read against — and
+      // exactly wrong for a shape, where the fill *is* the thing. Left in, it
+      // compares the fill with itself and every shape scores 1.00:1.
+      const behind = effectiveBackdrop(doc, { ...el, style: { ...el.style, fill: undefined } });
+      const r = contrastRatio(painted, behind);
+      worst = Math.min(worst, r);
+      if (r < ratio) offenders.push(`${el.id} ${r.toFixed(2)}:1 on its backdrop`);
+    }
+    return {
+      score: worst >= ratio ? 1 : Math.max(0, (worst - 1) / (ratio - 1)),
+      detail: offenders.length ? offenders.join(", ") : `Worst fill contrast ${worst.toFixed(2)}:1.`,
     };
   });
 }

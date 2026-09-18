@@ -516,7 +516,7 @@ export const repairTasks = [
       "  - The photo sits above the plate, the plate is painted behind the lead and the standfirst,",
       "    and nothing is painted over either of them.",
       "  - The order down the page is photo, lead, standfirst, byline, and nothing overlaps the byline.",
-      "  - Keep all six elements and every word of the copy exactly as it is.",
+      "  - Keep all five elements and every word of the copy exactly as it is.",
       "  - Do not resize the photo.",
     ].join("\n"),
     initial: mixedDefects,

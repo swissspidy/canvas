@@ -271,8 +271,8 @@ export const fitTasks = [
       "Fix every one of them, and treat them as a set: the three end up at the same font size,",
       "no smaller than 30 units.",
       "",
-      "They must stay in the same top-to-bottom order, must not overlap each other,",
-      "and must stay inside the canvas.",
+      "They must stay in the same top-to-bottom order, keep the single left edge they share now,",
+      "must not overlap each other, and must stay inside the canvas.",
     ].join("\n"),
     initial: threeOverflowing,
     checks: [

@@ -453,6 +453,151 @@ describe("the constraints the briefs state are actually scored", () => {
     expect(scoreOf(task, straightened)).toBeCloseTo(1, 6);
   });
 
+  /**
+   * The invisible-element loophole, one level up: not padding a document with
+   * ghosts, but *deleting* it into one. Every check that measures the page
+   * answers vacuously when there is no page — "no text elements, so nothing is
+   * unreadable" — and eight of them in a row said so. A dark canvas behind a
+   * document faded to nothing scored 92.7%, closing 78% of the available
+   * improvement on a task whose brief says in as many words that fading things
+   * out is not a dark theme.
+   */
+  it("scores a document faded out of existence below the one it started from", () => {
+    const task = getTask("restyle.dark-mode");
+    const doc = task.initial();
+    const faded: Doc = {
+      ...doc,
+      background: "#0e0e18",
+      elements: doc.elements.map((el) => ({ ...el, style: { ...el.style, opacity: 0 } })),
+    };
+    expect(scoreOf(task, faded)).toBeLessThan(scoreOf(task, doc));
+  });
+
+  // The same rule, stated on the check rather than the task: a check told to
+  // look at particular elements cannot report that there was nothing to look
+  // at when those elements are the ones that were hidden.
+  it("fails a named-element check whose elements all paint nothing", () => {
+    const task = getTask("restyle.dark-mode");
+    const hidden = edit(task, (el) =>
+      ["title", "standfirst", "byline", "tag_label"].includes(el.id)
+        ? { ...el, style: { ...el.style, opacity: 0 } }
+        : el,
+    );
+    const luminance = runChecks(hidden, [...universalChecks(), ...task.checks]).results.find(
+      (r) => r.id === "text_luminance",
+    )!;
+    expect(luminance.score).toBe(0);
+    expect(luminance.detail).toMatch(/paints nothing/);
+  });
+
+  it("penalises a chip whose fill was removed, however readable the label", () => {
+    const task = getTask("restyle.dark-mode");
+    const converted = (tagFill: string): Doc => ({
+      ...edit(task, (el) => {
+        const style = { ...el.style };
+        if (el.id === "sheet") style.fill = "#12121f";
+        if (el.id === "title") style.color = "#f4f1ea";
+        if (el.id === "standfirst") style.color = "#cfcadd";
+        if (el.id === "byline") style.color = "#b3aec6";
+        if (el.id === "tag") style.fill = tagFill;
+        if (el.id === "tag_label") style.color = "#e9e4f2";
+        return { ...el, style };
+      }),
+      background: "#0e0e18",
+    });
+    expect(scoreOf(task, converted("#4a3d72"))).toBeGreaterThan(scoreOf(task, converted("transparent")));
+    expect(scoreOf(task, converted("#4a3d72"))).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * "Use the photo as a background image covering the whole canvas."
+   * `usesImage` asks only whether the asset is on the page, and `coverage` was
+   * independently satisfied by the type, so a poster with a 120x90 stamp in
+   * one corner and no background at all scored full marks.
+   */
+  it("penalises a background image that is not a background", () => {
+    const task = getTask("compose.festival-poster");
+    const doc = task.initial();
+    const copy = (id: string, body: string, y: number, size: number): Element => ({
+      id,
+      type: "text",
+      x: 80,
+      y,
+      width: 920,
+      height: size * 2,
+      rotation: 0,
+      z: 2,
+      text: body,
+      style: { fontSize: size, color: "#ffffff", align: "center" },
+    });
+    const withBackground = (w: number, h: number): Doc => ({
+      ...doc,
+      elements: [
+        { id: "bg", type: "image", x: 0, y: 0, width: w, height: h, rotation: 0, z: 0, src: "photo/mountains", style: {} },
+        copy("title", "Ridgeline Festival", 200, 140),
+        copy("dates", "September 12-14", 640, 64),
+        copy("venue", "Alpine Meadow, Colorado", 760, 42),
+        copy("cta", "Tickets at ridgeline.fm", 1180, 36),
+      ],
+    });
+    expect(scoreOf(task, withBackground(1080, 1350))).toBeGreaterThan(scoreOf(task, withBackground(120, 90)));
+  });
+
+  /**
+   * Both "unchanged" checks skip an element that is gone — a deletion is
+   * `preservesElements`' finding, by design — and `usesImage` accepts any
+   * element carrying the asset. Together those let a run delete the gradient
+   * it was told to leave alone, create an identical one under a new id, and
+   * satisfy all three.
+   */
+  it("penalises deleting the gradient and creating a replacement", () => {
+    const task = getTask("compose.title-card");
+    const doc = task.initial();
+    const set = (id: string): Doc => ({
+      ...doc,
+      elements: [
+        { id, type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "texture/gradient", style: {} },
+        {
+          id: "talk",
+          type: "text",
+          x: 80,
+          y: 420,
+          width: 920,
+          height: 380,
+          rotation: 0,
+          z: 1,
+          text: "Interfaces That Explain Themselves",
+          style: { fontSize: 96, fontWeight: "bold", color: "#1a1208" },
+        },
+        {
+          id: "speaker",
+          type: "text",
+          x: 80,
+          y: 860,
+          width: 920,
+          height: 80,
+          rotation: 0,
+          z: 2,
+          text: "Dana Okonkwo",
+          style: { fontSize: 52, color: "#2a1c10" },
+        },
+        {
+          id: "event",
+          type: "text",
+          x: 80,
+          y: 960,
+          width: 920,
+          height: 60,
+          rotation: 0,
+          z: 3,
+          text: "Layout Conf 2026",
+          style: { fontSize: 36, color: "#33220f" },
+        },
+      ],
+    });
+    expect(scoreOf(task, set("bg"))).toBeGreaterThan(scoreOf(task, set("not_bg")));
+  });
+
   it("penalises hiding the photograph instead of restacking it", () => {
     const task = getTask("repair.z-order");
     const faded = edit(task, (el) => (el.id === "hero_photo" ? { ...el, style: { ...el.style, opacity: 0 } } : el));

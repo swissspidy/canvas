@@ -26,6 +26,7 @@ import { blank, doc, image, POSTER_H, POSTER_W } from "./helpers.js";
 import {
   containsText,
   coverage,
+  coversCanvas,
   elementCount,
   fontSizeAtLeast,
   geometryUnchanged,
@@ -33,6 +34,7 @@ import {
   marginAtLeast,
   noOverlap,
   notCovered,
+  preservesElements,
   rotationWithin,
   styleUnchanged,
   textOnFilledShape,
@@ -78,6 +80,11 @@ export const composeTasks = [
     checks: [
       containsText(["Ridgeline Festival", "September 12-14", "Alpine Meadow, Colorado", "Tickets at ridgeline.fm"], 2),
       usesImage(["photo/mountains"], 1),
+      // "as a background image covering the whole canvas". `usesImage` asks
+      // only whether the asset is on the page, so a 120x90 stamp in the corner
+      // satisfied it — and `coverage` was independently happy with the type,
+      // so a poster with no background at all scored full marks.
+      coversCanvas(visibleImage, 3, "The photo covers the whole canvas"),
       typeHierarchy(2.5, 1),
       // "The title is the largest type ... the dates are set larger than the
       // venue line." `typeHierarchy` only asks whether *some* text is big.
@@ -370,6 +377,11 @@ export const composeTasks = [
       // geometry was pinned, fading it to 5% and setting the text on the plain
       // white page it was supposed to be read against.
       usesImage(["texture/gradient"], 1),
+      // Both "unchanged" checks skip an element that is gone — that is
+      // `preservesElements`' finding, by design — and `usesImage` accepts any
+      // element carrying the asset. Together that let a run delete `bg`,
+      // create an identical gradient under another id, and satisfy all three.
+      preservesElements(["bg"], 1),
       geometryUnchanged(titleCard(), ["bg"], 1),
       styleUnchanged(titleCard(), ["bg"], 1),
     ],

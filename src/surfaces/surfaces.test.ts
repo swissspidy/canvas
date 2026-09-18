@@ -200,6 +200,49 @@ describe("equivalence: the same intent reaches the same document", () => {
     expect(find(rel.doc, "b").rotation).toBe(12);
   });
 
+  // A tool that accepts an argument and then throws it away reports success
+  // for a document it did not produce, which on the surface under study is a
+  // measurement error rather than a rough edge.
+  it("refuses a rotation the placement would throw away, rather than dropping it", () => {
+    for (const relation of ["cover", "fill_canvas"]) {
+      const target = { ...el("t", { x: 100, y: 100, width: 400, height: 200 }) };
+      const rel = session(docWith(target, el("a", { x: 0, y: 0, width: 50, height: 50 })));
+      const r = executeToolCall(rel, relationalSurface, "place", {
+        id: "a",
+        relation,
+        rotation: 30,
+        ...(relation === "cover" ? { target: "t" } : {}),
+      });
+      expect(r.ok, relation).toBe(false);
+      expect(r.message).toMatch(/cannot carry a rotation/);
+      // And nothing moved on the way to being refused.
+      expect(find(rel.doc, "a")).toMatchObject({ x: 0, y: 0, rotation: 0 });
+    }
+  });
+
+  it("refuses the same combination on create", () => {
+    const rel = session();
+    const r = executeToolCall(rel, relationalSurface, "create", {
+      type: "rect",
+      width: 200,
+      height: 100,
+      rotation: 30,
+      relation: "fill_canvas",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/cannot carry a rotation/);
+    expect(rel.doc.elements).toHaveLength(0);
+  });
+
+  // Zero is not a rotation, so asking for it alongside a sizing relation is
+  // asking for what the relation already does.
+  it("allows an explicit zero rotation with a sizing relation", () => {
+    const rel = session(docWith(el("a", { rotation: 40 })));
+    const r = executeToolCall(rel, relationalSurface, "place", { id: "a", relation: "fill_canvas", rotation: 0 });
+    expect(r.ok).toBe(true);
+    expect(find(rel.doc, "a")).toMatchObject({ x: 0, y: 0, width: 1000, height: 1000, rotation: 0 });
+  });
+
   it("refuses a rotate that names neither an angle nor an element", () => {
     const rel = session(docWith(el("a")));
     const r = executeToolCall(rel, relationalSurface, "rotate", { ids: ["a"] });
