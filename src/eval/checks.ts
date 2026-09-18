@@ -12,12 +12,21 @@
  * afford to treat them as one.
  */
 
-import type { Doc, Element, ElementType, Rect } from "../doc/types.js";
+import type { Doc, Element, ElementType, Rect, Style } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
-import { occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
-import { layoutTextElement } from "../text/layout.js";
+import { effectiveAlpha, occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
+import { layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
-import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
+import { normalizeAngle } from "../doc/schema.js";
+import {
+  composite,
+  contrastRatio,
+  effectiveBackdrop,
+  effectiveTextColor,
+  parseColor,
+  relativeLuminance,
+  withElementOpacity,
+} from "./color.js";
 
 export interface CheckOutcome {
   /** 0..1, where 1 is fully satisfied. */
@@ -53,6 +62,75 @@ export function select(doc: Doc, selector: Selector): Element[] {
 
 export const isText = (el: Element) => el.type === "text";
 export const isImage = (el: Element) => el.type === "image";
+
+/**
+ * The same two, narrowed to what a reader can see.
+ *
+ * A type predicate is the only selector the compose family can use, and
+ * `select` does not filter a predicate's matches — deliberately, because the
+ * checks that name ids are asking about the document rather than the render.
+ * That combination handed the invisible-element loophole a way back in: an
+ * image at `opacity: 0` was the only match for `isImage`, so "nothing is
+ * painted over the photograph" was satisfied by a document with no visible
+ * photograph in it. Every compose check that selects by type selects by these.
+ */
+export const visibleText = (el: Element) => el.type === "text" && paintsAnything(el);
+export const visibleImage = (el: Element) => el.type === "image" && paintsAnything(el);
+
+/**
+ * "The elements you named are all invisible", when that is what happened.
+ *
+ * Most checks here answer a question about what a reader sees, and every one
+ * of them has to decide what to say when there is nothing to look at. "No text
+ * elements, so nothing is unreadable" is the right answer for a task with no
+ * text — and the wrong one for a task whose text was faded to nothing, where
+ * it hands out a free pass for deleting the page.
+ *
+ * It was worth a lot. On `restyle.dark-mode`, setting every element to
+ * `opacity: 0` and the canvas to a dark colour scored **92.7%**, closing 78%
+ * of the available improvement, because eight checks in a row reported that
+ * there was no text to find fault with. The document was a black rectangle.
+ *
+ * The rule: a check scoped to explicit ids, whose ids are in the document and
+ * paint nothing, scores zero. Named means the brief asked about those
+ * elements, so they cannot answer vacuously. A check with no selector keeps
+ * the vacuous pass, because there the question really is "is there anything
+ * wrong with what is on the page" — and because penalising an unselected check
+ * for invisible elements would make padding a document with ghosts *lower* the
+ * score, which is a different loophole pointing the other way.
+ */
+function allNamedAreInvisible(doc: Doc, selector: Selector | undefined): boolean {
+  if (!selector || !Array.isArray(selector)) return false;
+  const named = select(doc, selector);
+  return named.length > 0 && named.every((el) => !paintsAnything(el));
+}
+
+/** The one wording for it, so the detail line reads the same everywhere. */
+const ALL_INVISIBLE = "Every named element paints nothing.";
+
+/** Case- and whitespace-insensitive, so copy matches however it was set. */
+function normalizeCopy(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A selector matching the visible text element that carries a phrase.
+ *
+ * The compose family starts near-empty, so the agent invents every id and no
+ * check can name one. That used to mean composition was scored only in
+ * aggregate — copy present, a hierarchy somewhere, a margin — and a brief
+ * saying *where* something goes could not be scored at all. Copy is the one
+ * handle those tasks do have: the brief gives the wording verbatim, so the
+ * element carrying it can be found whatever it was called.
+ *
+ * A phrase that ends up in the same element as another one matches both, which
+ * is correct rather than a limitation: a title and a footer poured into one
+ * text block really are one element, and it cannot be in two places.
+ */
+export function withText(phrase: string): (el: Element) => boolean {
+  const wanted = normalizeCopy(phrase);
+  return (el) => el.type === "text" && normalizeCopy(el.text ?? "").includes(wanted) && paintsAnything(el);
+}
 
 /**
  * The elements a reader can see, for the checks that ask what is *on the page*.
@@ -132,8 +210,10 @@ export function noTextOcclusion(weight = 1): Check {
     }
     const fraction = totalInk > 0 ? totalHidden / totalInk : 0;
     return {
-      // 15% of all glyph area hidden is a thoroughly broken layout.
-      score: gradeDefect(fraction, 0.002, 0.15),
+      // 8% of all glyph area hidden is a thoroughly broken layout. It used to
+      // be 15%, which left a headline with a corner under a badge scoring two
+      // thirds — a defect a reader notices immediately, scored as nearly fine.
+      score: gradeDefect(fraction, 0.002, 0.08),
       detail: worst.length ? worst.join("; ") : "No text is covered.",
     };
   });
@@ -156,8 +236,10 @@ export function inBounds(weight = 1, selector?: Selector): Check {
       }
     }
     return {
-      // 5% of the canvas worth of overhang is a total failure.
-      score: gradeDefect(total / canvasArea, 0.0001, 0.05),
+      // 2% of the canvas worth of overhang is a total failure. A 1080x1350
+      // poster is 1.46M square units, so that is a 130x220 block hanging over
+      // the edge: nobody would call that a near miss.
+      score: gradeDefect(total / canvasArea, 0.0001, 0.02),
       detail: offenders.length ? `Off-canvas: ${offenders.join(", ")}` : "Everything is inside the canvas.",
     };
   });
@@ -174,6 +256,7 @@ export function inBounds(weight = 1, selector?: Selector): Check {
  */
 export function noTextClipping(weight = 1, selector?: Selector): Check {
   return check("no_text_clipping", "No text is clipped by its own box", weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
@@ -193,7 +276,9 @@ export function noTextClipping(weight = 1, selector?: Selector): Check {
       }
     }
     return {
-      score: gradeDefect(totalLines > 0 ? hiddenLines / totalLines : 0, 0, 0.5),
+      // A quarter of the lines gone is a total failure. Half of them used to
+      // be, which handed a document that loses one line in four half marks.
+      score: gradeDefect(totalLines > 0 ? hiddenLines / totalLines : 0, 0, 0.25),
       detail: offenders.length ? `Clipped: ${offenders.join(", ")}` : "All text fits its box.",
     };
   });
@@ -202,13 +287,17 @@ export function noTextClipping(weight = 1, selector?: Selector): Check {
 /** WCAG contrast for every text element against what is behind it. */
 export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check {
   return check("contrast", `Text contrast is at least ${ratio}:1`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let worst = 21;
     for (const el of els) {
       const backdrop = effectiveBackdrop(doc, el);
-      const r = contrastRatio(el.style.color ?? "#111111", backdrop);
+      // `effectiveTextColor`, not `style.color`: a colour painted at 3%
+      // opacity is not the colour a reader sees, and reading the declared one
+      // scored invisible copy at 21:1.
+      const r = contrastRatio(effectiveTextColor(el), backdrop);
       worst = Math.min(worst, r);
       if (r < ratio) offenders.push(`${el.id} ${r.toFixed(2)}:1 on ${backdrop}`);
     }
@@ -223,6 +312,23 @@ export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check
 
 // --- composition checks ----------------------------------------------------
 
+/**
+ * How many things are on the page.
+ *
+ * A *ceiling* is a real constraint — "use the canvas background and at most one
+ * decorative shape" bounds what may be added, and no amount of copy changes the
+ * answer. A *floor* is almost never one, and this is why: a newline is a hard
+ * line break, so an address, a date line and a call to action can be one text
+ * element or three, and the agent is told as much in the system prompt. A task
+ * demanding five elements was therefore demanding a particular *split* of the
+ * copy, which is not a property of a good poster and is not what any of these
+ * briefs asks for. Worse, it is satisfiable by anything at all: a rect behind
+ * the title, a rule nobody asked for, a second copy of the credit line.
+ *
+ * So floors are gone from the task set. What those tasks meant — "this should
+ * look composed" — is measured by `coverage`, `typeHierarchy`, `marginAtLeast`
+ * and the region checks, none of which care how the copy is divided up.
+ */
 export function elementCount(opts: { min?: number; max?: number; selector?: Selector; label?: string }, weight = 1): Check {
   const { min = 0, max = Infinity, selector } = opts;
   return check("element_count", opts.label ?? `Between ${min} and ${max} elements`, weight, (doc) => {
@@ -290,11 +396,16 @@ export function textUnchanged(reference: Doc, selector: Selector, weight = 1): C
 /** Required copy is present somewhere in the document, case-insensitively. */
 export function containsText(phrases: string[], weight = 1): Check {
   return check("contains_text", "Required copy is present", weight, (doc) => {
+    // Joined on a NUL, which no copy can contain, so a required phrase cannot
+    // be matched across two elements. Spelled as an escape: it used to be a raw
+    // NUL sitting between two spaces in the source, indistinguishable from
+    // three spaces to anything reading the file — `grep` included, which
+    // reported this whole file as binary.
     const haystack = visible(doc.elements)
       .filter(isText)
-      .map((el) => (el.text ?? "").toLowerCase().replace(/\s+/g, " "))
-      .join("   ");
-    const missing = phrases.filter((p) => !haystack.includes(p.toLowerCase().replace(/\s+/g, " ")));
+      .map((el) => normalizeCopy(el.text ?? ""))
+      .join(" \u0000 ");
+    const missing = phrases.filter((p) => !haystack.includes(normalizeCopy(p)));
     return {
       score: phrases.length ? (phrases.length - missing.length) / phrases.length : 1,
       detail: missing.length ? `Missing: ${missing.map((m) => JSON.stringify(m)).join(", ")}` : "All required copy present.",
@@ -333,7 +444,9 @@ export function alignedOn(
     const mean = values.reduce((s, v) => s + v, 0) / values.length;
     const spread = Math.max(...values.map((v) => Math.abs(v - mean)));
     return {
-      score: gradeDefect(spread, tolerance, tolerance + 40),
+      // 12 units of spread, not 40. On a 1080-unit canvas a 40-unit rag is
+      // visible from across the room, and it was scoring half marks.
+      score: gradeDefect(spread, tolerance, tolerance + 12),
       detail: `${edge} edges span ${round(spread * 2)} units (${els.map((e) => e.id).join(", ")}).`,
     };
   });
@@ -356,7 +469,7 @@ export function evenlySpaced(axis: "horizontal" | "vertical", selector: Selector
     const mean = gaps.reduce((s, v) => s + v, 0) / gaps.length;
     const spread = Math.max(...gaps.map((g) => Math.abs(g - mean)));
     return {
-      score: gradeDefect(spread, tolerance, tolerance + 40),
+      score: gradeDefect(spread, tolerance, tolerance + 12),
       detail: `Gaps ${gaps.map((g) => round(g)).join(", ")} (mean ${round(mean)}).`,
     };
   });
@@ -456,7 +569,7 @@ export function fontSizeOrder(ids: string[], weight = 1): Check {
   return check("hierarchy", "Type sizes establish a hierarchy", weight, (doc) => {
     const sizes = ids.map((id) => {
       const el = doc.elements.find((e) => e.id === id);
-      return el ? (el.style.fontSize ?? 32) : null;
+      return el ? (el.style.fontSize ?? DEFAULT_FONT_SIZE) : null;
     });
     if (sizes.some((s) => s === null)) {
       return { score: 0, detail: `Missing element(s): ${ids.filter((_, i) => sizes[i] === null).join(", ")}` };
@@ -472,13 +585,61 @@ export function fontSizeOrder(ids: string[], weight = 1): Check {
 }
 
 /**
+ * Named *copy* is in decreasing font size — `fontSizeOrder` without the ids.
+ *
+ * The compose family cannot name ids, so "the title should dominate" was
+ * scored by `typeHierarchy`, which only asks whether the largest text on the
+ * page is some multiple of the smallest. A poster that sets the venue at 96
+ * units and the festival's name at 40 satisfies that completely, and reads
+ * exactly backwards. Keyed on the copy the brief already gives verbatim, the
+ * question becomes the one the brief actually asks.
+ */
+export function textSizeOrder(phrases: string[], weight = 1): Check {
+  return check("copy_size_order", `Type sizes fall in order: ${phrases.join(" > ")}`, weight, (doc) => {
+    const sizes = phrases.map((phrase) => {
+      const el = doc.elements.find(withText(phrase));
+      return el ? (el.style.fontSize ?? DEFAULT_FONT_SIZE) : null;
+    });
+    const missing = phrases.filter((_, i) => sizes[i] === null);
+    if (missing.length) {
+      return { score: 0, detail: `Not found in any visible text: ${missing.map((m) => JSON.stringify(m)).join(", ")}` };
+    }
+    let satisfied = 0;
+    for (let i = 1; i < sizes.length; i++) if ((sizes[i - 1] as number) > (sizes[i] as number)) satisfied++;
+    const pairs = Math.max(1, sizes.length - 1);
+    return {
+      score: satisfied / pairs,
+      detail: `Sizes ${sizes.join(" > ")} — ${satisfied} of ${pairs} step(s) decrease.`,
+    };
+  });
+}
+
+/**
  * A type hierarchy exists without naming ids — the check compose tasks need,
  * since the agent invents its own ids there.
+ *
+ * A single text element scores zero, and that is the whole point of the check
+ * now that a newline is a hard line break. One element can hold the title, the
+ * dates and the call to action as three lines, and every one of them is then
+ * set in the same size: the copy is on the page and there is no hierarchy at
+ * all. That used to score *full marks* — the `length === 1` case returned 1 on
+ * the grounds that one size cannot contradict itself — which paid an agent to
+ * pour the entire brief into one box and stop. Font size is a per-element
+ * style, so a document with a hierarchy has at least two text elements; a
+ * document with one has exactly one voice.
  */
 export function typeHierarchy(minRatio = 1.6, weight = 1): Check {
   return check("type_hierarchy", `Largest text is at least ${minRatio}x the smallest`, weight, (doc) => {
-    const sizes = visible(doc.elements).filter(isText).map((el) => el.style.fontSize ?? 32);
-    if (sizes.length < 2) return { score: sizes.length === 1 ? 1 : 0, detail: `${sizes.length} text element(s).` };
+    const sizes = visible(doc.elements).filter(isText).map((el) => el.style.fontSize ?? DEFAULT_FONT_SIZE);
+    if (sizes.length < 2) {
+      return {
+        score: 0,
+        detail:
+          sizes.length === 1
+            ? "One text element, so every line is the same size: no hierarchy."
+            : "No visible text elements.",
+      };
+    }
     const ratio = Math.max(...sizes) / Math.min(...sizes);
     return {
       score: ratio >= minRatio ? 1 : Math.max(0, (ratio - 1) / (minRatio - 1)),
@@ -639,16 +800,26 @@ export function surfacesNoLighterThan(maxLuminance = 0.15, weight = 1, minAreaFr
   });
 }
 
-/** Text is at least `minLuminance` light — the other half of a dark theme. */
+/**
+ * Text is at least `minLuminance` light — the other half of a dark theme.
+ *
+ * Measured on the colour that lands on the page, not the one declared: a
+ * translucent colour, or one inside a part-transparent element, is composited
+ * onto what sits behind it first. Light text at 20% opacity over a dark sheet
+ * is dark text, whatever the hex says.
+ */
 export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Selector): Check {
   return check("text_luminance", `Text is at least ${minLuminance} light`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
     const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
     if (els.length === 0) return { score: 1, detail: "No text elements." };
     const offenders: string[] = [];
     let satisfied = 0;
     for (const el of els) {
-      const parsed = parseColor(el.style.color ?? "#111111");
-      const lum = parsed ? relativeLuminance(parsed) : 0;
+      const parsed = parseColor(effectiveTextColor(el));
+      const backdrop = parseColor(effectiveBackdrop(doc, el));
+      const painted = parsed && backdrop && parsed.a < 1 ? composite(parsed, backdrop) : parsed;
+      const lum = painted ? relativeLuminance(painted) : 0;
       if (lum >= minLuminance) satisfied++;
       else offenders.push(`${el.id} (${lum.toFixed(2)})`);
     }
@@ -659,21 +830,34 @@ export function textNoDarkerThan(minLuminance = 0.35, weight = 1, selector?: Sel
   });
 }
 
-/** Every text element uses one of the given colors (a palette restyle). */
+/**
+ * Every colour in the document comes from the given palette.
+ *
+ * Counted once per *distinct* colour, not once per use. Counting uses made the
+ * score depend on how many elements happened to share a colour: a card whose
+ * six elements are all on-palette except one stray heading scored 11/12 and
+ * read as nearly right, while the same stray on a card of two elements scored
+ * 2/3. The question is how many colours are wrong, and a colour is wrong once.
+ *
+ * Strokes count too. They are painted, they are as visible as a fill, and
+ * leaving them out left a way to keep an off-palette accent on the page.
+ */
 export function usesPalette(colors: string[], weight = 1, selector?: Selector): Check {
   const wanted = new Set(colors.map((c) => c.toLowerCase()));
   return check("palette", `Colors come from the given palette`, weight, (doc) => {
     const els = visible(selector ? select(doc, selector) : doc.elements);
-    const used: string[] = [];
+    const used = new Set<string>([doc.background.toLowerCase()]);
     for (const el of els) {
-      if (el.style.color) used.push(el.style.color.toLowerCase());
-      if (el.style.fill) used.push(el.style.fill.toLowerCase());
+      for (const c of [el.style.color, el.style.fill, el.style.strokeColor]) {
+        if (c && c.toLowerCase() !== "transparent") used.add(c.toLowerCase());
+      }
     }
-    used.push(doc.background.toLowerCase());
-    const offPalette = [...new Set(used)].filter((c) => c !== "transparent" && !wanted.has(c));
+    const offPalette = [...used].filter((c) => !wanted.has(c));
     return {
-      score: used.length ? (used.length - used.filter((c) => c !== "transparent" && !wanted.has(c)).length) / used.length : 0,
-      detail: offPalette.length ? `Off-palette: ${offPalette.join(", ")}` : "All colors are on-palette.",
+      score: used.size ? (used.size - offPalette.length) / used.size : 0,
+      detail: offPalette.length
+        ? `Off-palette: ${offPalette.join(", ")} (of ${used.size} colour(s) used)`
+        : `All ${used.size} colour(s) are on-palette.`,
     };
   });
 }
@@ -771,18 +955,28 @@ export function outerMarginsBalanced(
     const trailing = extent - Math.max(...ends);
     const skew = Math.abs(leading - trailing);
     return {
-      score: gradeDefect(skew, tolerance, tolerance + 80),
+      score: gradeDefect(skew, tolerance, tolerance + 30),
       detail: `Margins ${round(leading)} and ${round(trailing)} (off by ${round(skew)}).`,
     };
   });
 }
 
-/** An element's center sits inside a fractional region of the canvas. */
+/**
+ * An element sits inside a fractional region of the canvas.
+ *
+ * By default the *center* has to land in the region, which is the right
+ * question for "the footer stays at the bottom" and the wrong one for "the
+ * photo occupies the upper part of the card": an image twice the height of the
+ * region still centres inside it, and a caption that has grown up over the
+ * photo still centres where it started. Pass `whole` for those, and the
+ * element's entire box has to fit.
+ */
 export function inRegion(
   selector: Selector,
   region: { x0: number; y0: number; x1: number; y1: number },
   weight = 1,
   label = "Element sits in the expected region",
+  opts: { whole?: boolean } = {},
 ): Check {
   return check("in_region", label, weight, (doc) => {
     const els = select(doc, selector);
@@ -791,6 +985,21 @@ export function inRegion(
     const misses: string[] = [];
     for (const el of els) {
       const b = aabb(el);
+      if (opts.whole) {
+        const x0 = b.x / doc.width;
+        const x1 = (b.x + b.width) / doc.width;
+        const y0 = b.y / doc.height;
+        const y1 = (b.y + b.height) / doc.height;
+        // A unit of slack, in fractional terms, so a box laid exactly on the
+        // boundary is not a miss.
+        const slack = 1 / Math.max(doc.width, doc.height);
+        if (x0 >= region.x0 - slack && x1 <= region.x1 + slack && y0 >= region.y0 - slack && y1 <= region.y1 + slack) {
+          inside++;
+        } else {
+          misses.push(`${el.id} spans (${x0.toFixed(2)}, ${y0.toFixed(2)})-(${x1.toFixed(2)}, ${y1.toFixed(2)})`);
+        }
+        continue;
+      }
       const cx = (b.x + b.width / 2) / doc.width;
       const cy = (b.y + b.height / 2) / doc.height;
       if (cx >= region.x0 && cx <= region.x1 && cy >= region.y0 && cy <= region.y1) inside++;
@@ -799,6 +1008,591 @@ export function inRegion(
     return {
       score: inside / els.length,
       detail: misses.length ? `Outside the region: ${misses.join(", ")}` : "In the expected region.",
+    };
+  });
+}
+
+// --- legibility, consistency and order -------------------------------------
+
+/**
+ * Nothing is set below a legible size.
+ *
+ * The `fit` family's whole difficulty is text against a box, and without this
+ * check every one of its tasks had the same one-line solution: drop the font
+ * size until the overflow stops. `fit.body-overflow` went from 40% to full
+ * marks at `fontSize: 9` — 400 words of 9-unit type on a 1080-unit canvas,
+ * which is a grey smear at any size anyone would look at it. The judge was
+ * asked about it, and the judge is the measure this study trusts least.
+ *
+ * Every task that scores this states the floor in its brief, in units, because
+ * a constraint the agent cannot see is not difficulty — it is a guessing game,
+ * and it would penalise exactly the surfaces that shrink text most confidently.
+ */
+export function fontSizeAtLeast(min: number, weight = 1, selector?: Selector): Check {
+  return check("min_font_size", `No text is smaller than ${min} units`, weight, (doc) => {
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
+    // Every task that scores this asks for copy, so "there is no text" is a
+    // failure rather than a vacuous pass — and a vacuous pass here would pay a
+    // blank canvas for respecting a floor it never reached.
+    if (els.length === 0) return { score: 0, detail: "No visible text to measure." };
+    const offenders: string[] = [];
+    let worst = Infinity;
+    for (const el of els) {
+      const size = el.style.fontSize ?? DEFAULT_FONT_SIZE;
+      worst = Math.min(worst, size);
+      if (size < min) offenders.push(`${el.id} (${round(size)})`);
+    }
+    return {
+      // A quarter below the floor bottoms out, and the narrowness is the
+      // point. The brief states a number, so being under it is a violation
+      // rather than a near miss — and the cheap path in this family is to
+      // undershoot it by a little and fit. On `fit.body-overflow`, shrinking
+      // to 22 against a stated floor of 24 fits the box the agent was given
+      // and scored 97.4%, against 100% for finding the room: two and a half
+      // points for ignoring the constraint, on a study trying to resolve
+      // differences of five. Still graded, because 23 and 9 are not the same
+      // failure.
+      score: gradeDefect(Math.max(0, min - worst), 0, min / 4),
+      detail: offenders.length ? `Too small: ${offenders.join(", ")}` : `Smallest text ${round(worst)} units.`,
+    };
+  });
+}
+
+/**
+ * A group of text elements is set at one size.
+ *
+ * "Fix all three of these" has a right answer and several wrong ones that look
+ * right to every other check: shrinking each block by however much it happened
+ * to overflow clears the clipping and leaves three sizes on the page, which is
+ * three different fixes rather than one treatment. Only the judge could see
+ * that, and this is not a judgement call.
+ */
+export function sameFontSize(ids: string[], weight = 1, tolerance = 0.5): Check {
+  return check("same_font_size", "Related text is set at one size", weight, (doc) => {
+    const els = select(doc, ids).filter(isText);
+    if (els.length < 2) {
+      // Missing elements are `preservesElements`' finding; with fewer than two
+      // present there is no comparison left to make.
+      return { score: 0, detail: `${els.length} of ${ids.length} named text element(s) present.` };
+    }
+    const sizes = els.map((el) => el.style.fontSize ?? DEFAULT_FONT_SIZE);
+    const spread = Math.max(...sizes) - Math.min(...sizes);
+    return {
+      score: gradeDefect(spread, tolerance, tolerance + 10),
+      detail: `Sizes ${sizes.map((n) => round(n)).join(", ")} (spread ${round(spread)}).`,
+    };
+  });
+}
+
+/**
+ * Named elements are not painted over.
+ *
+ * `noTextOcclusion` asks the same question about text and only about text,
+ * which leaves "make the caption fit without covering the photo" unmeasured:
+ * growing the caption box up over the photograph clears the clipping, satisfies
+ * every other check, and buries the image the page is about. Images and rects
+ * ink their whole box, so the same occlusion machinery answers it directly.
+ */
+export function notCovered(selector: Selector, weight = 1, label = "Nothing is painted over these"): Check {
+  return check("not_covered", label, weight, (doc) => {
+    // Visible only: an element that paints nothing cannot be covered, and
+    // scoring one as uncovered rewards hiding the thing that was meant to be
+    // protected.
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No visible matching elements." };
+    let hidden = 0;
+    let ink = 0;
+    const offenders: string[] = [];
+    for (const el of els) {
+      const occ = occlusionOf(doc, el);
+      hidden += occ.hiddenArea;
+      ink += occ.inkArea;
+      if (occ.hiddenFraction > 0.01) {
+        offenders.push(`${el.id} ${Math.round(occ.hiddenFraction * 100)}% covered by ${occ.occludedBy.join(", ")}`);
+      }
+    }
+    return {
+      score: gradeDefect(ink > 0 ? hidden / ink : 0, 0.002, 0.08),
+      detail: offenders.length ? offenders.join("; ") : "Nothing is covered.",
+    };
+  });
+}
+
+/**
+ * The named elements still read top to bottom in the order given.
+ *
+ * A region band — "the kicker stays in the top third" — was standing in for
+ * this, and it is a loose stand-in: two elements can both sit in the top third
+ * with the lower one first. This asks the question directly, on what each
+ * element paints, so a full-width text box centred over its glyphs is measured
+ * where the reader sees it.
+ */
+export function verticalOrder(ids: string[], weight = 1, opts: { tolerance?: number; budget?: number } = {}): Check {
+  const tolerance = opts.tolerance ?? 0;
+  const budget = opts.budget ?? 120;
+  return check("vertical_order", `Reads top to bottom: ${ids.join(" then ")}`, weight, (doc) => {
+    const boxes = ids.map((id) => {
+      const el = doc.elements.find((e) => e.id === id);
+      return el ? { id, box: paintedBounds(el) ?? aabb(el) } : null;
+    });
+    const present = boxes.filter((b): b is { id: string; box: Rect } => b !== null);
+    if (present.length < 2) return { score: 0, detail: `${present.length} of ${ids.length} element(s) present.` };
+    const scores: number[] = [];
+    const wrong: string[] = [];
+    for (let i = 1; i < present.length; i++) {
+      const above = present[i - 1]!;
+      const below = present[i]!;
+      const overlap = above.box.y + above.box.height - below.box.y;
+      scores.push(gradeDefect(Math.max(0, overlap), tolerance, budget));
+      if (overlap > tolerance) wrong.push(`${above.id} runs ${round(overlap)} units into ${below.id}`);
+    }
+    return {
+      score: scores.reduce((a, b) => a + b, 0) / scores.length,
+      detail: wrong.length ? wrong.join("; ") : "In order, top to bottom.",
+    };
+  });
+}
+
+/**
+ * Paint order, bottom first.
+ *
+ * The array *is* the paint order: `normalizeDoc` sorts by `z` with the array
+ * position breaking ties, every mutation goes through it, and the renderer
+ * paints the array in order. Sorting by `z` again here would be a second
+ * opinion about the same question, and the two disagree on a document that has
+ * not been normalized — which is how `occlusionOf`, reading array order, and
+ * this, reading `z`, once reported opposite stacking for the same document.
+ */
+function paintOrderOf(doc: Doc): string[] {
+  return doc.elements.map((el) => el.id);
+}
+
+/**
+ * The named elements are painted back to front in the order given.
+ *
+ * The z-order task was scored entirely through occlusion, which is the
+ * *symptom*. That left the symptom addressable without the cause: drop the
+ * photograph's opacity and nothing is covered any more, on a task whose brief
+ * asks for the layering to be fixed. This reads the stacking itself.
+ */
+export function paintOrder(ids: string[], weight = 1): Check {
+  return check("paint_order", `Painted back to front: ${ids.join(" then ")}`, weight, (doc) => {
+    const order = paintOrderOf(doc);
+    const positions = ids.map((id) => order.indexOf(id));
+    const missing = ids.filter((_, i) => positions[i]! < 0);
+    if (missing.length) return { score: 0, detail: `Missing: ${missing.join(", ")}` };
+    let satisfied = 0;
+    const wrong: string[] = [];
+    for (let i = 1; i < positions.length; i++) {
+      if (positions[i - 1]! < positions[i]!) satisfied++;
+      else wrong.push(`${ids[i - 1]} is painted after ${ids[i]}`);
+    }
+    const pairs = Math.max(1, ids.length - 1);
+    return {
+      score: satisfied / pairs,
+      detail: wrong.length ? wrong.join("; ") : `Stacking order is ${ids.join(" < ")}.`,
+    };
+  });
+}
+
+/**
+ * Appearance held still: "keep the photograph as it is".
+ *
+ * `geometryUnchanged` holds the box and `preservesElements` holds the id, and
+ * between them they still allow the element to be recoloured, faded to 10%, or
+ * pointed at a different asset — which is most of what "as it is" rules out on
+ * a restyle task. An image's `src` counts as part of its appearance, because
+ * swapping the photograph is not keeping it.
+ */
+export function styleUnchanged(
+  reference: Doc,
+  selector: Selector,
+  weight = 1,
+  opts: { keys?: (keyof Style)[] } = {},
+): Check {
+  const expected = select(reference, selector);
+  return check("style_unchanged", "The appearance is untouched", weight, (doc) => {
+    if (expected.length === 0) return { score: 1, detail: "Nothing to hold." };
+    let compared = 0;
+    let matched = 0;
+    const changed: string[] = [];
+    for (const before of expected) {
+      const after = doc.elements.find((e) => e.id === before.id);
+      // A deleted element is `preservesElements`' finding, not this one.
+      if (!after) continue;
+      const keys =
+        opts.keys ?? ([...new Set([...Object.keys(before.style), ...Object.keys(after.style)])] as (keyof Style)[]);
+      const drifted: string[] = [];
+      for (const key of keys) {
+        compared++;
+        if (before.style[key] === after.style[key]) matched++;
+        else drifted.push(`${key} ${String(before.style[key] ?? "unset")}→${String(after.style[key] ?? "unset")}`);
+      }
+      if (before.type === "image") {
+        compared++;
+        if (before.src === after.src) matched++;
+        else drifted.push(`src ${before.src}→${after.src}`);
+      }
+      if (drifted.length) changed.push(`${before.id}: ${drifted.join(", ")}`);
+    }
+    return {
+      score: compared === 0 ? 1 : matched / compared,
+      detail: changed.length ? changed.join("; ") : "Styles are untouched.",
+    };
+  });
+}
+
+export interface ColorRole {
+  ids: string[];
+  prop: "color" | "fill" | "strokeColor";
+  color: string;
+  /** What this colour is for, quoted back in the detail line. */
+  role?: string;
+}
+
+/**
+ * Named elements carry the exact colours the brief assigns them.
+ *
+ * `usesPalette` asks whether the colours in the document are drawn from a
+ * list, which a brief that says *which colour goes where* is not asking. A card
+ * that paints every element in the accent red is entirely on-palette and has
+ * thrown away the hierarchy the brief spells out, and only the judge could see
+ * it. This is the restyle family's answer key, and it is only fair to score it
+ * because the brief gives the assignment in full.
+ */
+export function colorRoles(roles: ColorRole[], weight = 1, opts: { background?: string } = {}): Check {
+  return check("color_roles", "Colours are assigned as the brief specifies", weight, (doc) => {
+    let total = 0;
+    let satisfied = 0;
+    const wrong: string[] = [];
+    for (const role of roles) {
+      for (const id of role.ids) {
+        total++;
+        const el = doc.elements.find((e) => e.id === id);
+        if (!el) {
+          wrong.push(`${id} is missing`);
+          continue;
+        }
+        const actual = el.style[role.prop];
+        if (actual && actual.toLowerCase() === role.color.toLowerCase()) satisfied++;
+        else wrong.push(`${id} ${role.prop} is ${actual ?? "unset"}, wanted ${role.color}${role.role ? ` (${role.role})` : ""}`);
+      }
+    }
+    if (opts.background !== undefined) {
+      total++;
+      if (doc.background.toLowerCase() === opts.background.toLowerCase()) satisfied++;
+      else wrong.push(`canvas background is ${doc.background}, wanted ${opts.background}`);
+    }
+    return {
+      score: total === 0 ? 1 : satisfied / total,
+      detail: wrong.length ? wrong.join("; ") : `All ${total} colour assignment(s) match.`,
+    };
+  });
+}
+
+/** Overlap area of two axis-aligned rectangles. */
+function intersectionArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * A piece of copy sits on a filled shape — "the button label should read as a
+ * button".
+ *
+ * Id-free, because the compose family invents its own ids, and stated in the
+ * brief wherever it is scored. What it asks is the thing a reader checks: is
+ * there something painted *under* these words, and does it cover them. A rect
+ * beside the label, or above it, is neither.
+ *
+ * A text element's own fill counts, and has to: it paints the element's whole
+ * box behind its glyphs, which is the same button a reader sees, in one
+ * element rather than two. Insisting on a separate rect would score the
+ * one-element button as no button at all — and, on a task that also asks for
+ * blocks of text not to overlap, would push an agent towards the arrangement
+ * that trips the other check.
+ *
+ * The shape is measured on its bounding box, so a rotated button is given the
+ * benefit of the doubt. That is the right way round for a check whose failure
+ * mode should be "no shape at all".
+ */
+export function textOnFilledShape(
+  phrase: string,
+  weight = 1,
+  opts: { rotationWithin?: number } = {},
+): Check {
+  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+  return check("text_on_shape", `"${phrase}" sits on a filled shape`, weight, (doc) => {
+    const order = paintOrderOf(doc);
+    const labels = visible(doc.elements)
+      .filter(isText)
+      .filter((el) => norm(el.text ?? "").includes(norm(phrase)));
+    if (labels.length === 0) return { score: 0, detail: `No visible text contains ${JSON.stringify(phrase)}.` };
+
+    let best = 0;
+    for (const label of labels) {
+      // Its own fill is painted across its own box, so it covers the label by
+      // construction — and turns with it, so it satisfies `rotationWithin` too.
+      if (effectiveAlpha(label.style.fill ?? "transparent", label) >= 0.5) {
+        best = 1;
+        break;
+      }
+      const bounds = paintedBounds(label);
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue;
+      const area = bounds.width * bounds.height;
+      const labelIndex = order.indexOf(label.id);
+      for (const el of doc.elements) {
+        if (el.type !== "rect" || order.indexOf(el.id) >= labelIndex) continue;
+        if (effectiveAlpha(el.style.fill ?? "#cccccc", el) < 0.5) continue;
+        // A tilted label on an upright rect is not a ribbon, and the bounding
+        // boxes overlap just as happily either way — so where a brief asks for
+        // one, the shape has to be turned with it.
+        if (opts.rotationWithin !== undefined && angleBetween(el.rotation, label.rotation) > opts.rotationWithin) {
+          continue;
+        }
+        best = Math.max(best, intersectionArea(bounds, aabb(el)) / area);
+      }
+    }
+    return {
+      // Covered outright is the pass; a shape that catches half the label is
+      // a shape in the wrong place, not half a button.
+      score: gradeDefect(Math.max(0, 1 - best), 0.02, 0.4),
+      detail:
+        best <= 0
+          ? `Nothing filled is painted behind "${phrase}".`
+          : `The shape behind "${phrase}" covers ${Math.round(best * 100)}% of it.`,
+    };
+  });
+}
+
+/**
+ * Elements sit at the angle the brief asks for.
+ *
+ * Rotation is the one transform the document model has always supported and
+ * nothing ever scored. `geometryUnchanged` counts it among the fields it holds
+ * still, which is the *don't* case; there was no way to say "put these back
+ * upright" or "this ribbon runs at -12 degrees", so no task could ask.
+ *
+ * Angles are compared the short way round, so 359 and -1 are one degree apart
+ * rather than 360. The document normalizes into (-180, 180], but a check that
+ * silently disagreed with arithmetic at the wrap point is the kind of thing
+ * that shows up once, in one run, and is never explained.
+ */
+export function rotationWithin(
+  selector: Selector,
+  degrees: number,
+  weight = 1,
+  opts: { tolerance?: number; budget?: number; label?: string } = {},
+): Check {
+  const tolerance = opts.tolerance ?? 1;
+  // Ten degrees off is a total failure, and a task whose brief says "square to
+  // the canvas" should pass something tighter still: at a 20-degree budget a
+  // card visibly askew by six scored seven tenths.
+  const budget = opts.budget ?? 10;
+  const target = normalizeAngle(degrees);
+  return check(
+    "rotation",
+    opts.label ?? `Elements sit at ${round(target, 1)} degrees`,
+    weight,
+    (doc) => {
+      const els = select(doc, selector);
+      if (els.length === 0) return { score: 0, detail: "No matching elements." };
+      const offenders: string[] = [];
+      const scores: number[] = [];
+      for (const el of els) {
+        const off = angleBetween(el.rotation, target);
+        scores.push(gradeDefect(off, tolerance, budget));
+        if (off > tolerance) offenders.push(`${el.id} at ${round(el.rotation, 1)} (${round(off, 1)} off)`);
+      }
+      return {
+        score: scores.reduce((a, b) => a + b, 0) / scores.length,
+        detail: offenders.length ? `Wrong angle: ${offenders.join(", ")}` : `All at ${round(target, 1)} degrees.`,
+      };
+    },
+  );
+}
+
+/**
+ * A group of elements shares one angle, whatever that angle is.
+ *
+ * The question "do these read as parallel", which is not the same as "are
+ * these at the angle I named": a ribbon and the label on it have to agree with
+ * each other, and a brief that fixes one of them is over-specifying the design.
+ */
+export function sameRotation(selector: Selector, weight = 1, tolerance = 1): Check {
+  return check("same_rotation", "Elements share one angle", weight, (doc) => {
+    const els = select(doc, selector);
+    if (els.length < 2) return { score: 0, detail: `${els.length} matching element(s).` };
+    // Every pair, not every element against the first. Angles do not live on a
+    // line — they wrap — so the distance from a baseline is not the width of
+    // the set: [0, 10, -10] measured against 0 reports 10 degrees and the same
+    // three elements listed as [10, 0, -10] report 20, which made the score
+    // depend on the order the ids were written in.
+    let spread = 0;
+    for (let i = 0; i < els.length; i++) {
+      for (let j = i + 1; j < els.length; j++) {
+        spread = Math.max(spread, angleBetween(els[i]!.rotation, els[j]!.rotation));
+      }
+    }
+    return {
+      score: gradeDefect(spread, tolerance, tolerance + 10),
+      detail: `Angles ${els.map((el) => round(el.rotation, 1)).join(", ")} (spread ${round(spread, 1)} degrees).`,
+    };
+  });
+}
+
+/** The short way round between two angles, in degrees: never more than 180. */
+function angleBetween(a: number, b: number): number {
+  return Math.abs(normalizeAngle(a - b));
+}
+
+/**
+ * The elements in a group do not paint over each other.
+ *
+ * Distinct from `noTextOcclusion`, which asks whether text is *hidden*: two
+ * blocks of copy can overlap and stay legible where their glyphs happen to
+ * miss, and a column of blocks that do that is still a broken column.
+ */
+export function noOverlap(selector: Selector, weight = 1, label = "Elements do not overlap"): Check {
+  return check("no_overlap", label, weight, (doc) => {
+    const els = select(doc, selector)
+      .map((el) => ({ id: el.id, box: paintedBounds(el) }))
+      .filter((e): e is { id: string; box: Rect } => e.box !== null);
+    if (els.length < 2) return { score: 1, detail: `${els.length} visible element(s).` };
+    let overlap = 0;
+    let area = 0;
+    const pairs: string[] = [];
+    for (const el of els) area += el.box.width * el.box.height;
+    for (let i = 0; i < els.length; i++) {
+      for (let j = i + 1; j < els.length; j++) {
+        const a = els[i]!;
+        const b = els[j]!;
+        const over = intersectionArea(a.box, b.box);
+        if (over <= 0) continue;
+        overlap += over;
+        pairs.push(`${a.id}/${b.id} (${round(over)} sq units)`);
+      }
+    }
+    return {
+      score: gradeDefect(area > 0 ? overlap / area : 0, 0.001, 0.12),
+      detail: pairs.length ? `Overlapping: ${pairs.join(", ")}` : "Nothing overlaps.",
+    };
+  });
+}
+
+/**
+ * Something matching covers the whole canvas — the check "use it as a
+ * background" needs and `usesImage` cannot make.
+ *
+ * `usesImage` asks whether an asset is on the page at all, so a brief saying
+ * "use the photo as a background image covering the whole canvas" was
+ * satisfied by a 120x90 stamp in a corner: the poster scored full marks with
+ * no background at all, because `coverage` was independently happy with the
+ * type. Id-free, because the compose family invents its own ids.
+ *
+ * Graded on the share of the canvas the best single match paints, so a
+ * background inset by a few units is nearly right and one covering a third of
+ * the page is not.
+ */
+export function coversCanvas(selector: Selector, weight = 1, label = "Something covers the whole canvas"): Check {
+  return check("covers_canvas", label, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No visible matching elements." };
+    const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+    const area = doc.width * doc.height;
+    let best = 0;
+    let bestId = els[0]!.id;
+    for (const el of els) {
+      const painted = paintedBounds(el);
+      if (!painted) continue;
+      const covered = intersectionArea(painted, canvas) / area;
+      if (covered > best) {
+        best = covered;
+        bestId = el.id;
+      }
+    }
+    return {
+      score: gradeDefect(Math.max(0, 1 - best), 0.01, 0.35),
+      detail: `${bestId} covers ${Math.round(best * 100)}% of the canvas.`,
+    };
+  });
+}
+
+/**
+ * The named elements are painted at full strength.
+ *
+ * `styleUnchanged` can hold an opacity, but it averages it in with every other
+ * style key it was given — so on a seven-element restyle, fading the entire
+ * document to nothing cost seven comparisons out of fifty-six and left the
+ * checks that measure the page reporting that there was nothing wrong with it.
+ * A brief that says "everything stays fully opaque" is stating one constraint,
+ * and it gets one check.
+ *
+ * An unset opacity is 1, which is the renderer's reading and the only one that
+ * makes "unchanged" mean anything.
+ */
+export function fullyOpaque(selector: Selector, weight = 1): Check {
+  return check("fully_opaque", "Nothing is faded out", weight, (doc) => {
+    const els = select(doc, selector);
+    if (els.length === 0) return { score: 0, detail: "No matching elements." };
+    const faded: string[] = [];
+    let total = 0;
+    for (const el of els) {
+      const opacity = Math.max(0, Math.min(1, el.style.opacity ?? 1));
+      total += opacity;
+      if (opacity < 1) faded.push(`${el.id} (${round(opacity, 2)})`);
+    }
+    return {
+      score: total / els.length,
+      detail: faded.length ? `Faded: ${faded.join(", ")}` : "Everything is fully opaque.",
+    };
+  });
+}
+
+/**
+ * A filled shape is distinguishable from whatever it sits on.
+ *
+ * "The tag keeps its role: a filled chip with a legible label on it" is a
+ * requirement about the chip, and every check on that task was about the
+ * label. Setting the chip's fill to `transparent` left the label perfectly
+ * readable against the sheet behind it and scored 100%: a dark-mode conversion
+ * that deleted one of the elements it was asked to keep, in the only sense
+ * that matters to a reader.
+ *
+ * `textOnFilledShape` does not close it — that one accepts any filled rect
+ * painted below the label, and on this layout the full-width sheet is one.
+ * This asks the narrower question: does *this* shape read as a shape.
+ */
+export function minFillContrast(ratio = 1.5, weight = 1, selector?: Selector): Check {
+  return check("fill_contrast", `Shapes stand out from their backdrop by ${ratio}:1`, weight, (doc) => {
+    const els = select(doc, selector ?? ((el) => el.type === "rect"));
+    if (els.length === 0) return { score: 0, detail: "No matching elements." };
+    const offenders: string[] = [];
+    let worst = 21;
+    for (const el of els) {
+      const fill = el.style.fill;
+      // An invisible shape is not a shape, and nor is one with no fill to
+      // speak of: both are the failure this check exists to name.
+      if (!fill || !paintsAnything(el)) {
+        offenders.push(`${el.id} paints no fill`);
+        worst = 1;
+        continue;
+      }
+      const painted = withElementOpacity(fill, el);
+      // Asked without its own fill. `effectiveBackdrop` puts an element's fill
+      // at the top of the stack, which is right for text — the block fill is
+      // painted behind the glyphs and is what they are read against — and
+      // exactly wrong for a shape, where the fill *is* the thing. Left in, it
+      // compares the fill with itself and every shape scores 1.00:1.
+      const behind = effectiveBackdrop(doc, { ...el, style: { ...el.style, fill: undefined } });
+      const r = contrastRatio(painted, behind);
+      worst = Math.min(worst, r);
+      if (r < ratio) offenders.push(`${el.id} ${r.toFixed(2)}:1 on its backdrop`);
+    }
+    return {
+      score: worst >= ratio ? 1 : Math.max(0, (worst - 1) / (ratio - 1)),
+      detail: offenders.length ? offenders.join(", ") : `Worst fill contrast ${worst.toFixed(2)}:1.`,
     };
   });
 }

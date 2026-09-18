@@ -10,7 +10,25 @@ import { MockLanguageModelV4 } from "ai/test";
 import { coordinateSurface, relationalSurface } from "../surfaces/index.js";
 import { createFeedbackChannel } from "../feedback/index.js";
 import { contrastRatio, effectiveBackdrop, parseColor, relativeLuminance } from "./color.js";
-import { coverage, marginAtLeast, noTextOcclusion } from "./checks.js";
+import {
+  colorRoles,
+  coverage,
+  fontSizeAtLeast,
+  marginAtLeast,
+  minContrast,
+  noTextOcclusion,
+  notCovered,
+  paintOrder,
+  rotationWithin,
+  sameFontSize,
+  sameRotation,
+  styleUnchanged,
+  textOnFilledShape,
+  typeHierarchy,
+  usesPalette,
+  verticalOrder,
+  withText,
+} from "./checks.js";
 import { describeDoc } from "../render/describe.js";
 import type { RunScore } from "./score.js";
 import type { Doc, Element } from "../doc/types.js";
@@ -716,6 +734,307 @@ describe("the margin check", () => {
     const outcome = marginAtLeast(24).run(poster(outline));
     expect(outcome.score).toBe(0);
     expect(outcome.detail).toMatch(/frame/);
+  });
+});
+
+/**
+ * The checks added to close the loopholes the task suite found. Each one is
+ * here because something scored well without doing the work: text shrunk out
+ * of legibility, a caption grown over the photograph it captions, a palette
+ * applied to the wrong elements, a stacking order fixed by fading a layer out.
+ */
+describe("the checks that close a loophole", () => {
+  const doc = (...elements: Element[]): Doc => ({
+    width: 1000,
+    height: 1000,
+    background: "#ffffff",
+    elements,
+  });
+  const el = (partial: Partial<Element> & { id: string }): Element => ({
+    type: "rect",
+    x: 0,
+    y: 0,
+    width: 200,
+    height: 100,
+    rotation: 0,
+    z: 0,
+    style: {},
+    ...partial,
+  });
+  const copy = (id: string, text: string, style: Element["style"], box: Partial<Element> = {}): Element =>
+    el({ id, type: "text", text, width: 600, height: 200, style, ...box });
+
+  describe("a legible type floor", () => {
+    it("passes text at the floor and grades what falls below it", () => {
+      const ok = fontSizeAtLeast(24).run(doc(copy("body", "Notes on repair", { fontSize: 24 })));
+      expect(ok.score).toBe(1);
+
+      // Graded in between: 21 against a floor of 24 is half a failure, and 23
+      // is a rounding error rather than a violation.
+      const small = fontSizeAtLeast(24).run(doc(copy("body", "Notes on repair", { fontSize: 21 })));
+      expect(small.score).toBeCloseTo(0.5, 6);
+      expect(small.detail).toMatch(/body/);
+      expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 23 }))).score).toBeGreaterThan(0.8);
+
+      // A quarter below the floor bottoms out. The narrowness is deliberate:
+      // the cheap path in the `fit` family is to undershoot a stated floor by
+      // a couple of units and fit the box that way, and a gentle grade made
+      // that nearly as good as finding the room.
+      expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 18 }))).score).toBe(0);
+      expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 9 }))).score).toBe(0);
+    });
+
+    // A vacuous pass here would pay a blank canvas for respecting a floor it
+    // never reached, on tasks whose briefs all ask for copy.
+    it("fails a page with no visible text at all", () => {
+      expect(fontSizeAtLeast(24).run(doc()).score).toBe(0);
+      const ghost = copy("ghost", "Invisible", { fontSize: 40, opacity: 0 });
+      expect(fontSizeAtLeast(24).run(doc(ghost)).score).toBe(0);
+    });
+  });
+
+  it("asks whether a group shares one size, not whether each one fits", () => {
+    const three = (a: number, b: number, c: number) =>
+      doc(
+        copy("one", "First", { fontSize: a }, { y: 0 }),
+        copy("two", "Second", { fontSize: b }, { y: 300 }),
+        copy("three", "Third", { fontSize: c }, { y: 600 }),
+      );
+    expect(sameFontSize(["one", "two", "three"]).run(three(36, 36, 36)).score).toBe(1);
+    expect(sameFontSize(["one", "two", "three"]).run(three(40, 30, 38)).score).toBeLessThan(0.5);
+  });
+
+  describe("occlusion of things that are not text", () => {
+    it("reports a photograph buried under a panel, which the text check cannot", () => {
+      const photo = el({ id: "photo", type: "image", src: "photo/city", x: 0, y: 0, width: 600, height: 400, z: 0 });
+      const panel = el({ id: "panel", x: 0, y: 0, width: 600, height: 400, z: 1, style: { fill: "#ffffff" } });
+      expect(notCovered(["photo"]).run(doc(photo)).score).toBe(1);
+      expect(notCovered(["photo"]).run(doc(photo, panel)).score).toBe(0);
+    });
+
+    it("counts a photograph nobody can see as no photograph at all", () => {
+      const ghost = el({ id: "photo", type: "image", src: "photo/city", width: 600, height: 400, style: { opacity: 0 } });
+      const outcome = notCovered(["photo"]).run(doc(ghost));
+      expect(outcome.score).toBe(0);
+      expect(outcome.detail).toMatch(/No visible/);
+    });
+  });
+
+  it("reads the reading order off what each element paints", () => {
+    const stacked = doc(
+      copy("title", "Field Notes", { fontSize: 60 }, { y: 0, height: 120 }),
+      copy("body", "Six weeks in the valley.", { fontSize: 30 }, { y: 200, height: 200 }),
+    );
+    expect(verticalOrder(["title", "body"]).run(stacked).score).toBe(1);
+    expect(verticalOrder(["body", "title"]).run(stacked).score).toBe(0);
+  });
+
+  describe("stacking order", () => {
+    const photo = el({ id: "photo", type: "image", src: "photo/city", width: 1000, height: 1000, z: 0 });
+    const scrim = el({ id: "scrim", width: 1000, height: 1000, z: 1, style: { fill: "#00000099" } });
+    const title = copy("title", "After the Last Train", { fontSize: 60, color: "#ffffff" }, { z: 2 });
+
+    it("reads the order the renderer paints", () => {
+      expect(paintOrder(["photo", "scrim", "title"]).run(doc(photo, scrim, title)).score).toBe(1);
+      expect(paintOrder(["photo", "scrim", "title"]).run(doc(title, scrim, photo)).score).toBe(0);
+    });
+
+    // The point of having it at all: occlusion is the symptom, and fading the
+    // photograph out cures the symptom while leaving the stacking wrong.
+    it("is not satisfied by making the layer on top invisible", () => {
+      const buried = doc(title, { ...photo, z: 2 });
+      expect(noTextOcclusion().run(buried).score).toBe(0);
+
+      const faded = doc(title, { ...photo, z: 2, style: { opacity: 0 } });
+      expect(noTextOcclusion().run(faded).score).toBe(1);
+      // Nothing covers the title any more, and the photograph is still on top
+      // of it, which is the thing the brief asks to have fixed.
+      expect(paintOrder(["photo", "title"]).run(faded).score).toBe(0);
+    });
+  });
+
+  it("holds an element's appearance, including which asset it points at", () => {
+    const before = doc(el({ id: "photo", type: "image", src: "photo/city", style: { opacity: 1, radius: 8 } }));
+    expect(styleUnchanged(before, ["photo"]).run(before).score).toBe(1);
+
+    const dimmed = doc(el({ id: "photo", type: "image", src: "photo/city", style: { opacity: 0.1, radius: 8 } }));
+    expect(styleUnchanged(before, ["photo"]).run(dimmed).score).toBeLessThan(1);
+
+    const swapped = doc(el({ id: "photo", type: "image", src: "photo/mountains", style: { opacity: 1, radius: 8 } }));
+    const outcome = styleUnchanged(before, ["photo"]).run(swapped);
+    expect(outcome.score).toBeLessThan(1);
+    expect(outcome.detail).toMatch(/src/);
+  });
+
+  it("scores the colour assignment the brief spells out, not just the palette", () => {
+    const roles = colorRoles(
+      [
+        { ids: ["panel"], prop: "fill", color: "#1e1e33" },
+        { ids: ["heading"], prop: "color", color: "#f4f1ea" },
+      ],
+      1,
+      { background: "#12121f" },
+    );
+    const assigned: Doc = {
+      ...doc(
+        el({ id: "panel", style: { fill: "#1e1e33" } }),
+        copy("heading", "Ridge Roast", { color: "#f4f1ea" }),
+      ),
+      background: "#12121f",
+    };
+    expect(roles.run(assigned).score).toBe(1);
+
+    // Every colour below is on the same palette, and every one is in the
+    // wrong place.
+    const scrambled: Doc = {
+      ...doc(
+        el({ id: "panel", style: { fill: "#f4f1ea" } }),
+        copy("heading", "Ridge Roast", { color: "#1e1e33" }),
+      ),
+      background: "#12121f",
+    };
+    const outcome = roles.run(scrambled);
+    expect(outcome.score).toBeCloseTo(1 / 3, 6);
+    expect(outcome.detail).toMatch(/panel fill is #f4f1ea/);
+  });
+
+  it("counts an off-palette colour once, however many elements share it", () => {
+    const one = usesPalette(["#12121f", "#ffffff"]).run(
+      doc(copy("a", "One", { color: "#ff0000" })),
+    );
+    const many = usesPalette(["#12121f", "#ffffff"]).run(
+      doc(
+        copy("a", "One", { color: "#ff0000" }),
+        copy("b", "Two", { color: "#ff0000" }, { y: 300 }),
+        copy("c", "Three", { color: "#ff0000" }, { y: 600 }),
+      ),
+    );
+    expect(one.score).toBe(many.score);
+    expect(one.detail).toMatch(/#ff0000/);
+  });
+
+  it("wants something filled under a label before it calls it a button", () => {
+    const label = copy("label", "Add to basket", { fontSize: 34 }, { x: 100, y: 100, width: 300, height: 100, z: 1 });
+    const shape = el({ id: "button", x: 100, y: 100, width: 300, height: 100, z: 0, style: { fill: "#d94f3d" } });
+    const beside = el({ id: "button", x: 500, y: 100, width: 300, height: 100, z: 0, style: { fill: "#d94f3d" } });
+    const above = el({ id: "button", x: 100, y: 100, width: 300, height: 100, z: 2, style: { fill: "#d94f3d" } });
+
+    expect(textOnFilledShape("Add to basket").run(doc(shape, label)).score).toBe(1);
+    expect(textOnFilledShape("Add to basket").run(doc(beside, label)).score).toBe(0);
+    // One element rather than two: a text block with a fill paints the same
+    // button, and scoring that as no button would push an agent into the
+    // arrangement that trips `noOverlap`.
+    const filledLabel = { ...label, style: { ...label.style, fill: "#d94f3d" } };
+    expect(textOnFilledShape("Add to basket").run(doc(filledLabel)).score).toBe(1);
+    // Painted over the label rather than under it is not a button either.
+    expect(textOnFilledShape("Add to basket").run(doc(label, above)).score).toBe(0);
+    expect(textOnFilledShape("Add to basket").run(doc(label)).score).toBe(0);
+  });
+
+  it("finds copy by its wording, whatever the element was called", () => {
+    const d = doc(copy("whatever_the_agent_called_it", "Ridgeline\nFestival", { fontSize: 90 }));
+    // Normalized on whitespace, so a hard line break inside the phrase matches.
+    expect(d.elements.filter(withText("Ridgeline Festival"))).toHaveLength(1);
+    expect(d.elements.filter(withText("Alpine Meadow"))).toHaveLength(0);
+  });
+
+  it("will not find copy in an element nobody can see", () => {
+    const d = doc(copy("ghost", "Ridgeline Festival", { fontSize: 90, opacity: 0.01 }));
+    expect(d.elements.filter(withText("Ridgeline Festival"))).toHaveLength(0);
+  });
+
+  describe("rotation", () => {
+    const tilted = (rotation: number) => el({ id: "ribbon", width: 600, height: 120, rotation });
+
+    it("grades how far off the angle is", () => {
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(-14))).score).toBe(1);
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(-12))).score).toBeGreaterThan(0.7);
+      expect(rotationWithin(["ribbon"], -14).run(doc(tilted(0))).score).toBe(0);
+    });
+
+    // The document normalizes angles into (-180, 180], and a check that
+    // disagreed with that arithmetic at the wrap point would be wrong once, in
+    // one run, and never explained.
+    it("measures the short way round, so 359 and -1 are one degree apart", () => {
+      const outcome = rotationWithin(["ribbon"], 359).run(doc(tilted(0)));
+      expect(outcome.score).toBe(1);
+      expect(rotationWithin(["ribbon"], -179).run(doc(tilted(179))).score).toBeGreaterThan(0.7);
+    });
+
+    it("asks whether a group agrees, without naming the angle", () => {
+      const pair = (a: number, b: number) =>
+        doc(el({ id: "ribbon", rotation: a }), el({ id: "label", x: 400, rotation: b }));
+      expect(sameRotation(["ribbon", "label"]).run(pair(-14, -14)).score).toBe(1);
+      expect(sameRotation(["ribbon", "label"]).run(pair(-14, 0)).score).toBe(0);
+    });
+  });
+
+  // A tilted label on an upright rect is not a ribbon, and their bounding
+  // boxes overlap just as happily either way.
+  it("wants the shape under a tilted label turned with it", () => {
+    const label = copy("label", "HALF PRICE", { fontSize: 60 }, { x: 100, y: 100, width: 600, height: 120, z: 1, rotation: -14 });
+    const turned = el({ id: "ribbon", x: 100, y: 100, width: 600, height: 120, z: 0, rotation: -14, style: { fill: "#a8352a" } });
+    const upright = el({ id: "ribbon", x: 100, y: 100, width: 600, height: 120, z: 0, rotation: 0, style: { fill: "#a8352a" } });
+
+    expect(textOnFilledShape("HALF PRICE", 1, { rotationWithin: 3 }).run(doc(turned, label)).score).toBe(1);
+    expect(textOnFilledShape("HALF PRICE", 1, { rotationWithin: 3 }).run(doc(upright, label)).score).toBe(0);
+    // Without the option it is the same check it always was.
+    expect(textOnFilledShape("HALF PRICE").run(doc(upright, label)).score).toBeGreaterThan(0);
+  });
+
+  describe("the type hierarchy check", () => {
+    // A newline is a hard line break, so the whole brief fits in one element —
+    // at one size, which is no hierarchy. This used to score full marks.
+    it("scores a single block holding every line at zero", () => {
+      const everything = copy("all", "Ridgeline Festival\nSeptember 12-14\nTickets at ridgeline.fm", { fontSize: 60 });
+      const outcome = typeHierarchy(2).run(doc(everything));
+      expect(outcome.score).toBe(0);
+      expect(outcome.detail).toMatch(/no hierarchy/i);
+    });
+
+    it("scores two elements on the ratio between them", () => {
+      const title = copy("title", "Ridgeline Festival", { fontSize: 120 }, { y: 0 });
+      const foot = copy("foot", "Tickets at ridgeline.fm", { fontSize: 40 }, { y: 400 });
+      expect(typeHierarchy(2).run(doc(title, foot)).score).toBe(1);
+      expect(typeHierarchy(4).run(doc(title, foot)).score).toBeLessThan(1);
+    });
+  });
+});
+
+describe("contrast and the element's own opacity", () => {
+  it("reads the colour that lands on the page, not the one declared", () => {
+    const page = (opacity: number): Doc => ({
+      width: 500,
+      height: 500,
+      background: "#ffffff",
+      elements: [
+        {
+          id: "copy",
+          type: "text",
+          x: 50,
+          y: 50,
+          width: 400,
+          height: 100,
+          rotation: 0,
+          z: 0,
+          text: "Ridgeline",
+          style: { fontSize: 40, color: "#000000", opacity },
+        },
+      ],
+    });
+    // Black on white, which is 21:1 — as long as it is actually painted.
+    expect(minContrast(4.5).run(page(1)).score).toBe(1);
+
+    // At 20% it is grey on white, about 1.6:1. The check read `style.color`
+    // and scored this 21:1 too, because the opacity never reached it.
+    const faint = minContrast(4.5).run(page(0.2));
+    expect(faint.score).toBeLessThan(0.3);
+    expect(faint.detail).toMatch(/copy/);
+
+    // Below the visibility threshold it is not text on a page at all: it drops
+    // out of this check, and out of `containsText` with it, so there is
+    // nothing left to score and nothing to gain.
+    expect(minContrast(4.5).run(page(0.03)).detail).toMatch(/No text elements/);
   });
 });
 

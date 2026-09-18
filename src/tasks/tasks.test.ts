@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TASKS, getTask, resolveTasks, tasksInFamily } from "./index.js";
 import { TASK_FAMILIES } from "./types.js";
-import { parseDoc } from "../doc/schema.js";
+import { normalizeDoc, parseDoc } from "../doc/schema.js";
 import { runChecks, universalChecks } from "../eval/checks.js";
 import { renderSvg } from "../render/svg.js";
 import type { Doc, Element } from "../doc/types.js";
@@ -15,9 +15,12 @@ import type { Doc, Element } from "../doc/types.js";
 const HEADROOM_CEILING = 0.9;
 
 describe("task registry", () => {
-  it("holds fifteen to twenty tasks", () => {
-    expect(TASKS.length).toBeGreaterThanOrEqual(15);
-    expect(TASKS.length).toBeLessThanOrEqual(20);
+  it("holds eighteen to twenty-four tasks", () => {
+    // The ceiling is a budget, not a principle: every task multiplies through
+    // surfaces, feedback conditions, models and repeats, and
+    // `docs/PREREGISTRATION.md` sizes the grid from this number.
+    expect(TASKS.length).toBeGreaterThanOrEqual(18);
+    expect(TASKS.length).toBeLessThanOrEqual(24);
   });
 
   it("gives every task a unique id", () => {
@@ -161,6 +164,515 @@ describe("the constraints the briefs state are actually scored", () => {
       const padded: Doc = { ...before, elements: [...before.elements, ...ghosts] };
       expect(scoreOf(task, padded), task.id).toBeCloseTo(scoreOf(task, before), 10);
     }
+  });
+
+
+  /**
+   * The same loophole one notch up from zero.
+   *
+   * `paintedPolygons` used to ask only whether opacity was above *zero*, so
+   * closing the door on `opacity: 0` left `opacity: 0.02` wide open — and a
+   * colour's own alpha was a second way in, since the two were never
+   * multiplied. Five elements nobody can see scored 85% on a task whose
+   * starting document scores 38%.
+   */
+  it("gains nothing from elements that are almost invisible either", () => {
+    const ghosts: Element[] = [
+      {
+        id: "faint_text",
+        type: "text",
+        x: 60,
+        y: 60,
+        width: 900,
+        height: 400,
+        rotation: 0,
+        z: 910,
+        text: "Ridgeline Festival\nSeptember 12-14\nAlpine Meadow, Colorado\nTickets at ridgeline.fm",
+        style: { fontSize: 40, color: "#ffffff", opacity: 0.02 },
+      },
+      {
+        id: "faint_image",
+        type: "image",
+        x: 60,
+        y: 500,
+        width: 400,
+        height: 300,
+        rotation: 0,
+        z: 911,
+        src: "photo/mountains",
+        style: { opacity: 0.02 },
+      },
+      // Opacity and colour alpha multiply: 40% of 5% is 2%.
+      {
+        id: "faint_rect",
+        type: "rect",
+        x: 60,
+        y: 860,
+        width: 400,
+        height: 300,
+        rotation: 0,
+        z: 912,
+        style: { fill: "#ff000066", opacity: 0.05 },
+      },
+    ];
+
+    for (const task of TASKS) {
+      const before = task.initial();
+      const padded: Doc = { ...before, elements: [...before.elements, ...ghosts] };
+      expect(scoreOf(task, padded), task.id).toBeCloseTo(scoreOf(task, before), 10);
+    }
+  });
+
+  /**
+   * The fit family's one-line solution, on every surface: shrink until it
+   * fits. It works, it scores, and it produces a page nobody can read — so it
+   * has to score below the fix that finds the room instead.
+   */
+  it("prefers finding the room to shrinking the type out of legibility", () => {
+    const cases: { id: string; ids: string[]; shrunk: number; honest: (el: Element) => Element }[] = [
+      {
+        id: "fit.body-overflow",
+        ids: ["body"],
+        shrunk: 9,
+        honest: (el) => (el.id === "body" ? { ...el, height: 800 } : el),
+      },
+      {
+        id: "fit.long-headline",
+        ids: ["headline"],
+        shrunk: 20,
+        honest: (el) =>
+          el.id === "headline"
+            ? { ...el, y: 300, height: 280, style: { ...el.style, fontSize: 52 } }
+            : el.id === "para"
+              ? { ...el, y: 610, height: 320 }
+              : el,
+      },
+    ];
+    for (const c of cases) {
+      const task = getTask(c.id);
+      const shrunk = edit(task, (el) =>
+        c.ids.includes(el.id) ? { ...el, style: { ...el.style, fontSize: c.shrunk } } : el,
+      );
+      const honest = edit(task, c.honest);
+      expect(scoreOf(task, honest), `${c.id} honest`).toBeGreaterThan(scoreOf(task, shrunk));
+      // And it is a real fix, not just a better one: full marks are reachable.
+      expect(scoreOf(task, honest), `${c.id} honest`).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("penalises three different fixes where the brief asks for one treatment", () => {
+    const task = getTask("fit.three-overflowing");
+    const sizes: Record<string, number> = { one: 40, two: 30, three: 38 };
+    const perBlock = edit(task, (el) =>
+      sizes[el.id] === undefined
+        ? el
+        : { ...el, height: 320, y: { one: 120, two: 480, three: 900 }[el.id]!, style: { ...el.style, fontSize: sizes[el.id]! } },
+    );
+    const oneSize = edit(task, (el) =>
+      sizes[el.id] === undefined
+        ? el
+        : { ...el, height: 320, y: { one: 120, two: 480, three: 900 }[el.id]!, style: { ...el.style, fontSize: 36 } },
+    );
+    expect(scoreOf(task, oneSize)).toBeGreaterThan(scoreOf(task, perBlock));
+  });
+
+  /**
+   * The caption can always be made to fit by growing its box upwards. The
+   * photograph is what the page is for, so that is not a fix — and nothing was
+   * watching, because the occlusion check only ever asked about text.
+   */
+  it("penalises fitting the caption by burying the photograph", () => {
+    const task = getTask("fit.caption-under-image");
+    const overPhoto = edit(task, (el) =>
+      el.id === "caption" ? { ...el, y: 560, height: 420, style: { ...el.style, fill: "#f7f4ee" } } : el,
+    );
+    const inTheGap = edit(task, (el) =>
+      el.id === "caption" ? { ...el, y: 860, height: 300, style: { ...el.style, fontSize: 30 } } : el,
+    );
+    expect(scoreOf(task, inTheGap)).toBeGreaterThan(scoreOf(task, overPhoto));
+  });
+
+  /**
+   * A newline is a hard line break, so a poster can be four elements or seven
+   * and neither is a defect. What *is* a defect is pouring every voice into one
+   * block, because then there is one font size and no hierarchy — which used
+   * to score full marks on `typeHierarchy`, since one size cannot contradict
+   * itself.
+   */
+  it("gives a single block holding every line no hierarchy", () => {
+    const task = getTask("compose.festival-poster");
+    const doc = task.initial();
+    const oneBlock: Doc = {
+      ...doc,
+      elements: [
+        {
+          id: "bg",
+          type: "image",
+          x: 0,
+          y: 0,
+          width: doc.width,
+          height: doc.height,
+          rotation: 0,
+          z: 0,
+          src: "photo/mountains",
+          style: {},
+        },
+        {
+          id: "everything",
+          type: "text",
+          x: 80,
+          y: 300,
+          width: 920,
+          height: 700,
+          rotation: 0,
+          z: 1,
+          text: "Ridgeline Festival\nSeptember 12-14\nAlpine Meadow, Colorado\nTickets at ridgeline.fm",
+          style: { fontSize: 60, color: "#ffffff", align: "center" },
+        },
+      ],
+    };
+    const results = runChecks(oneBlock, [...universalChecks(), ...task.checks]);
+    const hierarchy = results.results.find((r) => r.id === "type_hierarchy")!;
+    expect(hierarchy.score).toBe(0);
+    expect(hierarchy.detail).toMatch(/no hierarchy/i);
+    // And the copy is still all there, so this is a hierarchy finding rather
+    // than a missing-copy one.
+    expect(results.results.find((r) => r.id === "contains_text")!.score).toBe(1);
+  });
+
+  /**
+   * The other half of the same point: a line break inside one element is a
+   * perfectly good way to set a two-line title, and nothing may charge for it.
+   * This is the check that would have failed against "at least five elements".
+   */
+  it("does not charge a composition for breaking a title with a newline", () => {
+    const task = getTask("compose.festival-poster");
+    const doc = task.initial();
+    const composed: Doc = {
+      ...doc,
+      elements: [
+        { id: "bg", type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "photo/mountains", style: {} },
+        { id: "scrim", type: "rect", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 1, style: { fill: "#0b0b18aa" } },
+        {
+          id: "title",
+          type: "text",
+          x: 80,
+          y: 200,
+          width: 920,
+          height: 380,
+          rotation: 0,
+          z: 2,
+          text: "Ridgeline\nFestival",
+          style: { fontSize: 140, fontWeight: "bold", color: "#ffffff", align: "center" },
+        },
+        { id: "dates", type: "text", x: 80, y: 640, width: 920, height: 90, rotation: 0, z: 3, text: "September 12-14", style: { fontSize: 64, color: "#f6e7c1", align: "center" } },
+        { id: "venue", type: "text", x: 80, y: 760, width: 920, height: 70, rotation: 0, z: 4, text: "Alpine Meadow, Colorado", style: { fontSize: 42, color: "#e6e6f2", align: "center" } },
+        { id: "cta", type: "text", x: 80, y: 1180, width: 920, height: 70, rotation: 0, z: 5, text: "Tickets at ridgeline.fm", style: { fontSize: 36, color: "#ffffff", align: "center" } },
+      ],
+    };
+    expect(scoreOf(task, composed)).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * The rotation tasks are in the set because this is true, so it is asserted
+   * rather than assumed: a tilted element reaches further than its width and
+   * height say, and a run that places it by the numbers it declared lands
+   * outside the margin the brief gave it.
+   *
+   * 760 x 130 at -14 degrees paints 769 x 310. Tucking the declared box 32
+   * units above the bottom edge puts 58 units of the painted ribbon off the
+   * canvas — which is exactly the gap between what the document says and what
+   * the page shows, and the reason H5 expects a picture to help here.
+   */
+  it("charges a tilted ribbon for the room its rotation actually takes", () => {
+    const task = getTask("compose.sale-card");
+    const doc = task.initial();
+    const ribbon = (y: number): Element[] => [
+      { id: "ribbon", type: "rect", x: 160, y, width: 760, height: 130, rotation: -14, z: 0, style: { fill: "#a8352a" } },
+      {
+        id: "ribbon_label",
+        type: "text",
+        x: 160,
+        y,
+        width: 760,
+        height: 130,
+        rotation: -14,
+        z: 1,
+        text: "HALF PRICE",
+        style: { fontSize: 72, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
+      },
+    ];
+    // Placed by the declared box: its bottom edge sits exactly on the 32-unit
+    // margin, and 58 units of painted ribbon hang off the canvas.
+    const byTheNumbers: Doc = { ...doc, elements: ribbon(1188) };
+    // Placed by what it paints.
+    const byWhatItPaints: Doc = { ...doc, elements: ribbon(955) };
+
+    const naive = runChecks(byTheNumbers, [...universalChecks(), ...task.checks]);
+    const correct = runChecks(byWhatItPaints, [...universalChecks(), ...task.checks]);
+    expect(naive.results.find((r) => r.id === "margin")!.score).toBe(0);
+    expect(correct.results.find((r) => r.id === "margin")!.score).toBe(1);
+    expect(correct.score).toBeGreaterThan(naive.score);
+  });
+
+  it("penalises tilting the whole card instead of just the ribbon", () => {
+    const task = getTask("compose.sale-card");
+    const doc = task.initial();
+    const copy = (id: string, body: string, y: number, size: number, rotation: number): Element => ({
+      id,
+      type: "text",
+      x: 80,
+      y,
+      width: 920,
+      height: 120,
+      rotation,
+      z: 0,
+      text: body,
+      style: { fontSize: size, color: "#22223b", align: "center" },
+    });
+    const square: Doc = {
+      ...doc,
+      elements: [copy("head", "Everything Must Go", 200, 90, 0), copy("shop", "Ridgeline Supply Co.", 520, 48, 0)],
+    };
+    const allTilted: Doc = {
+      ...doc,
+      elements: [copy("head", "Everything Must Go", 200, 90, -14), copy("shop", "Ridgeline Supply Co.", 520, 48, -14)],
+    };
+    expect(scoreOf(task, square)).toBeGreaterThan(scoreOf(task, allTilted));
+  });
+
+  it("penalises straightening a knocked-about card by moving it instead", () => {
+    const task = getTask("repair.tilted-stack");
+    // Shoving the card left brings it back on the canvas and leaves every
+    // element as crooked as it was found.
+    const shoved = edit(task, (el) => (el.id === "card" ? { ...el, x: el.x - 40 } : el));
+    const straightened = edit(task, (el) =>
+      ["card", "title", "body", "stamp"].includes(el.id) ? { ...el, rotation: 0 } : el,
+    );
+    expect(scoreOf(task, straightened)).toBeGreaterThan(scoreOf(task, shoved));
+    expect(scoreOf(task, straightened)).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * The invisible-element loophole, one level up: not padding a document with
+   * ghosts, but *deleting* it into one. Every check that measures the page
+   * answers vacuously when there is no page — "no text elements, so nothing is
+   * unreadable" — and eight of them in a row said so. A dark canvas behind a
+   * document faded to nothing scored 92.7%, closing 78% of the available
+   * improvement on a task whose brief says in as many words that fading things
+   * out is not a dark theme.
+   */
+  it("scores a document faded out of existence below the one it started from", () => {
+    const task = getTask("restyle.dark-mode");
+    const doc = task.initial();
+    const faded: Doc = {
+      ...doc,
+      background: "#0e0e18",
+      elements: doc.elements.map((el) => ({ ...el, style: { ...el.style, opacity: 0 } })),
+    };
+    expect(scoreOf(task, faded)).toBeLessThan(scoreOf(task, doc));
+  });
+
+  // The same rule, stated on the check rather than the task: a check told to
+  // look at particular elements cannot report that there was nothing to look
+  // at when those elements are the ones that were hidden.
+  it("fails a named-element check whose elements all paint nothing", () => {
+    const task = getTask("restyle.dark-mode");
+    const hidden = edit(task, (el) =>
+      ["title", "standfirst", "byline", "tag_label"].includes(el.id)
+        ? { ...el, style: { ...el.style, opacity: 0 } }
+        : el,
+    );
+    const luminance = runChecks(hidden, [...universalChecks(), ...task.checks]).results.find(
+      (r) => r.id === "text_luminance",
+    )!;
+    expect(luminance.score).toBe(0);
+    expect(luminance.detail).toMatch(/paints nothing/);
+  });
+
+  it("penalises a chip whose fill was removed, however readable the label", () => {
+    const task = getTask("restyle.dark-mode");
+    const converted = (tagFill: string): Doc => ({
+      ...edit(task, (el) => {
+        const style = { ...el.style };
+        if (el.id === "sheet") style.fill = "#12121f";
+        if (el.id === "title") style.color = "#f4f1ea";
+        if (el.id === "standfirst") style.color = "#cfcadd";
+        if (el.id === "byline") style.color = "#b3aec6";
+        if (el.id === "tag") style.fill = tagFill;
+        if (el.id === "tag_label") style.color = "#e9e4f2";
+        return { ...el, style };
+      }),
+      background: "#0e0e18",
+    });
+    expect(scoreOf(task, converted("#4a3d72"))).toBeGreaterThan(scoreOf(task, converted("transparent")));
+    expect(scoreOf(task, converted("#4a3d72"))).toBeCloseTo(1, 6);
+  });
+
+  /**
+   * "Use the photo as a background image covering the whole canvas."
+   * `usesImage` asks only whether the asset is on the page, and `coverage` was
+   * independently satisfied by the type, so a poster with a 120x90 stamp in
+   * one corner and no background at all scored full marks.
+   */
+  it("penalises a background image that is not a background", () => {
+    const task = getTask("compose.festival-poster");
+    const doc = task.initial();
+    const copy = (id: string, body: string, y: number, size: number): Element => ({
+      id,
+      type: "text",
+      x: 80,
+      y,
+      width: 920,
+      height: size * 2,
+      rotation: 0,
+      z: 2,
+      text: body,
+      style: { fontSize: size, color: "#ffffff", align: "center" },
+    });
+    const withBackground = (w: number, h: number): Doc => ({
+      ...doc,
+      elements: [
+        { id: "bg", type: "image", x: 0, y: 0, width: w, height: h, rotation: 0, z: 0, src: "photo/mountains", style: {} },
+        copy("title", "Ridgeline Festival", 200, 140),
+        copy("dates", "September 12-14", 640, 64),
+        copy("venue", "Alpine Meadow, Colorado", 760, 42),
+        copy("cta", "Tickets at ridgeline.fm", 1180, 36),
+      ],
+    });
+    expect(scoreOf(task, withBackground(1080, 1350))).toBeGreaterThan(scoreOf(task, withBackground(120, 90)));
+  });
+
+  /**
+   * Both "unchanged" checks skip an element that is gone — a deletion is
+   * `preservesElements`' finding, by design — and `usesImage` accepts any
+   * element carrying the asset. Together those let a run delete the gradient
+   * it was told to leave alone, create an identical one under a new id, and
+   * satisfy all three.
+   */
+  it("penalises deleting the gradient and creating a replacement", () => {
+    const task = getTask("compose.title-card");
+    const doc = task.initial();
+    const set = (id: string): Doc => ({
+      ...doc,
+      elements: [
+        { id, type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "texture/gradient", style: {} },
+        {
+          id: "talk",
+          type: "text",
+          x: 80,
+          y: 420,
+          width: 920,
+          height: 380,
+          rotation: 0,
+          z: 1,
+          text: "Interfaces That Explain Themselves",
+          style: { fontSize: 96, fontWeight: "bold", color: "#1a1208" },
+        },
+        {
+          id: "speaker",
+          type: "text",
+          x: 80,
+          y: 860,
+          width: 920,
+          height: 80,
+          rotation: 0,
+          z: 2,
+          text: "Dana Okonkwo",
+          style: { fontSize: 52, color: "#2a1c10" },
+        },
+        {
+          id: "event",
+          type: "text",
+          x: 80,
+          y: 960,
+          width: 920,
+          height: 60,
+          rotation: 0,
+          z: 3,
+          text: "Layout Conf 2026",
+          style: { fontSize: 36, color: "#33220f" },
+        },
+      ],
+    });
+    expect(scoreOf(task, set("bg"))).toBeGreaterThan(scoreOf(task, set("not_bg")));
+  });
+
+  it("penalises hiding the photograph instead of restacking it", () => {
+    const task = getTask("repair.z-order");
+    const faded = edit(task, (el) => (el.id === "hero_photo" ? { ...el, style: { ...el.style, opacity: 0 } } : el));
+    // Normalized, because changing a `z` is exactly the mutation that reorders
+    // the array, and every surface hands the scorer a normalized document.
+    const restacked = normalizeDoc(
+      edit(task, (el) => {
+        const z: Record<string, number> = { hero_photo: 0, scrim: 1, hero_title: 2, hero_sub: 3 };
+        return z[el.id] === undefined ? el : { ...el, z: z[el.id]! };
+      }),
+    );
+    expect(scoreOf(task, restacked)).toBeGreaterThan(scoreOf(task, faded));
+    expect(scoreOf(task, restacked)).toBeCloseTo(1, 6);
+  });
+
+  it("penalises a dark theme made by fading everything out", () => {
+    const task = getTask("restyle.dark-mode");
+    const faded = edit(task, (el) => ({ ...el, style: { ...el.style, opacity: 0.1 } }));
+    expect(scoreOf(task, faded)).toBeLessThan(scoreOf(task, task.initial()));
+  });
+
+  /**
+   * On-palette is not the same as on-brief. Every colour here comes from the
+   * five the brief lists, and every one of them is in the wrong place.
+   */
+  it("penalises a palette applied to the wrong elements", () => {
+    const task = getTask("restyle.palette-swap");
+    const scrambled = edit(task, (el) => {
+      if (el.id === "panel") return { ...el, style: { ...el.style, fill: "#e3655b" } };
+      if (el.id === "button") return { ...el, style: { ...el.style, fill: "#1e1e33" } };
+      if (el.type === "text") return { ...el, style: { ...el.style, color: "#f4f1ea" } };
+      return el;
+    });
+    const scrambledDoc: Doc = { ...scrambled, background: "#12121f" };
+    const assigned = edit(task, (el) => {
+      if (el.id === "panel") return { ...el, style: { ...el.style, fill: "#1e1e33" } };
+      if (el.id === "button") return { ...el, style: { ...el.style, fill: "#e3655b" } };
+      if (el.id === "description") return { ...el, style: { ...el.style, color: "#a8a3c0" } };
+      if (el.type === "text") return { ...el, style: { ...el.style, color: "#f4f1ea" } };
+      return el;
+    });
+    const assignedDoc: Doc = { ...assigned, background: "#12121f" };
+    expect(scoreOf(task, assignedDoc)).toBeGreaterThan(scoreOf(task, scrambledDoc));
+  });
+
+  it("penalises a button label with nothing painted under it", () => {
+    const task = getTask("compose.product-card");
+    const doc = task.initial();
+    const label: Element = {
+      id: "label",
+      type: "text",
+      x: 64,
+      y: 1160,
+      width: 420,
+      height: 110,
+      rotation: 0,
+      z: 5,
+      text: "Add to basket",
+      style: { fontSize: 34, color: "#22223b", align: "center", valign: "middle" },
+    };
+    const shape: Element = {
+      id: "button",
+      type: "rect",
+      x: 64,
+      y: 1160,
+      width: 420,
+      height: 110,
+      rotation: 0,
+      z: 4,
+      style: { fill: "#d94f3d", radius: 55 },
+    };
+    const bare = runChecks({ ...doc, elements: [label] }, [...universalChecks(), ...task.checks]);
+    const onShape = runChecks({ ...doc, elements: [shape, label] }, [...universalChecks(), ...task.checks]);
+    expect(bare.results.find((r) => r.id === "text_on_shape")!.score).toBe(0);
+    expect(onShape.results.find((r) => r.id === "text_on_shape")!.score).toBe(1);
   });
 
   // The other side of the same boundary: a check that asks what is *in the

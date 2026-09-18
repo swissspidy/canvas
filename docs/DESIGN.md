@@ -32,6 +32,17 @@ two decisions that read oddly against the original five-primitive sketch:
 - Rotation rides on coordinate's `move`, and paint order and text content ride
   on `set_style`. They have to live somewhere; a surface missing them would be
   strictly weaker and the comparison would measure that gap.
+
+  That is not a hypothetical, and it went unnoticed for a while: relational
+  could *create* a rotated element and could not rotate one that already
+  existed, because `place` took no angle and `set_style` is appearance, text
+  and paint order. "Straighten these four" was one `move` each on the
+  coordinate surface and unreachable on the relational one. The equivalence
+  tests only covered placement, so nothing caught it. `place` now takes a
+  rotation, relational has a `rotate` that takes an angle or copies another
+  element's, and the equivalence test reaches the same rotated document through
+  all three surfaces. Had it survived into the runs, every rotation result
+  would have been a power difference wearing a mechanism's clothes.
 - Relational's `place_below(target, gap)` is generalized to
   `place(id, relation, target, gap)` with `below` among the relations, and
   `fit_within` is split into `fit_text` (text against its box) and `fit_within`
@@ -237,12 +248,12 @@ the tool result keeps the message count down.
 
 ## Scoring
 
-**Graded, not binary.** Every check returns 0–1. With eighteen tasks and three
-repeats, binary scoring throws away most of the signal: "8 units out of bounds"
+**Graded, not binary.** Every check returns 0–1. With twenty-three tasks and
+three repeats, binary scoring throws away most of the signal: "8 units out of bounds"
 and "half the poster is off the canvas" are not the same failure.
 
-**Normalized against the baseline.** A run that changes nothing scores ~68%
-raw, because most checks measure defects it never introduced. That squeezes
+**Normalized against the baseline.** A run that changes nothing scores ~56%
+raw on average, because most checks measure defects it never introduced. That squeezes
 every real difference into the top third of the scale. The headline metric is
 `(constraint − baseline) / (1 − baseline)`: 0 for changing nothing, 1 for
 satisfying everything. It is not clamped below zero, because a run that makes
@@ -290,8 +301,8 @@ the metric handles it.
 **Cluster by task.** Interval estimates resample *tasks*, not runs. Three
 repeats of one task are not three independent observations — they share a
 starting document, a difficulty and a set of checks. Resampling runs would
-produce intervals that are too narrow and turn eighteen tasks' worth of
-evidence into six hundred runs' worth of false confidence.
+produce intervals that are too narrow and turn twenty-three tasks' worth of
+evidence into eight hundred runs' worth of false confidence.
 
 **Pair within task.** Tasks differ enormously in difficulty and every condition
 sees every task, so pairing removes that variance instead of letting it swamp
@@ -418,6 +429,47 @@ ratio is invariant under inversion — no check could tell light from dark. It
 needed absolute-luminance checks (`surfacesNoLighterThan`, `textNoDarkerThan`)
 to become a real task.
 
+The headroom ceiling is only half the question, though, and it is the easier
+half. A task can start thoroughly broken and still be satisfiable without doing
+the work its brief describes, and the cheap path is usually one call:
+
+- **Shrink the type until it fits.** Available on every surface, and it solved
+  the entire `fit` family. `fit.body-overflow` went from 40% to full marks at
+  `fontSize: 9`.
+- **Make the problem invisible.** Fade the shape that is covering the text, or
+  the photograph that is painted over it, and every occlusion check is
+  satisfied while the document stays exactly as wrong as it was found.
+- **Shrink the problem.** A 1×1 decorative blot occludes nothing.
+- **Pad with things nobody can see.** Copy at 2% opacity satisfies
+  `containsText`; an image at 2% opacity satisfies "use this asset".
+- **Place a rotated element by the box it declared.** A 760×130 banner at −14°
+  paints 769×310, so a margin cleared on paper is broken on the page. The
+  checks that measure margins and bounds read what an element paints, so this
+  one costs rather than pays — which is the point of putting rotation in the
+  task set at all.
+- **Put everything in one text element.** A newline is a hard line break, so
+  the whole brief fits in one box — at one size, which used to score full marks
+  on `typeHierarchy`.
+
+So the suite's tests assert the ordering directly, in two files.
+`src/tasks/tasks.test.ts` asserts that for each cheap path, the honest fix
+scores above it. `src/tasks/solvable.test.ts` holds a reference solution for
+every task and asserts it scores full marks.
+
+Both halves matter. Without the first, the study measures which surface finds
+the shortcut fastest. Without the second, a check can quietly make its task
+impossible, every cell records the same failure, and the surfaces tie — which
+reads as "the surface does not matter", the one finding this design is most at
+risk of manufacturing by accident. That is not hypothetical:
+`restyle.palette-swap` asked for the button label in the palette's primary text
+on the palette's accent fill, which is 2.97:1, and for 4.5:1 in the same brief.
+`docs/TASKS.md` lists what is asserted.
+
+The other half of the same fix lives in the briefs. Every constraint a check
+scores is stated in the task's brief, because a constraint the agent cannot see
+is not difficulty — it is a guessing game, and it would land unevenly across
+the surfaces, which is the variable under study.
+
 ---
 
 ## What a check looks at: the page, or the document
@@ -425,19 +477,29 @@ to become a real task.
 Every deterministic check reads one of two things, and which one it reads is a
 decision rather than an accident.
 
-**What is on the page** — how many elements there are, whether the required
-copy appears, whether an image was used, whether the type has a hierarchy, what
-colours are in play, how much of the canvas is covered, whether anything crowds
-an edge. These read only elements that paint something.
+**What is on the page** — whether the required copy appears, whether an image
+was used, whether the type has a hierarchy, what colours are in play, how much
+of the canvas is covered, whether anything crowds an edge. These read only
+elements that paint something.
 
 They all used to read every element, and every one of them was gameable for it.
 The worst: a poster missing half its required copy and set in a single type
 size scored **full marks** by carrying the missing phrases in a text element at
 `opacity: 0`. `containsText` found them, `typeHierarchy` got its size ratio,
-and `minContrast` never objected, because it reads `style.color` and a hidden
+and `minContrast` never objected, because it read `style.color` and a hidden
 element's colour is perfectly legible. An image at `opacity: 0` satisfied "use
 the photo/mountains asset as a background image" for 17 points. Three invisible
 rects bought an "at least five elements" floor for 10.
+
+Closing that door on `opacity: 0` left it open at `opacity: 0.02`, which is the
+same page to a reader and a different number to a check, and colour alpha was a
+second way through since `#ffffff05` and `opacity: 0.05` were never multiplied
+together. So "paints something" is now a threshold rather than a test against
+zero: `VISIBLE_ALPHA`, 5% of full strength, applied to the product of the two.
+Contrast is measured on the colour that lands on the page for the same reason —
+black copy at 3% opacity was scoring 21:1 — and the element floor is gone
+entirely, because a newline is a hard line break and counting elements was
+scoring how the copy had been divided up rather than what was on the page.
 
 **What is in the document** — whether an element was kept, whether its box was
 held still, whether the copy is verbatim, whether anything hangs off the
@@ -474,6 +536,12 @@ answer by luck, and it is not needed once the reward is gone.
   shapes. Exact separation would need a full SAT solve, and "not touching on
   screen" is what is being asked for. When the canvas is too small to separate
   everything, it says so rather than silently giving up.
+- **`marginAtLeast` reads a rotated element that pokes out at both edges as a
+  bleed**, because it runs edge to edge on that axis and bleeding is a
+  decision. On `repair.tilted-stack` — a card tilted until both its sides hang
+  off — the margin check is therefore silent and `inBounds` is what catches it.
+  Narrowing the bleed exemption to *unrotated* elements would fix that case and
+  break the one it exists for, so the task's weights carry the load instead.
 - **`coverage`** unions bounding boxes on a 60×60 occupancy grid rather than by
   exact polygon union, and the grid rounds each element outward to whole cells.
   It is a sanity check on "does this look composed", not a precision

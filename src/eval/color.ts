@@ -113,6 +113,35 @@ function withOpacity(c: Rgba, opacity: number | undefined): Rgba {
 }
 
 /**
+ * The colour a text element's glyphs actually land in, with the element's
+ * opacity folded into the alpha.
+ *
+ * The contrast check read `style.color` on its own, which is the colour the
+ * glyphs would be painted in if the element were fully opaque. It usually is.
+ * When it is not, the number was a fiction: black copy at `opacity: 0.03` on a
+ * white page measured 21:1 — a perfect score for text that is not there. Since
+ * the renderer multiplies the two, so does this.
+ */
+export function effectiveTextColor(el: Element): string {
+  return withElementOpacity(el.style.color ?? "#111111", el);
+}
+
+/**
+ * A colour as the element paints it: its own alpha, scaled by the element's
+ * opacity. The text form of this is `effectiveTextColor`; a shape's fill needs
+ * the same treatment for the same reason.
+ */
+export function withElementOpacity(color: string, el: Element): string {
+  const parsed = parseColor(color);
+  if (!parsed) return color;
+  const withAlpha = withOpacity(parsed, el.style.opacity);
+  const a = Math.round(Math.max(0, Math.min(1, withAlpha.a)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `${toHex(withAlpha)}${a}`;
+}
+
+/**
  * The color a reader perceives behind `el`.
  *
  * Every layer under `el` that covers its center is composited, bottom-up, onto

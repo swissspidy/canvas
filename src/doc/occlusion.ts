@@ -94,13 +94,41 @@ export function inkPolygons(el: Element): Polygon[] {
   return out;
 }
 
-/** True for `transparent` and for any `#rrggbbaa` whose alpha is below `min`. */
-function opaqueEnough(color: string, min: number): boolean {
+/** The alpha a colour string carries: 0 for `transparent`, the `aa` of `#rrggbbaa`, else 1. */
+export function colorAlpha(color: string): number {
   const s = color.trim().toLowerCase();
-  if (s === "transparent") return false;
+  if (s === "transparent") return 0;
   const m = /^#[0-9a-f]{6}([0-9a-f]{2})$/.exec(s);
-  return m ? parseInt(m[1]!, 16) / 255 >= min : true;
+  return m ? parseInt(m[1]!, 16) / 255 : 1;
 }
+
+/**
+ * The alpha a reader actually sees: the colour's own, scaled by the element's
+ * opacity. The two multiply in the renderer and so must multiply here.
+ */
+export function effectiveAlpha(color: string, el: Element): number {
+  return colorAlpha(color) * Math.max(0, el.style.opacity ?? 1);
+}
+
+/**
+ * The alpha below which an element is treated as painting nothing.
+ *
+ * `paintedPolygons` used to ask only whether opacity was above *zero*, which
+ * made `opacity: 0.02` a hole straight through every check that asks what is
+ * on the page. A poster whose every element — the background photograph, the
+ * title, the dates, the venue, the ticket line — is set at 2% opacity is a
+ * blank canvas to any reader, and it scores 93.8% against a starting document
+ * that scores 37.5%: nine tenths of the available improvement, for painting
+ * nothing at all.
+ *
+ * Any threshold here is a judgement call, so it is set where the judgement is
+ * easy: 5% of full strength is below the point where a solid fill is
+ * distinguishable from its background on a normal screen, and far below
+ * anything anyone would set on purpose. A design that wants a whisper of a
+ * texture sets 0.06 and is measured; one that wants to hide something from a
+ * reader while keeping it in the document is not.
+ */
+export const VISIBLE_ALPHA = 0.05;
 
 /**
  * What `el` paints densely enough to hide whatever is under it, as polygons in
@@ -111,6 +139,11 @@ function opaqueEnough(color: string, min: number): boolean {
  * covers; treating it as a solid rectangle would report a caption as buried
  * because a line of large type passes near it. Text therefore occludes through
  * its glyph envelope, plus its own block fill where it has one.
+ *
+ * Opacity and colour alpha are read as one number, not as two hurdles. A 60%
+ * opaque element filled with a 50%-alpha colour paints at 30% and hides
+ * nothing at a 0.5 threshold, but clearing each test separately counted it as
+ * a solid occluder — and reported the text under it as buried.
  */
 export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
   if ((el.style.opacity ?? 1) < minOpacity) return [];
@@ -119,14 +152,14 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
 
   if (el.type === "rect") {
     // A rect with no fill (or a transparent one) paints only its stroke.
-    return opaqueEnough(el.style.fill ?? "#cccccc", minOpacity) ? [corners(el)] : [];
+    return effectiveAlpha(el.style.fill ?? "#cccccc", el) >= minOpacity ? [corners(el)] : [];
   }
 
   // A text block's fill covers the whole box, so it hides everything beneath.
   const fill = el.style.fill;
-  if (fill && opaqueEnough(fill, minOpacity)) return [corners(el)];
+  if (fill && effectiveAlpha(fill, el) >= minOpacity) return [corners(el)];
   if (!el.text) return [];
-  if (!opaqueEnough(el.style.color ?? "#111111", minOpacity)) return [];
+  if (effectiveAlpha(el.style.color ?? "#111111", el) < minOpacity) return [];
   return inkPolygons(el);
 }
 
@@ -136,20 +169,26 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
  * The sibling of `occluderPolygons`, asked from the other side. That one asks
  * "what does this hide?", so it drops anything too faint to hide with; this
  * asks "what does this show?", so a half-opaque band still counts — a reader
- * sees it, and it still crowds an edge. Only a fully transparent element
+ * sees it, and it still crowds an edge. Only an element below `VISIBLE_ALPHA`
  * paints nothing.
+ *
+ * Opacity and colour alpha multiply, because that is what the renderer does:
+ * white at `#ffffff40` inside an element at `opacity: 0.1` is 4% of full
+ * strength however the 4% was arrived at, and an agent that reaches for the
+ * second lever after the first one was closed has not made anything visible.
  *
  * A stroke counts, which is the other place the two differ: an outline is too
  * thin to hide much, and perfectly visible sitting against a canvas edge.
  */
 export function paintedPolygons(el: Element): Polygon[] {
-  if ((el.style.opacity ?? 1) <= 0) return [];
+  const opacity = Math.max(0, el.style.opacity ?? 1);
+  if (opacity < VISIBLE_ALPHA) return [];
 
   const stroked =
     el.style.strokeColor !== undefined &&
-    opaqueEnough(el.style.strokeColor, EPS) &&
+    effectiveAlpha(el.style.strokeColor, el) >= VISIBLE_ALPHA &&
     (el.style.strokeWidth ?? 1) > 0;
-  const filled = el.style.fill !== undefined && opaqueEnough(el.style.fill, EPS);
+  const filled = el.style.fill !== undefined && effectiveAlpha(el.style.fill, el) >= VISIBLE_ALPHA;
 
   if (el.type === "image") return [corners(el)];
   // An undeclared fill is not no fill: the renderer paints a rect grey.
@@ -159,7 +198,7 @@ export function paintedPolygons(el: Element): Polygon[] {
   // A text block's fill and its stroke are both painted on the element box,
   // which already contains every glyph — they are clipped to it.
   if (filled || stroked) return [corners(el)];
-  if (!el.text || !opaqueEnough(el.style.color ?? "#111111", EPS)) return [];
+  if (!el.text || effectiveAlpha(el.style.color ?? "#111111", el) < VISIBLE_ALPHA) return [];
   return inkPolygons(el);
 }
 
