@@ -12,6 +12,7 @@
  */
 
 import type { RunScore } from "../eval/score.js";
+import { isHarnessFailure } from "../agent/events.js";
 import { feedbackLabel, type FeedbackMode } from "../feedback/index.js";
 
 export const BOOTSTRAP_ITERATIONS = 2000;
@@ -197,8 +198,34 @@ export interface ReportOptions {
   includeInteraction?: boolean;
 }
 
-export function buildReport(scores: RunScore[], opts: ReportOptions = {}): string {
-  if (scores.length === 0) return "# No runs\n\nNothing to report.";
+export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): string {
+  if (allScores.length === 0) return "# No runs\n\nNothing to report.";
+
+  // Harness failures are held out of every aggregate below, and only of those.
+  // The stop-reason table at the end still reads from `allScores`, because how
+  // many cells a surface lost to the transport is worth seeing even though it
+  // is not a score.
+  const scores = allScores.filter((s) => !isHarnessFailure(s.stopReason));
+  const lost = allScores.length - scores.length;
+
+  if (scores.length === 0) {
+    return [
+      `# ${opts.title ?? "Surface comparison"}`,
+      "",
+      `All ${allScores.length} run(s) here ended in a harness failure — no request reached a model, or none`,
+      "came back. There is nothing to aggregate: every number this report could print would be a property",
+      "of the starting documents rather than of any agent.",
+      "",
+      `Reasons: ${
+        [...new Set(allScores.map((s) => s.error?.replace(/\s*\.\s*$/, "")).filter(Boolean))]
+          .slice(0, 3)
+          .join("; ") || "unrecorded"
+      }.`,
+      "",
+      "Fix the cause and run the same command again — those cells are not cached as done, so they re-run.",
+      "",
+    ].join("\n");
+  }
 
   const surfaces = [...new Set(scores.map((s) => s.surfaceId))].sort();
   const feedbacks = [...new Set(scores.map((s) => s.feedbackMode))];
@@ -213,6 +240,15 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
       `${models.length} model(s), ${new Set(scores.map((s) => s.taskId)).size} task(s).`,
   );
   out.push("");
+  if (lost > 0) {
+    out.push(
+      `> ${lost} further run(s) ended in a harness failure — an API error or an abort — and are left out of ` +
+        `every table below except **How runs ended**. A run whose request never came back says nothing about ` +
+        `its surface, and averaging it in as an improvement of zero would penalise whichever cells happened ` +
+        `to collide with a rate limit. They are not cached as done: re-run the same command to fill them in.`,
+    );
+    out.push("");
+  }
   out.push(
     "Scores are percentages with a bootstrapped 95% interval. Overlapping intervals mean the " +
       "difference is not resolved at this sample size.",
@@ -439,20 +475,34 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
   out.push("");
 
   // --- how runs ended ---
+  //
+  // Over every run, harness failures included. This is the one table where
+  // they belong: `max_turns` per surface is a pre-registered outcome
+  // (`docs/PREREGISTRATION.md` §5), and a surface losing cells to the
+  // transport at a different rate from its neighbours is a fact about the
+  // sweep that the aggregates above deliberately cannot show.
   out.push("## How runs ended");
   out.push("");
-  const stopReasons = [...new Set(scores.map((s) => s.stopReason))].sort();
+  out.push(
+    "Every run, including the harness failures held out of the tables above. `max_turns` is an outcome — a " +
+      "surface that routinely runs out of turns has told us something — while `api_error` and `aborted` are " +
+      "the sweep failing, not the agent.",
+  );
+  out.push("");
+  const allSurfaces = [...new Set(allScores.map((s) => s.surfaceId))].sort();
+  const stopReasons = [...new Set(allScores.map((s) => s.stopReason))].sort();
   out.push(
     table(
-      ["Surface", ...stopReasons],
-      surfaces.map((surface) => {
-        const rows = scores.filter((s) => s.surfaceId === surface);
+      ["Surface", ...stopReasons, "n"],
+      allSurfaces.map((surface) => {
+        const rows = allScores.filter((s) => s.surfaceId === surface);
         return [
           surface,
           ...stopReasons.map((reason) => {
             const n = rows.filter((r) => r.stopReason === reason).length;
             return n ? `${n} (${pct(n / rows.length)}%)` : "—";
           }),
+          String(rows.length),
         ];
       }),
     ),
@@ -811,7 +861,13 @@ function toolUsageRows(scores: RunScore[]): string[][] {
 }
 
 /** Machine-readable aggregates, for plotting outside this repo. */
-export function buildReportJson(scores: RunScore[]): unknown {
+export function buildReportJson(allScores: RunScore[]): unknown {
+  // Same rule as the markdown report: a run whose request never came back is
+  // not an observation. Counted rather than dropped silently, so a plot built
+  // from this file can show the attrition instead of inheriting it.
+  const scores = allScores.filter((s) => !isHarnessFailure(s.stopReason));
+  const harnessFailures = allScores.filter((s) => isHarnessFailure(s.stopReason));
+
   const dimensions = {
     surface: (s: RunScore) => s.surfaceId,
     feedback: (s: RunScore) => s.feedbackMode,
@@ -893,6 +949,16 @@ export function buildReportJson(scores: RunScore[]): unknown {
   return {
     generatedAt: new Date().toISOString(),
     runs: scores.length,
+    recorded: allScores.length,
+    harnessFailures: {
+      n: harnessFailures.length,
+      bySurface: Object.fromEntries(
+        [...groupBy(harnessFailures, (s) => s.surfaceId)].map(([k, v]) => [k, v.length]),
+      ),
+      byStopReason: Object.fromEntries(
+        [...groupBy(harnessFailures, (s) => s.stopReason)].map(([k, v]) => [k, v.length]),
+      ),
+    },
     bootstrap: { iterations: BOOTSTRAP_ITERATIONS, seed: BOOTSTRAP_SEED },
     aggregates,
   };

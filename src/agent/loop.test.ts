@@ -7,6 +7,8 @@ import { getTask } from "../tasks/index.js";
 import { defineTask } from "../tasks/types.js";
 import { blank } from "../tasks/helpers.js";
 import { containsText } from "../eval/checks.js";
+import { hasRasterizer, setRasterizer } from "../render/rasterizer.js";
+import { rasterize } from "../render/raster.js";
 
 const trivialTask = defineTask({
   id: "test.trivial",
@@ -146,6 +148,39 @@ describe("agent loop", () => {
     const r = await result;
     expect(r.stopReason).toBe("api_error");
     expect(r.error).toMatch(/connection reset/);
+  });
+
+  /**
+   * The opening message rasterizes the starting document under the screenshot
+   * conditions, and it used to be built before the loop's own try block — so a
+   * rasterizer that died on one document threw straight out of `runAgent`,
+   * past every stop reason it is supposed to return. A sweep runs thousands of
+   * these; a function whose whole contract is "returns a result saying how the
+   * run ended" has to keep it when the failure is in its own first step.
+   */
+  it("reports a failure building the opening message as a run outcome", async () => {
+    const model = createScriptedModel(fixedScript([{ text: "unreached" }]));
+    // A rasterizer that dies on this document, which is the realistic shape of
+    // the failure: the backend is registered, and one render blows up.
+    const previous = hasRasterizer();
+    setRasterizer(() => {
+      throw new Error("resvg exploded");
+    });
+    const r = await runAgent({
+      runId: "test",
+      task: trivialTask,
+      surface: coordinateSurface,
+      feedback: createFeedbackChannel("screenshot", { screenshotWidth: 200 }),
+      model: MODEL,
+      languageModel: model,
+    }).finally(() => setRasterizer(previous ? rasterize : null));
+    expect(r.stopReason).toBe("api_error");
+    expect(r.error).toMatch(/resvg exploded/);
+    expect(r.turns).toBe(0);
+    // Nothing was asked of the model, and the run still scores against the
+    // document it never touched.
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(r.finalDoc).toEqual(r.initialDoc);
   });
 
   it("accumulates usage, splitting cached from uncached input, and prices it", async () => {

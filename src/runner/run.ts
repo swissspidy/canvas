@@ -21,13 +21,13 @@ import { getSurface } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { runAgent } from "../agent/loop.js";
-import { DEFAULT_MODEL, type Effort } from "../agent/models.js";
+import { DEFAULT_MODEL, getModel, type Effort } from "../agent/models.js";
 import { dryRunModel } from "../agent/scripted.js";
 import { judgeRun, DEFAULT_JUDGE_MODEL } from "../eval/judge.js";
-import { scoreRun, type RunScore } from "../eval/score.js";
+import { baselineFor, normalize, scoreDocument, scoreRun, type RunScore } from "../eval/score.js";
 import { renderStandaloneSvg } from "../render/svg.js";
 import { rasterize } from "../render/raster.js";
-import type { AgentEvent } from "../agent/events.js";
+import { isHarnessFailure, type AgentEvent } from "../agent/events.js";
 
 export interface SweepConfig {
   /** Output directory for everything this sweep produces. */
@@ -164,11 +164,36 @@ export function loadExistingScores(paths: SweepPaths): Map<string, RunScore> {
     if (!line.trim()) continue;
     try {
       const score = JSON.parse(line) as RunScore;
+      // Last write wins, so a cell retried after a rate limit supersedes the
+      // failure rather than being shadowed by it.
       map.set(score.runId, score);
     } catch {
       // A truncated final line is what an interrupted sweep leaves behind.
       // Skipping it re-runs one cell, which is the cheap and correct repair.
     }
+  }
+  return map;
+}
+
+/**
+ * The finished cells, which is not the same set as the recorded ones.
+ *
+ * A cell that ended in `api_error` or `aborted` is on disk — every run is, so
+ * nothing that was paid for is thrown away — but it is not a result, and
+ * treating it as one turns the resume mechanism into a trap. The first sweep
+ * hits a rate limit on forty cells; the second sweep skips those forty as
+ * "already done"; the report averages them in as forty runs that improved
+ * nothing. The failures are sticky, silent, and land wherever the rate limiter
+ * happened to fall rather than where the surfaces differ.
+ *
+ * So resume retries them. The cost of re-running a cell that really was
+ * hopeless is one more failure; the cost of not retrying is a permanent hole
+ * in the grid that reads as data.
+ */
+export function completedScores(paths: SweepPaths): Map<string, RunScore> {
+  const map = loadExistingScores(paths);
+  for (const [runId, score] of map) {
+    if (isHarnessFailure(score.stopReason)) map.delete(runId);
   }
   return map;
 }
@@ -197,7 +222,7 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
   writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
 
   const cells = expandMatrix(config);
-  const existing = config.force ? new Map<string, RunScore>() : loadExistingScores(paths);
+  const existing = config.force ? new Map<string, RunScore>() : completedScores(paths);
   const results: RunScore[] = [];
   let index = 0;
 
@@ -215,7 +240,16 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
       }
 
       progress.onCellStart?.(cell, i, cells.length);
-      const score = await runCell(cell, config, paths, (event) => progress.onEvent?.(cell, event));
+      // One cell's bad day is not the sweep's. `runAgent` already turns a
+      // failed request into a scored run, but everything around it — the
+      // judge's rasterizer, the render written to disk, the disk itself — can
+      // still throw, and an unhandled rejection here would take down every
+      // other worker mid-flight and lose whatever they had already paid for.
+      // Hundreds of cells in, that is the difference between a retry and an
+      // afternoon.
+      const score = await runCell(cell, config, paths, (event) => progress.onEvent?.(cell, event)).catch(
+        (err: unknown) => harnessFailureScore(cell, err),
+      );
       results.push(score);
       // Appended as each cell finishes, so an interrupted sweep keeps its work.
       appendFileSync(paths.scoresFile, `${JSON.stringify(score)}\n`);
@@ -226,6 +260,51 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
   const workers = Array.from({ length: Math.max(1, config.concurrency) }, worker);
   await Promise.all(workers);
   return results;
+}
+
+/**
+ * A cell that fell over outside the agent loop, recorded as the harness
+ * failure it is.
+ *
+ * Scored against the starting document, because that is what is on the page:
+ * nothing ran. It carries `api_error`, so `completedScores` will hand it back
+ * to the next pass and the report will keep it out of the aggregates — the
+ * same treatment a failed request gets, which is what this is.
+ */
+function harnessFailureScore(cell: Cell, err: unknown): RunScore {
+  const { score, results } = scoreDocument(cell.task.initial(), cell.task);
+  const baseline = baselineFor(cell.task);
+  return {
+    runId: cell.runId,
+    taskId: cell.task.id,
+    taskFamily: cell.task.family,
+    surfaceId: cell.surface,
+    feedbackMode: cell.feedback,
+    model: cell.model,
+    stopReason: "api_error",
+    error: err instanceof Error ? err.message : String(err),
+    constraintScore: score,
+    checkResults: results,
+    judgeCriteriaScore: null,
+    judgeOverallScore: null,
+    judgeSummary: null,
+    composite: score,
+    baselineScore: baseline,
+    normalizedScore: normalize(score, baseline),
+    efficiency: {
+      turns: 0,
+      toolCalls: 0,
+      failedToolCalls: 0,
+      failureRate: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+      pricingKnown: getModel(cell.model).priced,
+      wallMs: 0,
+    },
+    toolUsage: {},
+  };
 }
 
 async function runCell(
@@ -242,8 +321,10 @@ async function runCell(
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.maxTokens ? { maxTokens: config.maxTokens } : {}),
-    // A dry run needs a model that never reaches the network.
-    ...(config.dryRun ? { languageModel: dryRunModel() } : {}),
+    // A dry run needs a model that never reaches the network — and one that
+    // speaks this surface's vocabulary, or the wiring check never gets as far
+    // as a tool call.
+    ...(config.dryRun ? { languageModel: dryRunModel(cell.surface) } : {}),
     onEvent,
   });
 

@@ -161,7 +161,25 @@ Fixed in advance so the write-up cannot negotiate with itself later.
   unvalidated secondary measure and the constraint score carries the argument.
 - **Incomplete runs** are scored on the document they left behind. They are not
   dropped, and `max_turns` rates are reported per surface — a surface that
-  routinely runs out of turns has told us something.
+  routinely runs out of turns has told us something. `max_tokens` and `refusal`
+  are treated the same way and for the same reason: the model was given a
+  surface and a budget, and that is what it did with them.
+- **Harness failures are not runs.** A cell that ends in `api_error` or
+  `aborted` — an overloaded endpoint, an expired key, a dropped socket, a
+  Ctrl-C — never reached a model or never came back from one. The document is
+  as the task left it, so scoring it would enter a 0% improvement for whichever
+  cells happened to collide with a rate limit, and 828 cells against a
+  rate-limited API will produce some. They are excluded from every aggregate,
+  counted in the report, and **re-run rather than cached as finished**, so
+  resuming a sweep fills the holes instead of freezing them. The attrition
+  count is reported per surface alongside the stop reasons: a surface losing
+  cells at a different rate from its neighbours is a fact about the sweep worth
+  seeing, even though it is not a score.
+
+  This is a rule about the *harness*, not about the agent, and it is the one
+  place where a run is dropped rather than scored. It is written down here
+  because "which runs count" is exactly the decision that must not be made
+  after seeing the results.
 
 ---
 
@@ -264,8 +282,16 @@ cannot be estimated honestly in advance:
 npm run cli -- run --tasks fit --repeats 1 --out runs/pilot
 ```
 
-That is 48 runs; multiply its reported mean cost by the grid sizes above.
-`--estimate` prints cell counts without spending anything.
+That is 60 runs — the `fit` family is 5 tasks × 3 surfaces × 4 feedback
+conditions — and `--estimate`, run afterwards against the same `--out`,
+multiplies its mean cost by the grid sizes above rather than making you do it:
+
+```bash
+npm run cli -- run --repeats 3 --out runs/pilot --estimate
+```
+
+`--estimate` makes no request and needs no API key, so the grid can be priced
+before deciding which providers to get keys for.
 
 ---
 
@@ -419,3 +445,25 @@ existed only to bound the difference between the two loops; with one loop there
 is no such difference to bound, and 324 runs' worth of budget is freed. Nothing
 in the hypotheses, the primary outcome, the analysis plan or the decision rules
 changes, and no run against a real model had been made when this was written.
+
+**2026-09-18 (fourth entry) — harness failures are not runs.** Written before
+any run against a real model, from a pilot rehearsal that never reached one.
+
+§5 said what to do with an incomplete run and nothing about a cell that never
+reached a model at all. The runner had been treating the two alike: a cell that
+ended in `api_error` was appended to `scores.jsonl`, pooled into every
+aggregate as a run that improved nothing, and — because run ids encode the cell
+and the resume path read every recorded id as finished — skipped forever after.
+A sweep that met a rate limit on forty cells kept forty zeros, and they landed
+wherever the limiter fell rather than where the surfaces differ.
+
+Three things follow, and §5 now states them: such a cell is excluded from the
+aggregates, counted in the report, and re-run on the next pass. The stop-reason
+table still shows it, because attrition that differs by surface is worth
+seeing. `max_turns`, `max_tokens` and `refusal` are unaffected — they are
+outcomes, and are scored on the document left behind exactly as before.
+
+Nothing in the question, the hypotheses, the primary outcome or the analysis
+plan changes. It narrows what counts as an observation, in the direction of
+counting fewer things, and it is written down now because deciding which runs
+count *after* seeing them is the move this document exists to prevent.

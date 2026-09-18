@@ -229,9 +229,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     doc: initialDoc,
   });
 
-  const messages: ModelMessage[] = [
-    { role: "user", content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback)) },
-  ];
+  const messages: ModelMessage[] = [];
 
   let usage: TokenUsage = { ...ZERO_USAGE };
   const turnRecords: TurnRecord[] = [];
@@ -241,6 +239,17 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
   let turn = 0;
 
   try {
+    // Inside the try: building the opening message rasterizes the starting
+    // document under the screenshot conditions, and a rasterizer that is
+    // missing or that chokes on a document would otherwise throw straight past
+    // every stop reason below — out of `runAgent` entirely, as an exception
+    // from a function whose whole contract is that it returns a result saying
+    // how the run ended.
+    messages.push({
+      role: "user",
+      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback)),
+    });
+
     for (turn = 1; turn <= maxTurns; turn++) {
       if (config.signal?.aborted) {
         stopReason = "aborted";

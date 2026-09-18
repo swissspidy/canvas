@@ -492,3 +492,81 @@ describe("resume fingerprint", () => {
     }
   });
 });
+
+/**
+ * A run that never reached a model is not an observation of anything.
+ *
+ * It is the failure mode a real sweep produces most of: 828 cells against a
+ * rate-limited API, three repeats each, and a handful of 429s is the normal
+ * afternoon. Pooled in at the baseline they read as runs that improved
+ * nothing, and they land wherever the rate limiter happened to fall rather
+ * than where the surfaces differ — so they would quietly penalise whichever
+ * surface was unlucky.
+ */
+describe("harness failures in the report", () => {
+  const mixed = (): RunScore[] => [
+    ...syntheticScores(0.2),
+    score({ taskId: "task-0", surfaceId: "coordinate", stopReason: "api_error", normalizedScore: 0, error: "overloaded_error" }),
+    score({ taskId: "task-1", surfaceId: "coordinate", stopReason: "api_error", normalizedScore: 0, error: "overloaded_error" }),
+    score({ taskId: "task-2", surfaceId: "relational", stopReason: "aborted", normalizedScore: 0 }),
+  ];
+
+  it("leaves them out of the aggregates", () => {
+    const clean = syntheticScores(0.2);
+    const withFailures = mixed();
+    // The three extra rows change nothing, because they are not counted.
+    expect(buildReport(withFailures)).toContain("| coordinate |");
+    const a = buildReport(clean).slice(buildReport(clean).indexOf("## By tool surface"));
+    const b = buildReport(withFailures).slice(buildReport(withFailures).indexOf("## By tool surface"));
+    expect(b.slice(0, b.indexOf("## How runs ended"))).toBe(a.slice(0, a.indexOf("## How runs ended")));
+  });
+
+  it("counts them at the top, so the hole in the grid is visible", () => {
+    const md = buildReport(mixed());
+    expect(md).toContain("3 further run(s) ended in a harness failure");
+    expect(md).toContain("not cached as done");
+    // The run count is of the usable runs, not of the rows on disk.
+    expect(md).toContain(`${syntheticScores(0.2).length} runs —`);
+  });
+
+  it("still shows them in the stop-reason table, where attrition belongs", () => {
+    const section = buildReport(mixed()).slice(buildReport(mixed()).indexOf("## How runs ended"));
+    expect(section).toContain("api_error");
+    expect(section).toContain("aborted");
+    // Percentages there are over every run for that surface, failures included.
+    expect(section).toContain("| n |");
+  });
+
+  it("keeps max_turns as an outcome rather than a failure", () => {
+    const withBudgetExhaustion = [
+      ...syntheticScores(0.2),
+      score({ taskId: "task-0", surfaceId: "coordinate", stopReason: "max_turns", normalizedScore: 0.1 }),
+    ];
+    const md = buildReport(withBudgetExhaustion);
+    expect(md).not.toContain("ended in a harness failure");
+    expect(md).toContain("max_turns");
+  });
+
+  it("refuses to invent a comparison when every run failed", () => {
+    const md = buildReport([
+      score({ taskId: "t", surfaceId: "coordinate", stopReason: "api_error", error: "API key is invalid." }),
+      score({ taskId: "t", surfaceId: "relational", stopReason: "api_error", error: "API key is invalid." }),
+    ]);
+    expect(md).toContain("ended in a harness failure");
+    expect(md).toContain("API key is invalid.");
+    expect(md).not.toContain("## By tool surface");
+  });
+
+  it("reports the count in the JSON, so a plot can show the attrition", () => {
+    const json = buildReportJson(mixed()) as {
+      runs: number;
+      recorded: number;
+      harnessFailures: { n: number; bySurface: Record<string, number>; byStopReason: Record<string, number> };
+    };
+    expect(json.runs).toBe(syntheticScores(0.2).length);
+    expect(json.recorded).toBe(json.runs + 3);
+    expect(json.harnessFailures.n).toBe(3);
+    expect(json.harnessFailures.bySurface).toEqual({ coordinate: 2, relational: 1 });
+    expect(json.harnessFailures.byStopReason).toEqual({ api_error: 2, aborted: 1 });
+  });
+});

@@ -31,7 +31,7 @@ Node 24 — `nvm use` picks it up from `.nvmrc`.
 
 ```bash
 npm install
-npm test                      # 360+ tests, no API key needed
+npm test                      # 560+ tests, no API key needed
 npm run serve                 # live page at http://localhost:5173
 ```
 
@@ -75,9 +75,9 @@ npm run cli -- surfaces                     # the surfaces and their tools
 npm run cli -- show repair.overlapping-stack  # a task's brief, start state and baseline
 npm run cli -- render fit.long-headline     # render a starting document to PNG
 
-npm run cli -- run --estimate               # matrix size, no spending
+npm run cli -- run --estimate               # matrix size, no key needed, no spending
 npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted model, no API calls
-npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot
+npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot: 60 runs
 ```
 
 ### The whole grid
@@ -119,6 +119,15 @@ resumes without re-paying for finished work — just run the same command with
 the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
 judge) are fingerprinted, and resuming after changing one is refused rather
 than silently averaged.
+
+**A cell that never reached a model is not a run.** An overloaded endpoint, an
+expired key, a dropped socket: the document is as the task left it, so counting
+it as a run that improved nothing would penalise whichever cells happened to
+collide with a rate limit. Those cells are kept on disk, kept out of every
+aggregate, counted at the top of the report, and — crucially — **not recorded
+as finished**, so running the same command again retries exactly them. One
+cell falling over no longer takes the sweep down with it either; the other
+workers' in-flight cells used to be abandoned unrecorded.
 
 ---
 

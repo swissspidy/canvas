@@ -34,6 +34,32 @@ export type StopReason =
   | "api_error"
   | "aborted";
 
+/**
+ * Stop reasons that are the harness failing rather than the agent finishing.
+ *
+ * The distinction decides two things, and getting it wrong is expensive in
+ * both directions. `max_turns`, `max_tokens` and `refusal` are *outcomes*: the
+ * model was handed a surface and a budget and that is what it did with them,
+ * so they are scored on the document left behind and pooled into the results
+ * exactly as `docs/PREREGISTRATION.md` §5 says. `api_error` and `aborted` are
+ * not outcomes at all — a 529 from an overloaded endpoint, an expired key, a
+ * dropped socket, a Ctrl-C. The document is untouched and the run says nothing
+ * about the surface, so counting it as a 0%-improvement observation would let
+ * whichever cells happened to collide with a rate limit drag their surface
+ * down.
+ *
+ * So a harness failure is never cached as a finished cell (the sweep retries
+ * it on the next pass) and never enters an aggregate (the report counts them
+ * separately and says so). They stay in `scores.jsonl` and in the report's
+ * stop-reason table, because an attrition rate that differs by surface is
+ * itself worth seeing.
+ */
+export const HARNESS_FAILURES: readonly StopReason[] = ["api_error", "aborted"];
+
+export function isHarnessFailure(reason: string): boolean {
+  return (HARNESS_FAILURES as readonly string[]).includes(reason);
+}
+
 export type EventSink = (event: AgentEvent) => void;
 
 export const noopSink: EventSink = () => {};
