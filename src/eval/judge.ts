@@ -128,7 +128,10 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
   content.push(imagePart(input.finalDoc));
   content.push(
     textPart(
-      `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nScore every criterion, then give an overall rating.`,
+      `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n` +
+        `Return exactly ${input.criteria.length} ${input.criteria.length === 1 ? "entry" : "entries"} in \`criteria\`: ` +
+        `one for each numbered criterion above and none of your own, each copying its criterion verbatim. ` +
+        `The overall rating goes in the separate \`overall\` field — it is not one of the criteria.`,
     ),
   );
 
@@ -212,15 +215,43 @@ function normalizeCriterion(s: string): string {
  * agree (a model that paraphrases usually keeps the order), and refuse
  * anything else. A refusal sets `error`, which keeps the judge out of the
  * composite entirely rather than blending in a number built on the wrong set.
+ *
+ * Two kinds of trailing row are dropped rather than refused, because neither
+ * names a criterion at all and neither can be a paraphrase of one. Models
+ * append them often enough to discard most of a sweep's judgements otherwise,
+ * and a discard still costs what the call cost.
+ *
+ *   - A row named "overall": the separate `overall` field restated as though
+ *     it were a criterion.
+ *   - A row with no criterion name, which arrives blank throughout — no name,
+ *     no reason, a filler score of 1. Scoring nothing, it belongs in no mean.
+ *
+ * Dropping either leaves a set that still lines up one-for-one with the
+ * criteria requested, which is the property this function exists to guarantee.
+ * Anything else that does not line up is refused exactly as before.
  */
+const OVERALL_ROW = new Set(["overall", "overall rating", "overall score", "overall quality"]);
+
 export function alignCriteria(
   requested: string[],
-  returned: { criterion: string; score: number }[],
+  entries: { criterion: string; score: number }[],
 ): { scores: number[] } | { error: string } {
   if (requested.length === 0) return { error: "No criteria were given to the judge." };
-  if (returned.length === 0) return { error: "Judge returned no criterion scores." };
+  if (entries.length === 0) return { error: "Judge returned no criterion scores." };
+
+  // Dropped only when doing so reconciles the count, and never when the task
+  // itself asked about something by that name.
+  const asked = new Set(requested.map(normalizeCriterion));
+  const notACriterion = (criterion: string): boolean => {
+    const key = normalizeCriterion(criterion);
+    if (asked.has(key)) return false;
+    return key === "" || OVERALL_ROW.has(key);
+  };
+  const returned =
+    entries.length === requested.length + 1 ? entries.filter((e) => !notACriterion(e.criterion)) : entries;
+
   if (returned.length !== requested.length) {
-    return { error: `Judge scored ${returned.length} criteria; ${requested.length} were asked for.` };
+    return { error: `Judge scored ${entries.length} criteria; ${requested.length} were asked for.` };
   }
 
   const byText = new Map<string, number[]>();

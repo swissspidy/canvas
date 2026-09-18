@@ -609,6 +609,20 @@ describe("the judge", () => {
     expect(result.costUsd).toBeCloseTo((1000 * 5 + 100 * 25) / 1e6, 9);
   });
 
+  // A live Opus judge appended a row it called "overall" to `criteria` on four
+  // of five tasks, duplicating the separate `overall` field. Every one of those
+  // judgements was paid for and then discarded on the count. The mocked model
+  // always returns the right set, so only the prompt can head this off.
+  it("asks for exactly the criteria it was given, and says where the overall rating goes", async () => {
+    const { model } = await judge(fullMarks(3));
+    const call = model.doGenerateCalls[0]!;
+    const prompt = JSON.stringify(call.prompt);
+    expect(prompt).toContain(`Return exactly ${task.judgeCriteria.length} entries`);
+    expect(prompt).toContain("none of your own");
+    expect(prompt).toMatch(/overall rating goes in the separate `overall` field/);
+
+  });
+
   it("shows the judge the brief, the before and the after — and nothing about the run", async () => {
     const { model } = await judge(fullMarks(3));
     const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
@@ -619,16 +633,28 @@ describe("the judge", () => {
     expect(prompt).not.toMatch(/coordinate|relational|feedback|screenshot condition|turns/i);
   });
 
-  // The schema cannot enforce "copy each criterion verbatim", and a mean taken
-  // over the wrong set is 40% of a composite that looks fine.
+  // A mean taken over the wrong set is 40% of a composite that looks fine, and
+  // two different things can produce one. The pinned count stops a short answer
+  // from parsing at all; the alignment catches what a count cannot see — a
+  // right-sized set that names the wrong criteria. Both keep the judge out.
   it("keeps itself out of the score when it grades a different set of criteria", async () => {
-    const { result } = await judge({
+    const short = await judge({
       criteria: [{ criterion: task.judgeCriteria[0]!, score: 5, reason: "because" }],
       overall: 5,
       summary: "Short.",
     });
-    expect(result.error).toMatch(/scored 1 criteria/);
-    expect(result.criteriaScore).toBe(0);
+    expect(short.result.error).toBeTruthy();
+    expect(short.result.criteriaScore).toBe(0);
+
+    // The right number of entries, all naming the first criterion: one scored
+    // repeatedly and the rest never scored. Only the alignment sees this.
+    const duplicated = await judge({
+      criteria: task.judgeCriteria.map(() => ({ criterion: task.judgeCriteria[0]!, score: 5, reason: "because" })),
+      overall: 5,
+      summary: "Short.",
+    });
+    expect(duplicated.result.error).toMatch(/more than once/);
+    expect(duplicated.result.criteriaScore).toBe(0);
   });
 
   it("reports a model that answers with nothing usable as a failed judgement", async () => {
@@ -641,6 +667,34 @@ describe("the judge", () => {
 describe("judge criterion alignment", () => {
   const asked = ["Is it legible?", "Is the hierarchy clear?", "Does it read as a poster?"];
   const entry = (criterion: string, score: number) => ({ criterion, score });
+
+  it("drops a trailing 'overall' row rather than discarding the judgement over it", () => {
+    // The live failure: every requested criterion scored verbatim, plus the
+    // overall rating repeated as a criterion. The mean is over the asked set.
+    const aligned = alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), entry("Overall", 1)]);
+    expect(aligned).toEqual({ scores: [3, 4, 5] });
+  });
+
+  it("never drops an 'overall' row that the task actually asked about", () => {
+    // The drop exists for a row nobody asked for. Where "Overall" is itself a
+    // criterion, the duplicate is a real ambiguity and the judgement is refused
+    // rather than quietly resolved in one of the two possible directions.
+    const withOverall = [...asked, "Overall"];
+    const aligned = alignCriteria(withOverall, [...withOverall.map((c) => entry(c, 4)), entry("Overall", 2)]);
+    expect(aligned).toMatchObject({ error: expect.stringContaining("scored 5 criteria") });
+  });
+
+  it("drops a wholly blank trailing row", () => {
+    // Observed live: criterion "", reason "", score 1. It scores nothing.
+    const aligned = alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), entry("", 1)]);
+    expect(aligned).toEqual({ scores: [3, 4, 5] });
+  });
+
+  it("still refuses an extra row that is not the overall rating", () => {
+    expect(alignCriteria(asked, [...asked.map((c) => entry(c, 5)), entry("Bonus", 5)])).toMatchObject({
+      error: expect.stringContaining("scored 4 criteria"),
+    });
+  });
 
   it("lines up verbatim criteria in any order", () => {
     const aligned = alignCriteria(asked, [entry(asked[2]!, 5), entry(asked[0]!, 3), entry(asked[1]!, 4)]);
