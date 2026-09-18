@@ -1008,9 +1008,16 @@ export function fontSizeAtLeast(min: number, weight = 1, selector?: Selector): C
       if (size < min) offenders.push(`${el.id} (${round(size)})`);
     }
     return {
-      // Half the floor bottoms out. Below that the distinction between "too
-      // small" and "very much too small" stops being worth grading.
-      score: gradeDefect(Math.max(0, min - worst), 0, min / 2),
+      // A quarter below the floor bottoms out, and the narrowness is the
+      // point. The brief states a number, so being under it is a violation
+      // rather than a near miss — and the cheap path in this family is to
+      // undershoot it by a little and fit. On `fit.body-overflow`, shrinking
+      // to 22 against a stated floor of 24 fits the box the agent was given
+      // and scored 97.4%, against 100% for finding the room: two and a half
+      // points for ignoring the constraint, on a study trying to resolve
+      // differences of five. Still graded, because 23 and 9 are not the same
+      // failure.
+      score: gradeDefect(Math.max(0, min - worst), 0, min / 4),
       detail: offenders.length ? `Too small: ${offenders.join(", ")}` : `Smallest text ${round(worst)} units.`,
     };
   });

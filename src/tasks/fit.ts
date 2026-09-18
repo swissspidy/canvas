@@ -219,7 +219,7 @@ export const fitTasks = [
       noTextClipping(6, ["headline", "para"]),
       // Without a floor this task has a one-line solution on every surface:
       // set the headline to 12 units and it fits.
-      fontSizeAtLeast(48, 3, ["headline"]),
+      fontSizeAtLeast(48, 4, ["headline"]),
       fontSizeAtLeast(26, 1, ["para"]),
       noOverlap(["headline", "para"], 2),
       inRegion(["headline"], { x0: 0.3, y0: 0.15, x1: 0.7, y1: 0.45 }, 1, "The headline box stays put"),
@@ -249,7 +249,7 @@ export const fitTasks = [
       noTextClipping(6, ["title", "body", "caption"]),
       // There is room on this page: the body box ends at 520 and the caption
       // starts at 1180. Finding it is the task; shrinking to 9 units was not.
-      fontSizeAtLeast(24, 3, ["body"]),
+      fontSizeAtLeast(24, 4, ["body"]),
       verticalOrder(["title", "body", "caption"], 2),
       noOverlap(["title", "body", "caption"], 2),
       inRegion(["caption"], { x0: 0, y0: 0.7, x1: 1, y1: 1 }, 1, "The caption stays at the bottom"),
@@ -283,7 +283,7 @@ export const fitTasks = [
       // three sizes in one column. That is three fixes, not one treatment, and
       // only the judge could see it.
       sameFontSize(["one", "two", "three"], 3),
-      fontSizeAtLeast(30, 2, ["one", "two", "three"]),
+      fontSizeAtLeast(30, 3, ["one", "two", "three"]),
       verticalOrder(["one", "two", "three"], 2),
       noOverlap(["one", "two", "three"], 2),
       alignedOn("left", ["one", "two", "three"], 2, 1),
@@ -312,7 +312,7 @@ export const fitTasks = [
     checks: [
       preservesElements(["photo", "caption", "rule", "footer"], 1),
       noTextClipping(6, ["caption", "footer"]),
-      fontSizeAtLeast(26, 2, ["caption"]),
+      fontSizeAtLeast(26, 3, ["caption"]),
       // "without moving the photo or the footer, and without covering either".
       // Two loose region bands were standing in for the first half, and
       // nothing at all was watching the second: growing the caption box up
@@ -351,7 +351,7 @@ export const fitTasks = [
       // take is the size both have to be, so the two cannot be solved
       // independently. `fit_text` on each, one at a time, gets this wrong.
       sameFontSize(["left_col", "right_col"], 3),
-      fontSizeAtLeast(24, 2, ["left_col", "right_col"]),
+      fontSizeAtLeast(24, 3, ["left_col", "right_col"]),
       // "same x, same y, same width". Left free, the two columns can simply be
       // moved apart down the page, which is a one-column spread wearing a
       // two-column brief and makes the shared size constraint vacuous.

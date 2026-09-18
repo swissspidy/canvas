@@ -307,6 +307,93 @@ describe("buildReport", () => {
   });
 });
 
+/**
+ * The check results were computed for every run and never read. This is the
+ * section that reads them, and what it has to get right is the sort: a check
+ * every surface fails equally is a hard task, and a check one surface fails
+ * alone is the reason one surface won.
+ */
+describe("the per-check breakdown", () => {
+  const check = (id: string, label: string, s: number) => ({
+    id,
+    label,
+    weight: 1,
+    score: s,
+    detail: "",
+    passed: s >= 0.999,
+  });
+
+  /** `margin` separates the surfaces; `contrast` fails for everyone equally. */
+  function withChecks(): RunScore[] {
+    const rows: RunScore[] = [];
+    for (let t = 0; t < 3; t++) {
+      for (const [surface, margin] of [
+        ["coordinate", 0.2],
+        ["relational", 0.9],
+      ] as const) {
+        rows.push(
+          score({
+            taskId: `task-${t}`,
+            surfaceId: surface,
+            checkResults: [
+              check("margin", "Elements keep a 24 unit margin", margin),
+              check("contrast", "Text contrast is at least 4.5:1", 0.5),
+              check("preserved", "Existing elements are kept", 1),
+            ],
+          }),
+        );
+      }
+    }
+    return rows;
+  }
+
+  it("puts the check that separates the surfaces first", () => {
+    const md = buildReport(withChecks());
+    const section = md.slice(md.indexOf("## Which constraints separated the surfaces"));
+    expect(section.indexOf("| margin ")).toBeLessThan(section.indexOf("| contrast "));
+    expect(section).toMatch(/\| margin \|.*\| 70\.0pt \|/);
+  });
+
+  // A check nothing fails is measuring a defect nobody introduced, which is
+  // what the baseline is for. A table of them buries the ones doing work.
+  it("leaves out a check every run passed", () => {
+    const section = buildReport(withChecks());
+    expect(section).not.toMatch(/\| preserved \|/);
+  });
+
+  it("says so plainly when nothing failed at all", () => {
+    const clean = withChecks().map((s) => ({
+      ...s,
+      checkResults: s.checkResults.map((r) => ({ ...r, score: 1, passed: true })),
+    }));
+    expect(buildReport(clean)).toMatch(/Every check passed in every run/);
+  });
+
+  it("carries the same numbers into the JSON, cut three ways", () => {
+    const json = buildReportJson(withChecks()) as {
+      aggregates: { check: Record<string, { mean: number; bySurface: Record<string, { mean: number }>; byFeedback: unknown; byTask: unknown }> };
+    };
+    const margin = json.aggregates.check.margin!;
+    expect(margin.mean).toBeCloseTo(0.55, 6);
+    expect(margin.bySurface.coordinate!.mean).toBeCloseTo(0.2, 6);
+    expect(margin.bySurface.relational!.mean).toBeCloseTo(0.9, 6);
+    expect(Object.keys(margin.byTask as object)).toHaveLength(3);
+    expect(margin.byFeedback).toBeTruthy();
+  });
+
+  // A surface that never met a check has no score for it, and reporting the
+  // range over the surfaces that did would call an absence a difference.
+  it("does not report a spread when a surface never saw the check", () => {
+    const rows = withChecks();
+    const onlyCoordinate = rows.map((s) =>
+      s.surfaceId === "relational" ? { ...s, checkResults: s.checkResults.filter((r) => r.id !== "margin") } : s,
+    );
+    const md = buildReport(onlyCoordinate);
+    const line = md.split("\n").find((l) => l.startsWith("| margin "))!;
+    expect(line).toMatch(/\| — \|$/);
+  });
+});
+
 describe("resume fingerprint", () => {
   const base = {
     outDir: "runs/x",

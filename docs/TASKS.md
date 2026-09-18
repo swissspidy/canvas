@@ -44,11 +44,11 @@ headline improvement metric.
 | repair | `repair.crowded-margins` | 67.2% | 30 | 10 |
 | repair | `repair.tilted-stack` | 56.5% | 25 | 10 |
 | repair | `repair.mixed-defects` | 54.0% | 35 | 14 |
-| fit | `fit.long-headline` | 65.0% | 20 | 11 |
-| fit | `fit.body-overflow` | 63.2% | 20 | 10 |
-| fit | `fit.three-overflowing` | 66.7% | 25 | 11 |
-| fit | `fit.caption-under-image` | 63.2% | 20 | 9 |
-| fit | `fit.two-column` | 69.6% | 25 | 13 |
+| fit | `fit.long-headline` | 66.7% | 20 | 11 |
+| fit | `fit.body-overflow` | 65.0% | 20 | 10 |
+| fit | `fit.three-overflowing` | 68.2% | 25 | 11 |
+| fit | `fit.caption-under-image` | 65.0% | 20 | 9 |
+| fit | `fit.two-column` | 70.8% | 25 | 13 |
 | restyle | `restyle.palette-swap` | 69.6% | 25 | 11 |
 | restyle | `restyle.dark-mode` | 66.7% | 25 | 12 |
 | arrange | `arrange.ragged-column` | 44.4% | 25 | 10 |
@@ -213,6 +213,15 @@ full marks at `fontSize: 9` — four hundred words of 9-unit type on a 1080-unit
 canvas. With a floor, the agent has to find the room instead, which is the
 problem the family exists to pose.
 
+The floor has to bite sharply, and it did not at first. `fontSizeAtLeast`
+graded from the stated floor down to half of it, so *undershooting by a little*
+was nearly free: 22 units against a stated floor of 24 fits the box the agent
+was handed and scored 97.4%, three points off the honest fix. It grades over a
+quarter of the floor now — 20 units against a floor of 24 closes 62% of the
+available headroom rather than 87% — and the floors carry weight 3–4. The
+gradation that matters is still there: on `fit.body-overflow` the plausible
+outcomes span 0%, 43%, 56%, 62% and 100%.
+
 `fit.caption-under-image` is the hard one: the caption cannot simply grow
 downwards, because the rule and the footer are directly beneath it and must not
 move. It cannot grow upwards either — `notCovered` watches the photograph,
@@ -303,7 +312,7 @@ Task-specific checks:
 | `typeHierarchy` | Ratio of largest to smallest font size, id-free |
 | `textSizeOrder` | Named *copy* in decreasing font size — `fontSizeOrder` without the ids |
 | `fontSizeOrder` | Named elements in decreasing font size |
-| `fontSizeAtLeast` | Nothing set below a legible size |
+| `fontSizeAtLeast` | Nothing set below a legible size, graded over a quarter of the floor |
 | `rotationWithin` | Elements sit at the angle the brief asks for, measured the short way round |
 | `sameRotation` | A group shares one angle, whatever it is |
 | `sameFontSize` | A group of blocks treated as one, at one size |

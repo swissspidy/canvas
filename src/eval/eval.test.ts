@@ -769,13 +769,18 @@ describe("the checks that close a loophole", () => {
       const ok = fontSizeAtLeast(24).run(doc(copy("body", "Notes on repair", { fontSize: 24 })));
       expect(ok.score).toBe(1);
 
-      const small = fontSizeAtLeast(24).run(doc(copy("body", "Notes on repair", { fontSize: 18 })));
-      expect(small.score).toBeGreaterThan(0);
-      expect(small.score).toBeLessThan(1);
+      // Graded in between: 21 against a floor of 24 is half a failure, and 23
+      // is a rounding error rather than a violation.
+      const small = fontSizeAtLeast(24).run(doc(copy("body", "Notes on repair", { fontSize: 21 })));
+      expect(small.score).toBeCloseTo(0.5, 6);
       expect(small.detail).toMatch(/body/);
+      expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 23 }))).score).toBeGreaterThan(0.8);
 
-      // Half the floor bottoms out, which is where "shrink until it fits"
-      // lands: 9-unit body copy on a 1000-unit canvas.
+      // A quarter below the floor bottoms out. The narrowness is deliberate:
+      // the cheap path in the `fit` family is to undershoot a stated floor by
+      // a couple of units and fit the box that way, and a gentle grade made
+      // that nearly as good as finding the room.
+      expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 18 }))).score).toBe(0);
       expect(fontSizeAtLeast(24).run(doc(copy("body", "Notes", { fontSize: 9 }))).score).toBe(0);
     });
 

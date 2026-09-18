@@ -258,6 +258,13 @@ it never introduced. The headline metric is the share of available headroom clos
 for changing nothing, 100% for satisfying everything, and negative for making
 the document worse.
 
+**The report says which constraint each surface failed.** Every check result is
+pooled across tasks and cut by surface, sorted by the spread between them — a
+check every surface fails equally is a hard task, and a check one surface fails
+alone is the reason it lost. It is exploratory: those checks were never
+pre-registered one by one, so the table explains a result rather than
+establishing one.
+
 **A blinded judge** scores intent — does this read as a poster, is the
 hierarchy sensible — and only intent. It never sees the surface, feedback
 condition, model, turn count or cost. A stratified human-rated subset validates

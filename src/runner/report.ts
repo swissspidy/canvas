@@ -434,6 +434,10 @@ export function buildReport(scores: RunScore[], opts: ReportOptions = {}): strin
     out.push("");
   }
 
+  // --- which constraints separated the surfaces ---
+  out.push(checkBreakdown(scores, surfaces));
+  out.push("");
+
   // --- how runs ended ---
   out.push("## How runs ended");
   out.push("");
@@ -689,6 +693,89 @@ function spreadComparison(scores: RunScore[], surfaces: string[], feedbacks: str
   return `Spread across surfaces: ${pct(surfaceSpread)} points. Spread across feedback conditions: ${pct(feedbackSpread)} points. ${verdict}`;
 }
 
+/**
+ * Which deterministic constraint each surface actually failed.
+ *
+ * The check results were being computed for every run, stored on every score,
+ * written to `scores.jsonl` — and never read. So the cheapest, most
+ * deterministic answer to *why* a surface won was missing from the report, and
+ * `docs/PREREGISTRATION.md` §11 sent that question to reading transcripts
+ * instead. A transcript tells you what an agent said it was doing; this tells
+ * you what it left on the page.
+ *
+ * Sorted by the **spread** across surfaces rather than by how often the check
+ * fails, because a check every surface fails equally is a hard task and a
+ * check one surface fails alone is the finding. A check that every surface
+ * satisfies is left out entirely: it is measuring a defect nobody introduced,
+ * which is what a baseline is for.
+ *
+ * Pooled across tasks, which is the compromise this table makes. A check id
+ * means the same *kind* of question everywhere (`margin` is always a margin)
+ * but not the same threshold — `marginAtLeast(24)` and `marginAtLeast(64)` are
+ * one row here. It is a place to look, not a result; the per-task numbers are
+ * in `scores.jsonl` for anyone who wants to cut it finer.
+ *
+ * This is exploratory by construction and §11 says so: it is a breakdown over
+ * checks that were never pre-registered one by one, so it explains a result
+ * rather than establishing one.
+ */
+function checkBreakdown(scores: RunScore[], surfaces: string[]): string {
+  const ids = [...new Set(scores.flatMap((s) => s.checkResults.map((r) => r.id)))];
+
+  const rows: { id: string; label: string; overall: number; bySurface: (number | null)[]; spread: number }[] = [];
+  for (const id of ids) {
+    const all = scores.flatMap((s) => s.checkResults.filter((r) => r.id === id));
+    if (all.length === 0) continue;
+    const bySurface = surfaces.map((surface) => {
+      const rowsFor = scores
+        .filter((s) => s.surfaceId === surface)
+        .flatMap((s) => s.checkResults.filter((r) => r.id === id));
+      return rowsFor.length ? mean(rowsFor.map((r) => r.score)) : null;
+    });
+    const present = bySurface.filter((v): v is number => v !== null);
+    rows.push({
+      id,
+      label: all[0]!.label,
+      overall: mean(all.map((r) => r.score)),
+      bySurface,
+      // Only comparable when every surface met the check; a check one surface
+      // never saw would otherwise report a spread that is really an absence.
+      spread: present.length === surfaces.length ? Math.max(...present) - Math.min(...present) : 0,
+    });
+  }
+
+  // A check nothing ever fails is a check that is not doing any work in this
+  // grid, and a table of them buries the ones that are.
+  const interesting = rows.filter((r) => r.overall < 0.999).sort((a, b) => b.spread - a.spread || a.overall - b.overall);
+  if (interesting.length === 0) {
+    return ["## Which constraints separated the surfaces", "", "Every check passed in every run.", ""].join("\n");
+  }
+
+  const out: string[] = [];
+  out.push("## Which constraints separated the surfaces");
+  out.push("");
+  out.push(
+    "Mean score per check, pooled across tasks, for every check that something failed. Sorted by the " +
+      "spread between surfaces: the top of this table is where the surfaces actually differ, and a check " +
+      "every surface fails equally is a hard task rather than a finding. Exploratory — these are not " +
+      "pre-registered comparisons.",
+  );
+  out.push("");
+  out.push(
+    table(
+      ["Check", "What it measures", "All", ...surfaces, "Spread"],
+      interesting.map((r) => [
+        r.id,
+        r.label,
+        `${pct(r.overall)}%`,
+        ...r.bySurface.map((v) => (v === null ? "—" : `${pct(v)}%`)),
+        r.spread > 0 ? `${pct(r.spread)}pt` : "—",
+      ]),
+    ),
+  );
+  return out.join("\n");
+}
+
 function toolUsageRows(scores: RunScore[]): string[][] {
   const rows: string[][] = [];
   for (const [surface, group] of groupBy(scores, (s) => s.surfaceId)) {
@@ -733,7 +820,38 @@ export function buildReportJson(scores: RunScore[]): unknown {
     cell: (s: RunScore) => `${s.model}|${s.surfaceId}|${s.feedbackMode}`,
   };
 
-  const aggregates: Record<string, Record<string, unknown>> = {};
+  // Per check, pooled across tasks and cut by surface and feedback. The same
+  // numbers the report's constraint table shows, in a shape a plot can read.
+  const checkIds = [...new Set(scores.flatMap((s) => s.checkResults.map((r) => r.id)))];
+  const byCheck: Record<string, unknown> = {};
+  for (const id of checkIds) {
+    const all = scores.flatMap((s) => s.checkResults.filter((r) => r.id === id));
+    if (all.length === 0) continue;
+    const cut = (key: (s: RunScore) => string): Record<string, { n: number; mean: number; passRate: number }> => {
+      const out: Record<string, { n: number; mean: number; passRate: number }> = {};
+      for (const [group, rows] of groupBy(scores, key)) {
+        const results = rows.flatMap((s) => s.checkResults.filter((r) => r.id === id));
+        if (results.length === 0) continue;
+        out[group] = {
+          n: results.length,
+          mean: mean(results.map((r) => r.score)),
+          passRate: results.filter((r) => r.passed).length / results.length,
+        };
+      }
+      return out;
+    };
+    byCheck[id] = {
+      label: all[0]!.label,
+      n: all.length,
+      mean: mean(all.map((r) => r.score)),
+      passRate: all.filter((r) => r.passed).length / all.length,
+      bySurface: cut((s) => s.surfaceId),
+      byFeedback: cut((s) => s.feedbackMode),
+      byTask: cut((s) => s.taskId),
+    };
+  }
+
+  const aggregates: Record<string, Record<string, unknown>> = { check: byCheck };
   for (const [name, key] of Object.entries(dimensions)) {
     const byKey: Record<string, unknown> = {};
     for (const [group, rows] of groupBy(scores, key)) {

@@ -275,7 +275,12 @@ Reported as exploratory, never as confirmatory, however tempting the numbers:
 - The `hybrid` surface, including which vocabulary agents reach for when given
   both. This is descriptive.
 - Per-task results, as opposed to per-family.
-- Anything about *why* a surface failed, drawn from reading transcripts.
+- Anything about *why* a surface failed, drawn from reading transcripts, or
+  from the report's per-check breakdown. That table pools every deterministic
+  check across tasks and sorts by the spread between surfaces, which makes it
+  the first place to look when a headline result needs explaining — and it is
+  a breakdown over checks that were never pre-registered one by one, so it
+  explains a result rather than establishing one.
 - Anything obtained by driving the surfaces over WebMCP. Every feedback
   condition is enforceable there, but it runs on a polyfill rather than a
   browser implementation, and whether a screenshot reaches the model depends on
@@ -363,10 +368,22 @@ a problem:
    moves the floor and the ceiling together; it changes resolution, not rank.
 3. Every weight is in version control with a comment saying what it is for.
 
-**The weights are frozen as of this entry.** Changing one after the first
-confirmatory run is a deviation and gets its own entry here, with the affected
-analysis re-run from scratch. If a weight turns out to be wrong, the honest
-move is to say so in the write-up, not to re-cut the score.
+One threshold moved in the same pass, and it is the reason this entry is worth
+reading rather than filing. `fontSizeAtLeast` graded from the stated floor down
+to half of it, which made undershooting a floor almost free: on
+`fit.body-overflow`, setting the body to 22 against a stated floor of 24 fits
+the box the agent was handed and scored **97.4%**, against 100% for finding the
+room — two and a half points for ignoring a constraint the brief states, in a
+study whose decision rule calls a five-point difference the threshold of
+interest. It now grades over a quarter of the floor, and the same document
+scores 93.3%; a run that shrinks to 20 goes from 86.7% to 62% of the available
+headroom. The floors are weighted 3–4 rather than 2–3 for the same reason.
+
+**The weights and the grading thresholds are frozen as of this entry.**
+Changing one after the first confirmatory run is a deviation and gets its own
+entry here, with the affected analysis re-run from scratch. If a weight turns
+out to be wrong, the honest move is to say so in the write-up, not to re-cut
+the score.
 
 **2026-09-18 — the task set hardened, and three tasks added.** Written before
 any run against a real model, so nothing below was chosen after seeing results.
