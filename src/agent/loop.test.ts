@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { APICallError } from "ai";
 import { runAgent } from "./loop.js";
 import { createScriptedModel, fixedScript, type ScriptedTurn } from "./scripted.js";
 import { coordinateSurface, documentSurface, relationalSurface } from "../surfaces/index.js";
@@ -148,6 +149,29 @@ describe("agent loop", () => {
     const r = await result;
     expect(r.stopReason).toBe("api_error");
     expect(r.error).toMatch(/connection reset/);
+  });
+
+  // A sweep is thousands of requests against a rate-limited provider, so a
+  // 429 is the ordinary case. The SDK's default of two short retries turned
+  // one into a dead cell — every turn already paid for, forfeited — where
+  // waiting it out costs seconds. The scripted model counts a retry as a
+  // fresh call, so a script that fails once and then answers proves the loop
+  // asked for the retry rather than the SDK's default.
+  it("retries a rate-limited request instead of giving the cell up", async () => {
+    const rateLimited = new APICallError({
+      message: "rate limited",
+      url: "https://example.invalid",
+      requestBodyValues: {},
+      statusCode: 429,
+      // The SDK backs off two seconds before the first retry; a header makes
+      // it not wait, so the test stays fast without changing what is tested.
+      responseHeaders: { "retry-after-ms": "1" },
+    });
+    const { result } = run("none", [{ throws: rateLimited }, { text: "Done after the retry." }]);
+    const r = await result;
+    expect(r.stopReason).toBe("completed");
+    expect(r.turns).toBe(1);
+    expect(JSON.stringify(r.transcript)).toContain("Done after the retry.");
   });
 
   /**
@@ -369,6 +393,32 @@ describe("model configuration", () => {
     expect(system?.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
   });
 
+  // The conversation grows by a turn every turn and is re-sent in full each
+  // time, so a breakpoint on its newest message is what keeps a thirty-turn
+  // run from paying for turn one thirty times. Exactly one, and on the newest
+  // message: a provider allows four, and a stale one buys nothing.
+  it("moves the conversation's cache breakpoint to the newest message each turn", async () => {
+    const { model, result } = run("structured", [
+      { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+      { tools: [{ name: "move", input: { id: "el_1", x: 5, y: 5 } }] },
+      { text: "done" },
+    ]);
+    await result;
+    expect(model.doGenerateCalls.length).toBe(3);
+    for (const call of model.doGenerateCalls) {
+      const conversation = messagesOf(call).filter((m) => m.role !== "system") as {
+        role: string;
+        providerOptions?: { anthropic?: { cacheControl?: unknown } };
+      }[];
+      const marked = conversation.filter((m) => m.providerOptions?.anthropic?.cacheControl !== undefined);
+      expect(marked).toHaveLength(1);
+      expect(marked[0]).toBe(conversation.at(-1));
+      expect(marked[0]!.providerOptions?.anthropic?.cacheControl).toEqual({ type: "ephemeral" });
+    }
+    // The last call's newest message is the tool result carrying the feedback.
+    expect(messagesOf(model.doGenerateCalls.at(-1)!).at(-1)!.role).toBe("tool");
+  });
+
   it("sends every tool the surface declares, and nothing else", async () => {
     const { model, result } = run("none", [{ text: "done" }], relationalSurface);
     await result;
@@ -493,6 +543,44 @@ describe("transcripts", () => {
     const r = await result;
     expect(r.stopReason).toBe("max_tokens");
     expect(JSON.stringify(r.transcript)).not.toContain("I was halfway through saying");
+  });
+
+  // Anthropic attaches an opaque signature of several kilobytes to every
+  // reasoning block so it can be sent back verbatim. It is a payload, not a
+  // transcript, and a thirty-turn run would otherwise carry a hundred
+  // kilobytes of it.
+  it("elides reasoning signatures", async () => {
+    const signature = "sig_".padEnd(4000, "x");
+    const model = createScriptedModel((turn) =>
+      turn === 1
+        ? { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] }
+        : { text: "Done." },
+    );
+    // Splice a signed reasoning part into what the model returns, the way the
+    // Anthropic adapter does.
+    const inner = model.doGenerate;
+    model.doGenerate = async (options) => {
+      const out = await inner(options);
+      return {
+        ...out,
+        content: [
+          { type: "reasoning", text: "thinking it over", providerMetadata: { anthropic: { signature } } },
+          ...out.content,
+        ],
+      };
+    };
+    const r = await runAgent({
+      runId: "signed",
+      task: trivialTask,
+      surface: coordinateSurface,
+      feedback: createFeedbackChannel("none"),
+      model: MODEL,
+      languageModel: model,
+    });
+    const json = JSON.stringify(r.transcript);
+    expect(json).toContain("thinking it over");
+    expect(json).not.toContain(signature);
+    expect(json).toContain("base64 chars elided");
   });
 
   it("elides base64 image payloads", async () => {

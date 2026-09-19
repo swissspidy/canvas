@@ -224,6 +224,22 @@ difference in reasoning depth is therefore **confounded with** the model
 difference, and the write-up must say so wherever a cross-provider comparison
 appears.
 
+The same mapping also sets a different **output ceiling** per model, and it
+does so inside one provider, so the Claude ladder in §10 carries it too. Every
+turn is sent with `maxOutputTokens: 16000`. For a model with adaptive thinking
+(Opus 5, Sonnet 5) the SDK sends that as the request's `max_tokens` and the
+thinking counts inside it. For a model that takes a thinking *budget* instead
+(Haiku 4.5) the SDK sizes the budget from the model's own maximum output and
+adds it on top: the request goes out as `max_tokens: 54,400` with
+`budget_tokens: 38,400`, as captured from a live request. The ceiling on
+visible output is 16,000 for every model; the ceiling on thinking is not, and
+a `max_tokens` stop (§5) is therefore measured against a different limit on
+Haiku than on the other two. Levelling it would take a per-provider thinking
+setting, which is the invented mapping this section exists to avoid, so it is
+recorded here instead: a difference in `max_tokens` rates across the ladder is
+partly the ceiling, and the write-up must say so. The confirmatory grid runs on
+one model and is unaffected.
+
 ---
 
 ## 7. What "we could not pin the sampling" means
@@ -258,6 +274,7 @@ a refusal.
 | A judge that knows the condition | The judge is built from the task and the render only. Surface, feedback, model, turns and cost never enter its prompt. |
 | The harness differing between models | There is one agent loop, on the AI SDK, and every model goes through it — Claude included. No comparison in this study spans two harnesses, so there is no harness difference left to bound. |
 | Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
+| The output ceiling differing by model | The SDK adds a thinking budget on top of `maxOutputTokens` for models without adaptive thinking and not for those with it, so Haiku 4.5 runs under a 54,400-token ceiling and Opus 5 and Sonnet 5 under 16,000 (§6). Stated, not levelled; `max_tokens` rates across the ladder are read with it in mind. The confirmatory grid is one model. |
 | Cost comparisons across unpriced models | A model absent from `MODELS` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
 | A task satisfiable without doing the work it describes | Every cheap path found so far — invisible elements, a document faded out of existence, shrinking type out of legibility, shortening copy, hiding the layer that is in the way, a background image that is not a background, deleting an element and recreating it under a new id — is asserted in `src/tasks/tasks.test.ts` to score below the honest fix. |
@@ -464,6 +481,48 @@ existed only to bound the difference between the two loops; with one loop there
 is no such difference to bound, and 324 runs' worth of budget is freed. Nothing
 in the hypotheses, the primary outcome, the analysis plan or the decision rules
 changes, and no run against a real model had been made when this was written.
+
+**2026-09-19 — the first runs against a real model, and what changed after
+them.** Every entry above was written before any run against a real model.
+This one was not: on this date the pipeline was rehearsed live for the first
+time, on four tasks (`fit.long-headline`, `repair.overlapping-stack`,
+`compose.festival-poster`, `arrange.card-grid`) across the three confirmatory
+surfaces, on Haiku 4.5, Sonnet 5 and Opus 5, thirty runs in all, judge
+included. They are pilots in the sense of §10, kept out of every grid, and
+they are named here because the discipline of this document is that anything
+decided after seeing a real result says so.
+
+Three things changed after them, none of which touches the question, the
+hypotheses, the primary outcome, the analysis plan or the decision rules:
+
+1. The loop now caches the growing conversation as well as the instructions,
+   and retries a rate-limited request six times rather than twice. Both are
+   about what a sweep costs and whether its cells survive, not about what any
+   cell scores: a cache read returns the same tokens, and a retry re-sends
+   the same request. `docs/DESIGN.md` has the reasoning.
+2. §6 and §8 now state that the output ceiling differs by model — 16,000
+   tokens with thinking inside it on Opus 5 and Sonnet 5, 54,400 with a
+   38,400-token thinking budget on Haiku 4.5 — which the pilot found by
+   capturing the request the SDK actually sends. It was true before the pilot
+   and unstated; it is a confound of the exploratory model ladder and is now
+   written down as one.
+3. A run's saved transcript no longer carries the provider's reasoning
+   signatures, which are payloads rather than prose.
+
+What the pilots showed is also recorded, because it bears on §12. On
+twenty-nine of the thirty runs, under both the `none` and `both` feedback
+conditions, every surface satisfied every deterministic check: improvement was
+100%, and only the judge score and the cost moved. The thirtieth — the
+relational surface on `compose.festival-poster` with no feedback — left a
+line of the ticket copy clipped and closed 94% of the headroom. Five tasks on
+the two strongest models is not the grid, and the pilot tasks were not chosen
+to be hard — but it is the first evidence on the risk §12 names, that every
+cell ties, and it says the ceiling on the constraint score is the first thing
+the full grid has to be read for. If the confirmatory grid saturates the same
+way, the primary outcome cannot separate the surfaces on that model, and the
+honest result is that one, with the judge and cost carrying whatever remains
+— not a re-cut of the checks to manufacture headroom after the fact. No
+check, weight or threshold was changed in response.
 
 **2026-09-18 (fourth entry) — harness failures are not runs.** Written before
 any run against a real model, from a pilot rehearsal that never reached one.

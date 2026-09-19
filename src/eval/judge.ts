@@ -24,6 +24,7 @@ import { rasterize } from "../render/raster.js";
 import {
   costUsd,
   getModel,
+  MAX_RETRIES,
   resolveLanguageModel,
   tokenUsage,
   ZERO_USAGE,
@@ -155,6 +156,7 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       model: input.languageModel ?? resolveLanguageModel(model),
       schema: zJudgement,
       maxOutputTokens: 4000,
+      maxRetries: MAX_RETRIES,
       instructions: {
         role: "system",
         content: JUDGE_SYSTEM,

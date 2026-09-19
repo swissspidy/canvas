@@ -212,6 +212,25 @@ export const MODELS: Record<string, ModelSpec> = {
   }),
 };
 
+/**
+ * How many times a request is retried before the turn is given up as an
+ * `api_error`.
+ *
+ * The SDK's default is two, with delays of two and four seconds, which is the
+ * right default for an interactive call and the wrong one for a sweep: at
+ * twelve workers against one provider a rate limit is a matter of when, and a
+ * cell that dies six seconds into a 429 burst forfeits every turn it had
+ * already paid for and goes back in the queue to pay for them again. Six
+ * retries back off to just over two minutes in total, and the SDK honours a
+ * `retry-after` header inside that, so a burst is waited out rather than
+ * turned into attrition. Only retryable failures are retried — 408, 409, 429
+ * and 5xx — so a bad key or a malformed request still fails at once.
+ *
+ * Shared with the judge, whose one call per cell lands on the same provider at
+ * the same moment the sweep's other workers do.
+ */
+export const MAX_RETRIES = 6;
+
 export const DEFAULT_MODEL = "anthropic:claude-opus-5";
 
 /**

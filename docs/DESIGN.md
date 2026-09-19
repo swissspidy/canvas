@@ -359,6 +359,36 @@ paid for once across a sweep rather than once per run. It is set through
 no such knob never read it, so the portable path keeps the Anthropic-specific
 saving.
 
+The conversation carries a second breakpoint, on its newest message, and the
+loop moves it forward every turn. Every turn re-sends every earlier one — the
+brief, the JSON, each call and result, and under the screenshot conditions a
+PNG per turn — so with only the prefix cached the input bill is quadratic in
+the turn count; on a five-turn Opus pilot the re-sent conversation was two
+thirds of the cell's cost. A breakpoint on the newest message lets the next
+turn read everything before it at the cached rate. Only the newest message
+carries one, because a provider allows four and a run has thirty turns, and
+the provider finds the previous turn's entry as a prefix of the new one. A
+cache read returns the same tokens, so nothing the model sees changes.
+
+**Retries.** A request is retried up to six times, backing off from two
+seconds to just over two minutes in total and honouring a `retry-after`
+header, and only on the failures a retry can help — 408, 409, 429 and 5xx. The
+SDK's default of two is right for an interactive call and wrong for a sweep:
+at twelve workers against one provider a rate limit is a matter of when, and a
+cell that dies six seconds into a 429 burst forfeits every turn it had paid
+for and goes back in the queue to pay for them again. What survives the
+retries is an `api_error`, which `docs/PREREGISTRATION.md` §5 keeps out of the
+aggregates and the runner re-runs on the next pass.
+
+**The output ceiling is not the same number on every model.** Every turn is
+sent with `maxOutputTokens: 16000`, and the SDK's reasoning mapping turns that
+into `max_tokens: 16000` with thinking inside it on a model with adaptive
+thinking (Opus 5, Sonnet 5), and into `max_tokens: 54,400` with a 38,400-token
+thinking budget on one that takes a budget instead (Haiku 4.5). Levelling it
+would mean a per-provider thinking setting, which is the invented mapping the
+pre-registration rules out, so it is stated there (§6, §8) as a confound of the
+model ladder rather than fixed here.
+
 **One structural wrinkle.** An `error-text` tool output carries no content
 array, so in a turn where *every* call was rejected the feedback follows in a
 user message instead of riding on the tool result. That costs one extra message

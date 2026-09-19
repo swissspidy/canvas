@@ -50,6 +50,7 @@ import {
   addUsage,
   costUsd,
   getModel,
+  MAX_RETRIES,
   reasoningFor,
   resolveLanguageModel,
   tokenUsage,
@@ -129,6 +130,21 @@ export interface RunResult {
   transcript: unknown[];
 }
 
+/**
+ * The `maxOutputTokens` every turn is sent with.
+ *
+ * What the provider makes of it is not the same for every model, and the
+ * difference is worth knowing before reading a `max_tokens` rate across a
+ * model ladder. For a model with adaptive thinking (Opus 5, Sonnet 5) the AI
+ * SDK sends this number as `max_tokens` and the thinking counts inside it. For
+ * a model that takes a thinking *budget* instead (Haiku 4.5) the SDK sizes the
+ * budget from the model's own maximum output and adds it on top, so the
+ * request goes out as `max_tokens: 54,400` with `budget_tokens: 38,400`. The
+ * ceiling on visible output is therefore this number for every model; the
+ * ceiling on thinking is not. `docs/PREREGISTRATION.md` §6 records this as a
+ * confound of the cross-model comparison alongside the effort mapping it comes
+ * from.
+ */
 const DEFAULT_MAX_TOKENS = 16_000;
 
 /** Every surface tool, declared with no executor so the loop keeps control. */
@@ -145,6 +161,9 @@ function buildToolSet(surface: ToolSurface): ToolSet {
   return tools;
 }
 
+/** Where the provider's cache breakpoint sits on a message. */
+const CACHEABLE = { anthropic: { cacheControl: { type: "ephemeral" } } } as const;
+
 /**
  * The instructions for a surface.
  *
@@ -157,8 +176,35 @@ function instructionsFor(surface: ToolSurface): SystemModelMessage {
   return {
     role: "system",
     content: systemPrompt(surface),
-    providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    providerOptions: CACHEABLE,
   };
+}
+
+/**
+ * Move the conversation's cache breakpoint to its newest message.
+ *
+ * The instructions are cached once per surface; the conversation is what
+ * grows. Every turn re-sends every earlier turn — the brief, the JSON, each
+ * tool call, each result, and under the screenshot conditions a PNG per turn
+ * — and with only the prefix cached, all of that is billed at the full input
+ * rate every time. Over a run that is quadratic in the turn count, and on a
+ * five-turn Opus pilot it was already two thirds of the cell's cost.
+ *
+ * A breakpoint on the newest message caches everything up to it, so the next
+ * turn reads the whole conversation so far at the cached rate and pays full
+ * price only for what that turn added. The provider looks back from a
+ * breakpoint for the longest cached prefix, so moving it forward each turn
+ * hits the previous turn's entry rather than missing it; and only the newest
+ * message carries one, because a provider allows four and a run has thirty
+ * turns. Nothing the model sees changes — a cache read returns the same
+ * tokens — so this is a bill, not a variable.
+ */
+function moveCacheBreakpoint(messages: ModelMessage[]): void {
+  for (const message of messages) {
+    if (message.providerOptions === CACHEABLE) delete message.providerOptions;
+  }
+  const last = messages[messages.length - 1];
+  if (last) last.providerOptions = CACHEABLE;
 }
 
 type ContentPart =
@@ -186,7 +232,11 @@ function redact(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      const isPayload = (key === "image" || key === "data") && typeof v === "string" && v.length > 256;
+          // Image bytes, and the opaque signature a provider attaches to each
+      // reasoning block so the block can be sent back — several kilobytes a
+      // turn that nothing reading a transcript can use.
+      const isPayload =
+        (key === "image" || key === "data" || key === "signature") && typeof v === "string" && v.length > 256;
       out[key] = isPayload ? `<${(v as string).length} base64 chars elided>` : redact(v);
     }
     return out;
@@ -268,12 +318,14 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         emit({ type: "surface_switch", turn, from, to: surface.id });
       }
 
+      moveCacheBreakpoint(messages);
       const result = await generateText({
         model: languageModel,
         instructions: instructionsFor(surface),
         messages,
         tools,
         maxOutputTokens: maxTokens,
+        maxRetries: MAX_RETRIES,
         // One provider-neutral scale, mapped per provider by the SDK rather
         // than by a mapping invented here. See `src/agent/models.ts`.
         reasoning: reasoningFor(effort),
@@ -310,7 +362,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
       // saying, so the run ends here and is recorded as truncated.
       if (result.finishReason === "length") {
         stopReason = "max_tokens";
-        error = `Turn ${turn} hit the output limit (${maxTokens}) before finishing.`;
+        error = `Turn ${turn} stopped at the output limit before finishing (maxOutputTokens ${maxTokens}).`;
         emit({ type: "error", message: error, fatal: true });
         record(result.toolCalls.length);
         break;
