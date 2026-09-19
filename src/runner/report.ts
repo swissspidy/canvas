@@ -19,7 +19,7 @@ export const BOOTSTRAP_ITERATIONS = 2000;
 export const BOOTSTRAP_SEED = 20260916;
 
 /** Deterministic PRNG so reports are reproducible. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -57,13 +57,18 @@ export interface Interval {
  * interval that is too narrow. Anything reported over runs goes through
  * `clusterBootstrapCI`, which is what `docs/PREREGISTRATION.md` specifies.
  */
-export function bootstrapCI(values: number[], iterations = BOOTSTRAP_ITERATIONS, alpha = 0.05): Interval {
+export function bootstrapCI(
+  values: number[],
+  iterations = BOOTSTRAP_ITERATIONS,
+  alpha = 0.05,
+  seed = BOOTSTRAP_SEED,
+): Interval {
   const n = values.length;
   const m = mean(values);
   if (n === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
   if (n === 1) return { mean: m, low: m, high: m, n, sd: 0 };
 
-  const rand = mulberry32(BOOTSTRAP_SEED + n);
+  const rand = mulberry32(seed + n);
   const means: number[] = new Array(iterations);
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -93,6 +98,7 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   clusterOf: (item: T) => string = (s) => s.taskId,
   iterations = BOOTSTRAP_ITERATIONS,
   alpha = 0.05,
+  seed = BOOTSTRAP_SEED,
 ): Interval {
   const clusters = [...groupBy(items, clusterOf).values()].map((rows) => mean(rows.map(valueOf)));
   const k = clusters.length;
@@ -100,7 +106,7 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   if (k === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
   if (k === 1) return { mean: observed, low: observed, high: observed, n: items.length, sd: 0 };
 
-  const rand = mulberry32(BOOTSTRAP_SEED + k * 7919);
+  const rand = mulberry32(seed + k * 7919);
   const means: number[] = new Array(iterations);
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -114,6 +120,77 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
 }
 
 /**
+ * Exact two-sided sign-flip test over per-task deltas.
+ *
+ * The percentile bootstrap does not hold its nominal rate over a handful of
+ * clusters. At two deltas its interval is bounded by the two observations
+ * themselves, so it excludes zero whenever both happen to share a sign — which
+ * is half the time under the null, not one time in twenty. `src/runner/power.ts`
+ * measures it: 52.8% false positives at two tasks, 22.5% at three, 16.0% at
+ * five, against 4.8% at the pooled twenty-three.
+ *
+ * That matters because `docs/PREREGISTRATION.md` §4 breaks the grid down by
+ * family and by the two rotation tasks as *confirmatory* comparisons, and those
+ * run on two to seven tasks.
+ *
+ * Under the null the two conditions are exchangeable within a task, so each
+ * delta is as likely to have come out negative as positive. Enumerating every
+ * assignment of signs gives the exact null distribution of the mean — no
+ * asymptotics, no resampling, correct at every cluster count including two.
+ *
+ * The honesty this buys is `floorP`. With `k` deltas there are `2^k`
+ * assignments and the observed one always ties with its own mirror, so no
+ * arrangement of the data can produce a two-sided p below `2 / 2^k`. At two
+ * tasks that floor is 0.5 and at five it is 0.0625: **those breakdowns cannot
+ * return a significant result at all**, whatever the data does. A bootstrap
+ * hides that behind an interval that looks like any other; this states it.
+ * Six tasks is the smallest breakdown that can clear 0.05.
+ */
+export interface SignFlipResult {
+  /** Two-sided p for the mean delta. */
+  p: number;
+  /** The smallest two-sided p this many pairs can produce, whatever the data. */
+  floorP: number;
+  /** True when every sign assignment was enumerated rather than sampled. */
+  exact: boolean;
+}
+
+/** Beyond this many deltas, 2^k assignments stop being worth enumerating. */
+export const SIGN_FLIP_EXHAUSTIVE_LIMIT = 12;
+
+export function signFlipTest(deltas: number[], iterations = BOOTSTRAP_ITERATIONS, seed = BOOTSTRAP_SEED): SignFlipResult {
+  const k = deltas.length;
+  if (k === 0) return { p: 1, floorP: 1, exact: true };
+
+  const floorP = Math.min(1, 2 / 2 ** k);
+  const observed = Math.abs(deltas.reduce((sum, d) => sum + d, 0));
+
+  if (k <= SIGN_FLIP_EXHAUSTIVE_LIMIT) {
+    let atLeastAsExtreme = 0;
+    // Bit `i` of `mask` flips the sign of delta `i`.
+    for (let mask = 0; mask < 1 << k; mask++) {
+      let sum = 0;
+      for (let i = 0; i < k; i++) sum += (mask & (1 << i)) === 0 ? deltas[i]! : -deltas[i]!;
+      // `>=` with a tolerance: the observed assignment and its mirror must both
+      // count, and floating-point addition in a different order will not always
+      // reproduce the observed sum to the last bit.
+      if (Math.abs(sum) >= observed - 1e-9) atLeastAsExtreme++;
+    }
+    return { p: atLeastAsExtreme / 2 ** k, floorP, exact: true };
+  }
+
+  const rand = mulberry32(seed + k * 31);
+  let atLeastAsExtreme = 0;
+  for (let i = 0; i < iterations; i++) {
+    let sum = 0;
+    for (let j = 0; j < k; j++) sum += rand() < 0.5 ? deltas[j]! : -deltas[j]!;
+    if (Math.abs(sum) >= observed - 1e-9) atLeastAsExtreme++;
+  }
+  // The +1s keep a sampled p away from zero: no finite sample proves p = 0.
+  return { p: (atLeastAsExtreme + 1) / (iterations + 1), floorP, exact: false };
+}
+
+/**
  * Paired difference between two conditions, matched within task.
  *
  * Tasks differ enormously in difficulty, and every condition sees every task,
@@ -121,6 +198,15 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
  * An interval that excludes zero is what `docs/PREREGISTRATION.md` counts as a
  * resolved difference.
  */
+/**
+ * How a paired difference decides whether it is resolved.
+ *
+ * `bootstrap` is the pre-registered rule and stays the default, so every
+ * existing report keeps its numbers. `permutation` is for the breakdowns the
+ * bootstrap cannot serve — see `signFlipTest`.
+ */
+export type ResolutionMethod = "bootstrap" | "permutation";
+
 export interface PairedDifference {
   a: string;
   b: string;
@@ -131,6 +217,22 @@ export interface PairedDifference {
   /** Tasks where both conditions have at least one run. */
   pairs: number;
   resolved: boolean;
+  method: ResolutionMethod;
+  /**
+   * Two-sided sign-flip p.
+   *
+   * Only computed when that is the rule being applied — enumerating or
+   * sampling sign assignments is real work, and a bootstrap comparison has no
+   * use for the number.
+   */
+  pValue?: number;
+  /**
+   * The smallest two-sided p this many pairs could produce.
+   *
+   * Above 0.05 the comparison cannot return a resolved result whatever the
+   * data shows, and a report that does not say so is hiding the reason.
+   */
+  floorP: number;
 }
 
 export function pairedDifference(
@@ -140,6 +242,8 @@ export function pairedDifference(
   b: string,
   valueOf: (s: RunScore) => number = (s) => s.normalizedScore,
   iterations = BOOTSTRAP_ITERATIONS,
+  seed = BOOTSTRAP_SEED,
+  method: ResolutionMethod = "bootstrap",
 ): PairedDifference {
   const perTask = new Map<string, { a: number[]; b: number[] }>();
   for (const score of scores) {
@@ -156,7 +260,15 @@ export function pairedDifference(
     deltas.push(mean(left) - mean(right));
   }
 
-  const interval = bootstrapCI(deltas, iterations);
+  const interval = bootstrapCI(deltas, iterations, 0.05, seed);
+  // The sign-flip test is only run when it is the rule being applied.
+  // The interval is reported either way, because it describes the *size* of
+  // the difference, which a p-value does not.
+  const signFlip = method === "permutation" ? signFlipTest(deltas, iterations, seed) : undefined;
+  const resolved = signFlip
+    ? signFlip.p <= 0.05
+    : deltas.length > 1 && (interval.low > 0 || interval.high < 0);
+
   return {
     a,
     b,
@@ -164,7 +276,12 @@ export function pairedDifference(
     low: interval.low,
     high: interval.high,
     pairs: deltas.length,
-    resolved: deltas.length > 1 && (interval.low > 0 || interval.high < 0),
+    resolved,
+    method,
+    ...(signFlip ? { pValue: signFlip.p } : {}),
+    // Free to compute and meaningful under either rule: it is a property of how
+    // many pairs there are, not of the test that was run on them.
+    floorP: deltas.length === 0 ? 1 : Math.min(1, 2 / 2 ** deltas.length),
   };
 }
 

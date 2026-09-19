@@ -35,7 +35,14 @@ import {
   expandMatrix,
   type SweepConfig,
 } from "./runner/run.js";
-import { buildReport, buildReportJson } from "./runner/report.js";
+import { buildReport, buildReportJson, SIGN_FLIP_EXHAUSTIVE_LIMIT, type ResolutionMethod } from "./runner/report.js";
+import {
+  DEFAULT_PARAMS,
+  TARGET_POWER,
+  estimateVariance,
+  minimumDetectableEffect,
+  simulatePower,
+} from "./runner/power.js";
 import { renderStandaloneSvg } from "./render/svg.js";
 import { rasterize } from "./render/raster.js";
 import { describeDoc } from "./render/describe.js";
@@ -44,46 +51,8 @@ import { buildRatingSheet, computeAgreement, sampleForRating } from "./eval/huma
 import { SURFACE_IDS, type SurfaceId } from "./surfaces/types.js";
 import { isHarnessFailure } from "./agent/events.js";
 import type { RunScore } from "./eval/score.js";
+import { bool, list, num, parseArgs, positiveInt, str, type Args } from "./cli-args.js";
 
-interface Args {
-  command: string;
-  flags: Record<string, string | boolean>;
-  positional: string[];
-}
-
-function parseArgs(argv: string[]): Args {
-  const [command = "help", ...rest] = argv;
-  const flags: Record<string, string | boolean> = {};
-  const positional: string[] = [];
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]!;
-    if (arg.startsWith("--")) {
-      const [key, inline] = arg.slice(2).split("=", 2);
-      if (inline !== undefined) flags[key!] = inline;
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith("--")) flags[key!] = rest[++i]!;
-      else flags[key!] = true;
-    } else {
-      positional.push(arg);
-    }
-  }
-  return { command, flags, positional };
-}
-
-const str = (flags: Args["flags"], key: string, fallback: string): string =>
-  typeof flags[key] === "string" ? (flags[key] as string) : fallback;
-const num = (flags: Args["flags"], key: string, fallback: number): number => {
-  const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-const bool = (flags: Args["flags"], key: string, fallback = false): boolean =>
-  key in flags ? flags[key] !== "false" : fallback;
-const list = (flags: Args["flags"], key: string, fallback: string[]): string[] => {
-  const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-};
 
 /**
  * A matrix axis: a comma list, or one of the axis's shorthands.
@@ -129,6 +98,7 @@ Commands
   report --dir <sweepDir>     Rebuild the report from an existing sweep.
   sample --dir <sweepDir>     Draw a stratified subset and write a human rating sheet.
   agreement --dir <sweepDir>  Compare human ratings against the judge.
+  power [options]             What effect size the grid can resolve. No API key, no cost.
 
 Cross-provider runs
   --models 'anthropic:claude-opus-5,google:gemini-3.8-flash,xai:grok-4.6'
@@ -149,6 +119,21 @@ The whole grid
   extrapolate from what those runs actually cost. Run ids encode the cell, so
   an interrupted sweep resumes into the same --out, and widening an axis later
   only runs the cells that are new.
+
+Power options
+  --effect <points>   Plant this effect instead of sweeping a range.
+  --tasks <n>         Task clusters. Default: 23, the pre-registered grid.
+  --repeats <n>       Repeats per cell. Default: 3.
+  --task-sd <points>  SD of the task x condition interaction. Default: 12.
+  --run-sd <points>   SD of run-to-run noise within a cell. Default: 15.
+  --base <points>     Where the weaker arm sits, which sets how hard the
+                      ceiling at 100 bites. Default: 50.
+  --trials <n>        Simulated experiments per cell. Default: 400.
+  --method <rule>     bootstrap (the pre-registered rule) or permutation (a
+                      sign-flip test: every sign assignment enumerated up to
+                      ${SIGN_FLIP_EXHAUSTIVE_LIMIT} tasks, sampled above that).
+  --from <sweepDir>   Read --task-sd and --run-sd off a real sweep instead of
+                      assuming them. Use once a pilot exists.
 
 Run options
   --tasks <sel>       Task selector: 'all', a family, an id, or a comma list. Default: all
@@ -188,6 +173,8 @@ async function main(): Promise<void> {
       return cmdSample(args);
     case "agreement":
       return cmdAgreement(args);
+    case "power":
+      return cmdPower(args);
     default:
       console.log(HELP.trim());
       if (args.command !== "help") process.exitCode = 1;
@@ -241,7 +228,7 @@ function cmdRender(args: Args): void {
   const pngPath = join(outDir, `${task.id}.png`);
   // Standalone: a file opened outside the page cannot reach its stylesheets.
   writeFileSync(svgPath, renderStandaloneSvg(doc));
-  writeFileSync(pngPath, rasterize(doc, { pixelWidth: num(args.flags, "width", 540) }));
+  writeFileSync(pngPath, rasterize(doc, { pixelWidth: positiveInt(args.flags, "width", 540) }));
   console.log(`Wrote ${svgPath}\nWrote ${pngPath}`);
 }
 
@@ -337,8 +324,8 @@ function buildSweepConfig(args: Args): SweepConfig {
     surfaces,
     feedback,
     models,
-    repeats: num(args.flags, "repeats", DEFAULT_SWEEP.repeats),
-    concurrency: num(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
+    repeats: positiveInt(args.flags, "repeats", DEFAULT_SWEEP.repeats),
+    concurrency: positiveInt(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
     judge,
     judgeModel,
     dryRun,
@@ -346,7 +333,7 @@ function buildSweepConfig(args: Args): SweepConfig {
     // Cast rather than parsed, a typo'd --effort reached the API and failed the
     // whole sweep on its first request.
     ...(typeof args.flags.effort === "string" ? { effort: parseEffort(args.flags.effort) } : {}),
-    ...(args.flags["max-tokens"] ? { maxTokens: num(args.flags, "max-tokens", 16000) } : {}),
+    ...(args.flags["max-tokens"] ? { maxTokens: positiveInt(args.flags, "max-tokens", 16000) } : {}),
   };
 }
 
@@ -503,6 +490,150 @@ function printEstimate(config: SweepConfig, cells: number): void {
   console.log("\nRun without --estimate to start.");
 }
 
+/**
+ * What can this grid actually resolve?
+ *
+ * Pre-registration §10 sizes the grid in runs and dollars; this sizes it in
+ * effect. It makes no request and needs no API key, so it can be run before
+ * deciding whether the grid is worth paying for — which is the point, since a
+ * design that cannot resolve the effect §2 predicts is one that buys 828 runs'
+ * worth of overlapping intervals.
+ *
+ * The variance assumptions are assumptions until a pilot exists. `--from`
+ * replaces them with the spread a real sweep actually showed, and the numbers
+ * should be re-read then: everything here scales with those two terms.
+ */
+function cmdPower(args: Args): void {
+  const from = str(args.flags, "from", "");
+  let taskSd = num(args.flags, "task-sd", DEFAULT_PARAMS.taskSdPoints);
+  let runSd = num(args.flags, "run-sd", DEFAULT_PARAMS.runSdPoints);
+
+  if (from) {
+    const scores = readScores(from);
+    const surfaces = [...new Set(scores.map((s) => s.surfaceId))].sort();
+    if (surfaces.length < 2) {
+      throw new Error(`${from} holds runs from ${surfaces.length} surface(s); estimating the interaction needs two to compare.`);
+    }
+    const estimate = estimateVariance(scores, surfaces[0]!, surfaces[1]!);
+    taskSd = estimate.taskSdPoints;
+    runSd = estimate.runSdPoints;
+    console.log(`Measured from ${from} — ${surfaces[0]} vs ${surfaces[1]}:`);
+    console.log(`  task x condition SD ${taskSd} points, over ${estimate.pairedTasks} paired tasks`);
+    console.log(`  run-to-run SD ${runSd} points, over ${estimate.cellsWithRepeats} cells with repeats`);
+    if (estimate.pairedTasks < 8 || estimate.cellsWithRepeats < 8) {
+      console.log(`  (thin: these are estimates from a small pilot and will move)`);
+    }
+  }
+
+  const method = str(args.flags, "method", DEFAULT_PARAMS.method) as ResolutionMethod;
+  if (method !== "bootstrap" && method !== "permutation") {
+    throw new Error(`Unknown --method '${method}'. Use bootstrap or permutation.`);
+  }
+
+  const base = {
+    method,
+    // Counts, not magnitudes — see `positiveInt`. `--effect` and the two SDs
+    // stay on `num`, since a zero or negative effect is worth planting.
+    tasks: positiveInt(args.flags, "tasks", DEFAULT_PARAMS.tasks),
+    repeats: positiveInt(args.flags, "repeats", DEFAULT_PARAMS.repeats),
+    taskSdPoints: taskSd,
+    runSdPoints: runSd,
+    basePoints: num(args.flags, "base", DEFAULT_PARAMS.basePoints),
+    trials: positiveInt(args.flags, "trials", DEFAULT_PARAMS.trials),
+  };
+
+  console.log(`\n${base.tasks} tasks x ${base.repeats} repeats, paired within task.`);
+  console.log(`Assuming task x condition SD ${base.taskSdPoints} points and run-to-run SD ${base.runSdPoints} points.`);
+  console.log(`${base.trials} simulated experiments per row, through the same pairedDifference the report uses.`);
+  // Enumeration is exact; above the limit the test samples sign assignments and
+  // saying "exact" there would be a claim the implementation does not make.
+  const signFlipKind = base.tasks <= SIGN_FLIP_EXHAUSTIVE_LIMIT ? "an exact sign-flip test" : "a sampled sign-flip test";
+  console.log(`Resolved by ${base.method === "permutation" ? signFlipKind : "the pre-registered bootstrap interval"}.\n`);
+
+  const single = args.flags["effect"] !== undefined;
+  const effects = single ? [num(args.flags, "effect", 10)] : [0, 2, 5, 10, 15, 20];
+
+  console.log(`| True effect | Resolved | Wrong direction | Median interval |`);
+  console.log(`| --- | --- | --- | --- |`);
+  for (const effectPoints of effects) {
+    const r = simulatePower({ ...base, effectPoints });
+    const label = effectPoints === 0 ? `none (false positives)` : `${effectPoints} points`;
+    console.log(
+      `| ${label} | ${(r.power * 100).toFixed(1)}% | ${(r.wrongDirection * 100).toFixed(1)}% | ${r.medianWidthPoints.toFixed(1)} points |`,
+    );
+  }
+
+  if (single) return;
+
+  const mde = minimumDetectableEffect(base);
+  console.log(
+    mde
+      ? `\nSmallest effect resolved ${(TARGET_POWER * 100).toFixed(0)}% of the time: ${mde.effectPoints} points.`
+      : `\nNo effect up to 60 points is resolved ${(TARGET_POWER * 100).toFixed(0)}% of the time at this size.`,
+  );
+
+  // Where the next unit of budget goes. Repeats only average down run noise;
+  // the task x condition term is untouched by them and yields only to tasks.
+  console.log(`\nWhere another ${base.tasks * base.repeats * 2} runs of budget buys the most, at a 10-point effect:`);
+  console.log(`| Spent on | Design | Resolved |`);
+  console.log(`| --- | --- | --- |`);
+  for (const [label, design] of [
+    ["nothing", { tasks: base.tasks, repeats: base.repeats }],
+    ["repeats", { tasks: base.tasks, repeats: base.repeats * 3 }],
+    ["tasks", { tasks: base.tasks * 3, repeats: base.repeats }],
+  ] as const) {
+    const r = simulatePower({ ...base, ...design, effectPoints: 10 });
+    console.log(`| ${label} | ${design.tasks} tasks x ${design.repeats} | ${(r.power * 100).toFixed(1)}% |`);
+  }
+
+  // Calibration, which matters more than power and is the reason this section
+  // is printed rather than left to a flag. A percentile bootstrap over a
+  // handful of clusters does not hold its nominal 5%: at two clusters its
+  // interval is bounded by the two observations themselves, so it calls a
+  // difference resolved whenever both happen to share a sign. §4 breaks the
+  // grid down by family and by the two rotation tasks as *confirmatory*
+  // comparisons, and those run on exactly these cluster counts.
+  const families = new Map<string, number>();
+  for (const task of TASKS) families.set(task.family, (families.get(task.family) ?? 0) + 1);
+  const breakdowns: { label: string; tasks: number }[] = [
+    ...[...families].sort((a, b) => a[1] - b[1]).map(([family, n]) => ({ label: `family ${family}`, tasks: n })),
+    { label: "H5 rotation tasks", tasks: 2 },
+    { label: "pooled (§4.4)", tasks: base.tasks },
+  ];
+
+  const trials = Math.max(base.trials, 600);
+  console.log(`\nFalse positives by breakdown, with no effect present at all.`);
+  console.log(`Both rules are nominally 95%, so anything far above 5% is resolving noise.`);
+  console.log(`The floor is the smallest p a sign-flip test can produce at that many`);
+  console.log(`tasks: above 0.05, the breakdown cannot resolve anything whatever the data.\n`);
+  console.log(`| Breakdown | Tasks | Bootstrap | Sign-flip | Floor p | |`);
+  console.log(`| --- | --- | --- | --- | --- | --- |`);
+  for (const { label, tasks } of breakdowns) {
+    const boot = simulatePower({ ...base, tasks, effectPoints: 0, trials });
+    const perm = simulatePower({ ...base, tasks, effectPoints: 0, trials, method: "permutation" });
+    const bootRate = (boot.power + boot.wrongDirection) * 100;
+    const permRate = (perm.power + perm.wrongDirection) * 100;
+    const floor = Math.min(1, 2 / 2 ** tasks);
+    const note =
+      floor > 0.05
+        ? "cannot resolve at any effect size"
+        : bootRate > 8
+          ? "bootstrap over-resolves; use sign-flip"
+          : "";
+    console.log(
+      `| ${label} | ${tasks} | ${bootRate.toFixed(1)}% | ${permRate.toFixed(1)}% | ${floor < 0.0001 ? "<0.0001" : floor.toFixed(4)} | ${note} |`,
+    );
+  }
+
+  const smallest = breakdowns.filter((b) => 2 / 2 ** b.tasks > 0.05).map((b) => b.label);
+  if (smallest.length > 0) {
+    console.log(
+      `\n${smallest.length} breakdown(s) cannot return a resolved result at all: ${smallest.join(", ")}.`,
+    );
+    console.log(`Six tasks is the smallest breakdown a two-sided test can resolve at 0.05.`);
+  }
+}
+
 function readScores(dir: string): RunScore[] {
   const paths = sweepPaths(dir);
   if (!existsSync(paths.scoresFile)) throw new Error(`No scores at ${paths.scoresFile}`);
@@ -527,7 +658,7 @@ function cmdSample(args: Args): void {
   const dir = str(args.flags, "dir", "");
   if (!dir) throw new Error("Pass --dir <sweepDir>");
   const scores = readScores(dir);
-  const sample = sampleForRating(scores, num(args.flags, "n", 40));
+  const sample = sampleForRating(scores, positiveInt(args.flags, "n", 40));
   const sheetPath = join(dir, "rating-sheet.html");
   const manifestPath = join(dir, "rating-manifest.json");
   writeFileSync(sheetPath, buildRatingSheet(sample, dir));

@@ -30,7 +30,22 @@ import {
   type TokenUsage,
 } from "../agent/models.js";
 
-export const DEFAULT_JUDGE_MODEL = "anthropic:claude-opus-5";
+/**
+ * Sonnet rather than Opus, on both cost and behaviour.
+ *
+ * A sweep is one judge call per run — 828 of them at the pre-registered size —
+ * so the judge is a standing cost rather than a rounding error, and Sonnet is
+ * 2.5x cheaper per token on both rails. Measured over all 23 tasks it is also
+ * the better-behaved judge: it returned exactly the criteria asked for on 23 of
+ * 23, twice over, where Opus appended a row of its own often enough to need
+ * `alignCriteria` to drop one on about half of them.
+ *
+ * It also decouples the judge from the model under test. `claude-opus-5` is the
+ * confirmatory model in the study, so judging with Opus had it grading its own
+ * work — exactly the sibling-grading confound `--judge-model` exists to let
+ * anyone check.
+ */
+export const DEFAULT_JUDGE_MODEL = "anthropic:claude-sonnet-5";
 export const JUDGE_SCREENSHOT_WIDTH = 768;
 
 /** 1..5 per criterion. A 5-point scale is what the human raters also use. */
@@ -128,7 +143,10 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
   content.push(imagePart(input.finalDoc));
   content.push(
     textPart(
-      `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nScore every criterion, then give an overall rating.`,
+      `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n` +
+        `Return exactly ${input.criteria.length} ${input.criteria.length === 1 ? "entry" : "entries"} in \`criteria\`: ` +
+        `one for each numbered criterion above and none of your own, each copying its criterion verbatim. ` +
+        `The overall rating goes in the separate \`overall\` field — it is not one of the criteria.`,
     ),
   );
 
@@ -212,15 +230,53 @@ function normalizeCriterion(s: string): string {
  * agree (a model that paraphrases usually keeps the order), and refuse
  * anything else. A refusal sets `error`, which keeps the judge out of the
  * composite entirely rather than blending in a number built on the wrong set.
+ *
+ * Two kinds of trailing row are dropped rather than refused, because neither
+ * names a criterion at all and neither can be a paraphrase of one. Models
+ * append them often enough to discard most of a sweep's judgements otherwise,
+ * and a discard still costs what the call cost.
+ *
+ *   - A row named "overall": the separate `overall` field restated as though
+ *     it were a criterion.
+ *   - A row that is blank throughout: no criterion name and no reason. Scoring
+ *     nothing and naming nothing, it belongs in no mean.
+ *
+ * The second is checked on the reason as well as the name, because the two
+ * cases are not the same. A row with no name and no reason said nothing and can
+ * be dropped. A row with no name but a written reason *judged* something and
+ * failed to say what — there is no honest slot to put it in, so the judgement
+ * is refused rather than quietly reduced to the rows that happen to line up.
+ * The filler's score is not checked: a row that names nothing and explains
+ * nothing carries no signal whatever number it came with, and the live examples
+ * scoring 1 is not a rule worth hard-coding.
+ *
+ * Dropping either leaves a set that still lines up one-for-one with the
+ * criteria requested, which is the property this function exists to guarantee.
+ * Anything else that does not line up is refused exactly as before.
  */
+const OVERALL_ROW = new Set(["overall", "overall rating", "overall score", "overall quality"]);
+
 export function alignCriteria(
   requested: string[],
-  returned: { criterion: string; score: number }[],
+  entries: { criterion: string; score: number; reason?: string }[],
 ): { scores: number[] } | { error: string } {
   if (requested.length === 0) return { error: "No criteria were given to the judge." };
-  if (returned.length === 0) return { error: "Judge returned no criterion scores." };
+  if (entries.length === 0) return { error: "Judge returned no criterion scores." };
+
+  // Dropped only when doing so reconciles the count, and never when the task
+  // itself asked about something by that name.
+  const asked = new Set(requested.map(normalizeCriterion));
+  const notACriterion = (entry: { criterion: string; reason?: string }): boolean => {
+    const key = normalizeCriterion(entry.criterion);
+    if (asked.has(key)) return false;
+    if (OVERALL_ROW.has(key)) return true;
+    return key === "" && (entry.reason ?? "").trim() === "";
+  };
+  const returned =
+    entries.length === requested.length + 1 ? entries.filter((e) => !notACriterion(e)) : entries;
+
   if (returned.length !== requested.length) {
-    return { error: `Judge scored ${returned.length} criteria; ${requested.length} were asked for.` };
+    return { error: `Judge scored ${entries.length} criteria; ${requested.length} were asked for.` };
   }
 
   const byText = new Map<string, number[]>();
