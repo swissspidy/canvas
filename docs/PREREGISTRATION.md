@@ -524,6 +524,22 @@ honest result is that one, with the judge and cost carrying whatever remains
 — not a re-cut of the checks to manufacture headroom after the fact. No
 check, weight or threshold was changed in response.
 
+A second pilot the same day, run to test exactly that, said the same thing
+more clearly. The whole `compose` family — six tasks, the one the design
+notes call the family where the surfaces should differ most — with no
+feedback, one repeat, on Opus 5 and then on Haiku 4.5: thirty-six runs, kept
+out of the grid like the rest. On Opus the mean improvement was 97.2%
+(coordinate), 99.7% (relational) and 99.5% (document); on Haiku, 94.6%, 96.1%
+and 97.7%. The lowest single cell was 83%. The judge, meanwhile, spread from
+66% to 76% by surface on Haiku and from 82% to 87% on Opus, with intervals
+that overlap, and the turn counts differed by a factor of three or four
+between relational and the other two. So the pattern is not a strong model
+running out of task: a model two tiers down clears the deterministic checks
+almost as completely, and the deterministic score is the one outcome the
+grid appears unable to move. What the pilot does not settle is whether the
+checks are too lenient or the tasks too small, and that is a question for a
+harder task set in a new pre-registration, not for a re-cut of this one.
+
 **2026-09-18 (fourth entry) — harness failures are not runs.** Written before
 any run against a real model, from a pilot rehearsal that never reached one.
 
