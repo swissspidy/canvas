@@ -47,7 +47,7 @@
  * uses, because that is the unit §2 and §5 state their thresholds in.
  */
 
-import { mulberry32, pairedDifference, BOOTSTRAP_SEED } from "./report.js";
+import { mulberry32, pairedDifference, BOOTSTRAP_SEED, type ResolutionMethod } from "./report.js";
 import type { RunScore } from "../eval/score.js";
 
 /** 80% is the convention, and the level `minimumDetectableEffect` solves for. */
@@ -82,6 +82,14 @@ export interface PowerParams {
    * that one fixed pattern is unrepresentative.
    */
   reseedBootstrap: boolean;
+  /**
+   * Which rule decides "resolved".
+   *
+   * The point of being able to switch it here is that calibration is not a
+   * matter of opinion: run both at the same cluster count with no effect
+   * planted and the false-positive rates say which one is a 95% test.
+   */
+  method: ResolutionMethod;
 }
 
 export interface PowerResult extends PowerParams {
@@ -108,6 +116,7 @@ export const DEFAULT_PARAMS: PowerParams = {
   basePoints: 50,
   trials: 400,
   reseedBootstrap: false,
+  method: "bootstrap",
 };
 
 /** Standard normal, Box-Muller over a seeded uniform stream. */
@@ -181,7 +190,7 @@ export function simulatePower(params: Partial<PowerParams> = {}): PowerResult {
     }
 
     const seed = p.reseedBootstrap ? BOOTSTRAP_SEED + trial * 7919 : BOOTSTRAP_SEED;
-    const diff = pairedDifference(scores, (s) => s.surfaceId, "a", "b", (s) => s.normalizedScore, 2000, seed);
+    const diff = pairedDifference(scores, (s) => s.surfaceId, "a", "b", (s) => s.normalizedScore, 2000, seed, p.method);
     widths.push((diff.high - diff.low) * 100);
     if (diff.resolved) {
       // `difference` is a - b, so a positive planted effect should resolve positive.

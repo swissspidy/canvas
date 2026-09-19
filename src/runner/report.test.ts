@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, buildReportJson, clusterBootstrapCI, pairedDifference } from "./report.js";
+import { buildReport, buildReportJson, clusterBootstrapCI, pairedDifference, signFlipTest } from "./report.js";
 import type { RunScore } from "../eval/score.js";
 import { fingerprintConflicts, runFingerprint } from "./run.js";
 
@@ -165,6 +165,86 @@ describe("pairedDifference", () => {
       score({ taskId: "only", surfaceId: "relational", normalizedScore: 1 }),
     ];
     expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").resolved).toBe(false);
+  });
+
+  it("keeps the bootstrap rule by default and switches only when asked", () => {
+    const scores = syntheticScores(0.2);
+    expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").method).toBe("bootstrap");
+
+    // Five tasks. The bootstrap resolves it; the sign-flip test cannot, because
+    // 2/2^5 = 0.0625 is the smallest p five pairs can produce. Both are looking
+    // at the same effect, and only one of them is a 95% test at this size.
+    const permuted = pairedDifference(
+      scores, (s) => s.surfaceId, "relational", "coordinate", (s) => s.normalizedScore, 2000, 20260916, "permutation",
+    );
+    expect(permuted.pairs).toBe(5);
+    expect(permuted.floorP).toBeCloseTo(0.0625, 9);
+    expect(permuted.pValue).toBeCloseTo(0.0625, 9);
+    expect(permuted.resolved).toBe(false);
+    // The size of the difference is still reported; only the verdict changed.
+    expect(permuted.difference).toBeCloseTo(0.2, 6);
+  });
+});
+
+/**
+ * The test behind `docs/PREREGISTRATION.md` §4's small breakdowns. The headline
+ * comparison pools 23 tasks and the bootstrap is fine there; the family and
+ * rotation breakdowns run on two to seven, and this is what can be said at
+ * those sizes without overclaiming.
+ */
+describe("signFlipTest", () => {
+  it("enumerates every sign assignment at small cluster counts", () => {
+    // Six deltas, all positive: only the observed assignment and its mirror are
+    // as extreme, so p is exactly 2/64.
+    const result = signFlipTest([3, 4, 5, 6, 7, 8]);
+    expect(result.exact).toBe(true);
+    expect(result.p).toBeCloseTo(2 / 64, 9);
+    expect(result.floorP).toBeCloseTo(2 / 64, 9);
+  });
+
+  it("states a floor that says when a breakdown cannot resolve anything", () => {
+    // The whole point. Two tasks cannot produce a p below 0.5 and five cannot
+    // get below 0.0625, so neither can clear 0.05 however large the effect is.
+    // Six is the smallest breakdown that can.
+    for (const [pairs, floor] of [[2, 0.5], [3, 0.25], [4, 0.125], [5, 0.0625], [6, 0.03125]] as const) {
+      const deltas = Array.from({ length: pairs }, (_, i) => 100 + i);
+      const result = signFlipTest(deltas);
+      expect(result.floorP).toBeCloseTo(floor, 9);
+      // An overwhelming effect still cannot beat the floor.
+      expect(result.p).toBeCloseTo(floor, 9);
+      expect(result.p <= 0.05).toBe(pairs >= 6);
+    }
+  });
+
+  it("does not care which way the deltas point", () => {
+    const up = signFlipTest([2, 3, 4, 5, 6, 7]);
+    const down = signFlipTest([-2, -3, -4, -5, -6, -7]);
+    expect(down.p).toBeCloseTo(up.p, 9);
+  });
+
+  it("gives a mixed set of deltas no more credit than it earns", () => {
+    // Three up, three down, near-cancelling: the observed mean sits in the
+    // middle of its own null distribution.
+    const result = signFlipTest([5, -4, 6, -5, 4, -6]);
+    expect(result.p).toBeGreaterThan(0.5);
+    expect(result.exact).toBe(true);
+  });
+
+  it("samples rather than enumerating once 2^k stops being worth it", () => {
+    const deltas = Array.from({ length: 20 }, (_, i) => i + 1);
+    const result = signFlipTest(deltas);
+    expect(result.exact).toBe(false);
+    // Sampled p is bounded away from zero: no finite sample proves impossibility.
+    expect(result.p).toBeGreaterThan(0);
+    expect(result.p).toBeLessThan(0.01);
+  });
+
+  it("returns a flat verdict on deltas that are all zero", () => {
+    expect(signFlipTest([0, 0, 0, 0]).p).toBe(1);
+  });
+
+  it("has nothing to say about an empty comparison", () => {
+    expect(signFlipTest([])).toMatchObject({ p: 1, floorP: 1, exact: true });
   });
 });
 

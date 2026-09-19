@@ -35,7 +35,7 @@ import {
   expandMatrix,
   type SweepConfig,
 } from "./runner/run.js";
-import { buildReport, buildReportJson } from "./runner/report.js";
+import { buildReport, buildReportJson, type ResolutionMethod } from "./runner/report.js";
 import {
   DEFAULT_PARAMS,
   TARGET_POWER,
@@ -167,6 +167,8 @@ Power options
   --base <points>     Where the weaker arm sits, which sets how hard the
                       ceiling at 100 bites. Default: 50.
   --trials <n>        Simulated experiments per cell. Default: 400.
+  --method <rule>     bootstrap (the pre-registered rule) or permutation (an
+                      exact sign-flip test, correct at small task counts).
   --from <sweepDir>   Read --task-sd and --run-sd off a real sweep instead of
                       assuming them. Use once a pilot exists.
 
@@ -560,7 +562,13 @@ function cmdPower(args: Args): void {
     }
   }
 
+  const method = str(args.flags, "method", DEFAULT_PARAMS.method) as ResolutionMethod;
+  if (method !== "bootstrap" && method !== "permutation") {
+    throw new Error(`Unknown --method '${method}'. Use bootstrap or permutation.`);
+  }
+
   const base = {
+    method,
     tasks: num(args.flags, "tasks", DEFAULT_PARAMS.tasks),
     repeats: num(args.flags, "repeats", DEFAULT_PARAMS.repeats),
     taskSdPoints: taskSd,
@@ -571,7 +579,8 @@ function cmdPower(args: Args): void {
 
   console.log(`\n${base.tasks} tasks x ${base.repeats} repeats, paired within task.`);
   console.log(`Assuming task x condition SD ${base.taskSdPoints} points and run-to-run SD ${base.runSdPoints} points.`);
-  console.log(`${base.trials} simulated experiments per row, through the same pairedDifference the report uses.\n`);
+  console.log(`${base.trials} simulated experiments per row, through the same pairedDifference the report uses.`);
+  console.log(`Resolved by ${base.method === "permutation" ? "an exact sign-flip test" : "the pre-registered bootstrap interval"}.\n`);
 
   const single = args.flags["effect"] !== undefined;
   const effects = single ? [num(args.flags, "effect", 10)] : [0, 2, 5, 10, 15, 20];
@@ -624,15 +633,36 @@ function cmdPower(args: Args): void {
     { label: "pooled (§4.4)", tasks: base.tasks },
   ];
 
+  const trials = Math.max(base.trials, 600);
   console.log(`\nFalse positives by breakdown, with no effect present at all.`);
-  console.log(`The interval is nominally 95%, so anything far above 5% is resolving noise:\n`);
-  console.log(`| Breakdown | Tasks | Resolves nothing as something |`);
-  console.log(`| --- | --- | --- |`);
+  console.log(`Both rules are nominally 95%, so anything far above 5% is resolving noise.`);
+  console.log(`The floor is the smallest p a sign-flip test can produce at that many`);
+  console.log(`tasks: above 0.05, the breakdown cannot resolve anything whatever the data.\n`);
+  console.log(`| Breakdown | Tasks | Bootstrap | Sign-flip | Floor p | |`);
+  console.log(`| --- | --- | --- | --- | --- | --- |`);
   for (const { label, tasks } of breakdowns) {
-    const r = simulatePower({ ...base, tasks, effectPoints: 0, trials: Math.max(base.trials, 600) });
-    const rate = (r.power + r.wrongDirection) * 100;
-    const flag = rate > 15 ? "  <- not a 95% interval" : rate > 8 ? "  <- liberal" : "";
-    console.log(`| ${label} | ${tasks} | ${rate.toFixed(1)}%${flag} |`);
+    const boot = simulatePower({ ...base, tasks, effectPoints: 0, trials });
+    const perm = simulatePower({ ...base, tasks, effectPoints: 0, trials, method: "permutation" });
+    const bootRate = (boot.power + boot.wrongDirection) * 100;
+    const permRate = (perm.power + perm.wrongDirection) * 100;
+    const floor = Math.min(1, 2 / 2 ** tasks);
+    const note =
+      floor > 0.05
+        ? "cannot resolve at any effect size"
+        : bootRate > 8
+          ? "bootstrap over-resolves; use sign-flip"
+          : "";
+    console.log(
+      `| ${label} | ${tasks} | ${bootRate.toFixed(1)}% | ${permRate.toFixed(1)}% | ${floor < 0.0001 ? "<0.0001" : floor.toFixed(4)} | ${note} |`,
+    );
+  }
+
+  const smallest = breakdowns.filter((b) => 2 / 2 ** b.tasks > 0.05).map((b) => b.label);
+  if (smallest.length > 0) {
+    console.log(
+      `\n${smallest.length} breakdown(s) cannot return a resolved result at all: ${smallest.join(", ")}.`,
+    );
+    console.log(`Six tasks is the smallest breakdown a two-sided test can resolve at 0.05.`);
   }
 }
 
