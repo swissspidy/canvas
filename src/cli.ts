@@ -51,63 +51,8 @@ import { buildRatingSheet, computeAgreement, sampleForRating } from "./eval/huma
 import { SURFACE_IDS, type SurfaceId } from "./surfaces/types.js";
 import { isHarnessFailure } from "./agent/events.js";
 import type { RunScore } from "./eval/score.js";
+import { bool, list, num, parseArgs, positiveInt, str, type Args } from "./cli-args.js";
 
-interface Args {
-  command: string;
-  flags: Record<string, string | boolean>;
-  positional: string[];
-}
-
-function parseArgs(argv: string[]): Args {
-  const [command = "help", ...rest] = argv;
-  const flags: Record<string, string | boolean> = {};
-  const positional: string[] = [];
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]!;
-    if (arg.startsWith("--")) {
-      const [key, inline] = arg.slice(2).split("=", 2);
-      if (inline !== undefined) flags[key!] = inline;
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith("--")) flags[key!] = rest[++i]!;
-      else flags[key!] = true;
-    } else {
-      positional.push(arg);
-    }
-  }
-  return { command, flags, positional };
-}
-
-const str = (flags: Args["flags"], key: string, fallback: string): string =>
-  typeof flags[key] === "string" ? (flags[key] as string) : fallback;
-const num = (flags: Args["flags"], key: string, fallback: number): number => {
-  const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-/**
- * A count that has to be a whole number above zero.
- *
- * `num` accepts anything finite, which is right for a threshold and wrong for a
- * dimension. `--trials 0` divides by zero and reports every rate as NaN;
- * `--tasks 1.5` runs two tasks and labels the output 1.5; a negative count
- * silently produces an empty simulation that looks like a finished one.
- */
-const positiveInt = (flags: Args["flags"], key: string, fallback: number): number => {
-  const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`--${key} must be a whole number of at least 1. Got '${raw}'.`);
-  }
-  return parsed;
-};
-const bool = (flags: Args["flags"], key: string, fallback = false): boolean =>
-  key in flags ? flags[key] !== "false" : fallback;
-const list = (flags: Args["flags"], key: string, fallback: string[]): string[] => {
-  const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-};
 
 /**
  * A matrix axis: a comma list, or one of the axis's shorthands.
@@ -283,7 +228,7 @@ function cmdRender(args: Args): void {
   const pngPath = join(outDir, `${task.id}.png`);
   // Standalone: a file opened outside the page cannot reach its stylesheets.
   writeFileSync(svgPath, renderStandaloneSvg(doc));
-  writeFileSync(pngPath, rasterize(doc, { pixelWidth: num(args.flags, "width", 540) }));
+  writeFileSync(pngPath, rasterize(doc, { pixelWidth: positiveInt(args.flags, "width", 540) }));
   console.log(`Wrote ${svgPath}\nWrote ${pngPath}`);
 }
 
@@ -379,8 +324,8 @@ function buildSweepConfig(args: Args): SweepConfig {
     surfaces,
     feedback,
     models,
-    repeats: num(args.flags, "repeats", DEFAULT_SWEEP.repeats),
-    concurrency: num(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
+    repeats: positiveInt(args.flags, "repeats", DEFAULT_SWEEP.repeats),
+    concurrency: positiveInt(args.flags, "concurrency", DEFAULT_SWEEP.concurrency),
     judge,
     judgeModel,
     dryRun,
@@ -388,7 +333,7 @@ function buildSweepConfig(args: Args): SweepConfig {
     // Cast rather than parsed, a typo'd --effort reached the API and failed the
     // whole sweep on its first request.
     ...(typeof args.flags.effort === "string" ? { effort: parseEffort(args.flags.effort) } : {}),
-    ...(args.flags["max-tokens"] ? { maxTokens: num(args.flags, "max-tokens", 16000) } : {}),
+    ...(args.flags["max-tokens"] ? { maxTokens: positiveInt(args.flags, "max-tokens", 16000) } : {}),
   };
 }
 
@@ -587,8 +532,8 @@ function cmdPower(args: Args): void {
 
   const base = {
     method,
-    // Dimensions, so whole numbers above zero. `--effect` and the two SDs stay
-    // `num`: a zero or negative effect is a meaningful thing to plant.
+    // Counts, not magnitudes — see `positiveInt`. `--effect` and the two SDs
+    // stay on `num`, since a zero or negative effect is worth planting.
     tasks: positiveInt(args.flags, "tasks", DEFAULT_PARAMS.tasks),
     repeats: positiveInt(args.flags, "repeats", DEFAULT_PARAMS.repeats),
     taskSdPoints: taskSd,
@@ -713,7 +658,7 @@ function cmdSample(args: Args): void {
   const dir = str(args.flags, "dir", "");
   if (!dir) throw new Error("Pass --dir <sweepDir>");
   const scores = readScores(dir);
-  const sample = sampleForRating(scores, num(args.flags, "n", 40));
+  const sample = sampleForRating(scores, positiveInt(args.flags, "n", 40));
   const sheetPath = join(dir, "rating-sheet.html");
   const manifestPath = join(dir, "rating-manifest.json");
   writeFileSync(sheetPath, buildRatingSheet(sample, dir));
