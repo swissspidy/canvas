@@ -238,8 +238,17 @@ function normalizeCriterion(s: string): string {
  *
  *   - A row named "overall": the separate `overall` field restated as though
  *     it were a criterion.
- *   - A row with no criterion name, which arrives blank throughout — no name,
- *     no reason, a filler score of 1. Scoring nothing, it belongs in no mean.
+ *   - A row that is blank throughout: no criterion name and no reason. Scoring
+ *     nothing and naming nothing, it belongs in no mean.
+ *
+ * The second is checked on the reason as well as the name, because the two
+ * cases are not the same. A row with no name and no reason said nothing and can
+ * be dropped. A row with no name but a written reason *judged* something and
+ * failed to say what — there is no honest slot to put it in, so the judgement
+ * is refused rather than quietly reduced to the rows that happen to line up.
+ * The filler's score is not checked: a row that names nothing and explains
+ * nothing carries no signal whatever number it came with, and the live examples
+ * scoring 1 is not a rule worth hard-coding.
  *
  * Dropping either leaves a set that still lines up one-for-one with the
  * criteria requested, which is the property this function exists to guarantee.
@@ -249,7 +258,7 @@ const OVERALL_ROW = new Set(["overall", "overall rating", "overall score", "over
 
 export function alignCriteria(
   requested: string[],
-  entries: { criterion: string; score: number }[],
+  entries: { criterion: string; score: number; reason?: string }[],
 ): { scores: number[] } | { error: string } {
   if (requested.length === 0) return { error: "No criteria were given to the judge." };
   if (entries.length === 0) return { error: "Judge returned no criterion scores." };
@@ -257,13 +266,14 @@ export function alignCriteria(
   // Dropped only when doing so reconciles the count, and never when the task
   // itself asked about something by that name.
   const asked = new Set(requested.map(normalizeCriterion));
-  const notACriterion = (criterion: string): boolean => {
-    const key = normalizeCriterion(criterion);
+  const notACriterion = (entry: { criterion: string; reason?: string }): boolean => {
+    const key = normalizeCriterion(entry.criterion);
     if (asked.has(key)) return false;
-    return key === "" || OVERALL_ROW.has(key);
+    if (OVERALL_ROW.has(key)) return true;
+    return key === "" && (entry.reason ?? "").trim() === "";
   };
   const returned =
-    entries.length === requested.length + 1 ? entries.filter((e) => !notACriterion(e.criterion)) : entries;
+    entries.length === requested.length + 1 ? entries.filter((e) => !notACriterion(e)) : entries;
 
   if (returned.length !== requested.length) {
     return { error: `Judge scored ${entries.length} criteria; ${requested.length} were asked for.` };

@@ -156,7 +156,7 @@ export interface SignFlipResult {
 }
 
 /** Beyond this many deltas, 2^k assignments stop being worth enumerating. */
-const EXHAUSTIVE_LIMIT = 12;
+export const SIGN_FLIP_EXHAUSTIVE_LIMIT = 12;
 
 export function signFlipTest(deltas: number[], iterations = BOOTSTRAP_ITERATIONS, seed = BOOTSTRAP_SEED): SignFlipResult {
   const k = deltas.length;
@@ -165,7 +165,7 @@ export function signFlipTest(deltas: number[], iterations = BOOTSTRAP_ITERATIONS
   const floorP = Math.min(1, 2 / 2 ** k);
   const observed = Math.abs(deltas.reduce((sum, d) => sum + d, 0));
 
-  if (k <= EXHAUSTIVE_LIMIT) {
+  if (k <= SIGN_FLIP_EXHAUSTIVE_LIMIT) {
     let atLeastAsExtreme = 0;
     // Bit `i` of `mask` flips the sign of delta `i`.
     for (let mask = 0; mask < 1 << k; mask++) {

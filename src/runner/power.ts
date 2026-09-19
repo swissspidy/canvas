@@ -255,9 +255,15 @@ export interface VarianceEstimate {
  *
  * `runSd` is pooled within (task, surface, feedback) cells across repeats, which
  * is the only place run-to-run noise appears on its own. `taskSd` is then what
- * is left in the spread of per-task deltas once the run component is removed:
+ * is left in the spread of per-task deltas once the run component is removed.
+ * A task's delta is a difference of two arm means, so the noise it carries
+ * depends on how many repeats each arm actually has:
  *
- *     var(delta) = taskSd^2 + 2 * runSd^2 / repeats
+ *     var(delta_t) = taskSd^2 + runSd^2 / n_a(t) + runSd^2 / n_b(t)
+ *
+ * which is the familiar `taskSd^2 + 2 * runSd^2 / repeats` only when every arm
+ * is complete. Sweeps resume and cells fail, so the per-task form is the one
+ * used and the mean of those variances is what gets subtracted.
  *
  * Negative residuals are floored at zero — that is a sweep whose deltas are
  * tighter than run noise alone predicts, which means not enough tasks to
@@ -294,10 +300,15 @@ export function estimateVariance(scores: RunScore[], a: string, b: string, condi
     perTask.set(s.taskId, bucket);
   }
   const deltas: number[] = [];
-  let repeatsPerArm = 1;
+  // Each task carries its own run-noise contribution, because each arm was
+  // averaged over however many repeats that arm actually has. A resumed or
+  // partly-failed sweep leaves cells with unequal counts, and collapsing them
+  // to one repeat count subtracts the wrong amount of noise from every task
+  // that does not match it.
+  const runVarianceByTask: number[] = [];
   for (const { a: left, b: right } of perTask.values()) {
     if (left.length === 0 || right.length === 0) continue;
-    repeatsPerArm = Math.max(repeatsPerArm, Math.min(left.length, right.length));
+    runVarianceByTask.push(runSd ** 2 / left.length + runSd ** 2 / right.length);
     deltas.push(
       left.reduce((x, y) => x + y, 0) / left.length - right.reduce((x, y) => x + y, 0) / right.length,
     );
@@ -307,7 +318,8 @@ export function estimateVariance(scores: RunScore[], a: string, b: string, condi
   if (deltas.length > 1) {
     const m = deltas.reduce((x, y) => x + y, 0) / deltas.length;
     const varDelta = deltas.reduce((acc, d) => acc + (d - m) ** 2, 0) / (deltas.length - 1);
-    taskSd = Math.sqrt(Math.max(0, varDelta - (2 * runSd ** 2) / repeatsPerArm));
+    const runVariance = runVarianceByTask.reduce((sum, v) => sum + v, 0) / runVarianceByTask.length;
+    taskSd = Math.sqrt(Math.max(0, varDelta - runVariance));
   }
 
   return {

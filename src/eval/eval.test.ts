@@ -686,8 +686,30 @@ describe("judge criterion alignment", () => {
 
   it("drops a wholly blank trailing row", () => {
     // Observed live: criterion "", reason "", score 1. It scores nothing.
-    const aligned = alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), entry("", 1)]);
+    const blank = { criterion: "", score: 1, reason: "" };
+    const aligned = alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), blank]);
     expect(aligned).toEqual({ scores: [3, 4, 5] });
+
+    // An entry with no reason at all is the same thing: nothing was said.
+    expect(alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), entry("", 1)])).toEqual({
+      scores: [3, 4, 5],
+    });
+
+    // The score is not what makes it filler. A row naming nothing and
+    // explaining nothing carries no signal whatever number it arrived with.
+    expect(
+      alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), { criterion: "", score: 4, reason: "  " }]),
+    ).toEqual({ scores: [3, 4, 5] });
+  });
+
+  it("refuses an unnamed row that actually judged something", () => {
+    // No criterion name but a written reason: this row assessed *something* and
+    // failed to say what, so there is no honest slot for it. Dropping it would
+    // silently discard a real judgement and score the run on the rest.
+    const judged = { criterion: "", score: 2, reason: "The type is far too tight against the edge." };
+    expect(alignCriteria(asked, [...asked.map((c, i) => entry(c, i + 3)), judged])).toMatchObject({
+      error: expect.stringContaining("scored 4 criteria"),
+    });
   });
 
   it("still refuses an extra row that is not the overall rating", () => {

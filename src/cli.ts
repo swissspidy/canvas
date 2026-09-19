@@ -35,7 +35,7 @@ import {
   expandMatrix,
   type SweepConfig,
 } from "./runner/run.js";
-import { buildReport, buildReportJson, type ResolutionMethod } from "./runner/report.js";
+import { buildReport, buildReportJson, SIGN_FLIP_EXHAUSTIVE_LIMIT, type ResolutionMethod } from "./runner/report.js";
 import {
   DEFAULT_PARAMS,
   TARGET_POWER,
@@ -83,6 +83,23 @@ const num = (flags: Args["flags"], key: string, fallback: number): number => {
   if (typeof raw !== "string") return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+/**
+ * A count that has to be a whole number above zero.
+ *
+ * `num` accepts anything finite, which is right for a threshold and wrong for a
+ * dimension. `--trials 0` divides by zero and reports every rate as NaN;
+ * `--tasks 1.5` runs two tasks and labels the output 1.5; a negative count
+ * silently produces an empty simulation that looks like a finished one.
+ */
+const positiveInt = (flags: Args["flags"], key: string, fallback: number): number => {
+  const raw = flags[key];
+  if (typeof raw !== "string") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`--${key} must be a whole number of at least 1. Got '${raw}'.`);
+  }
+  return parsed;
 };
 const bool = (flags: Args["flags"], key: string, fallback = false): boolean =>
   key in flags ? flags[key] !== "false" : fallback;
@@ -167,8 +184,9 @@ Power options
   --base <points>     Where the weaker arm sits, which sets how hard the
                       ceiling at 100 bites. Default: 50.
   --trials <n>        Simulated experiments per cell. Default: 400.
-  --method <rule>     bootstrap (the pre-registered rule) or permutation (an
-                      exact sign-flip test, correct at small task counts).
+  --method <rule>     bootstrap (the pre-registered rule) or permutation (a
+                      sign-flip test: every sign assignment enumerated up to
+                      ${SIGN_FLIP_EXHAUSTIVE_LIMIT} tasks, sampled above that).
   --from <sweepDir>   Read --task-sd and --run-sd off a real sweep instead of
                       assuming them. Use once a pilot exists.
 
@@ -569,18 +587,23 @@ function cmdPower(args: Args): void {
 
   const base = {
     method,
-    tasks: num(args.flags, "tasks", DEFAULT_PARAMS.tasks),
-    repeats: num(args.flags, "repeats", DEFAULT_PARAMS.repeats),
+    // Dimensions, so whole numbers above zero. `--effect` and the two SDs stay
+    // `num`: a zero or negative effect is a meaningful thing to plant.
+    tasks: positiveInt(args.flags, "tasks", DEFAULT_PARAMS.tasks),
+    repeats: positiveInt(args.flags, "repeats", DEFAULT_PARAMS.repeats),
     taskSdPoints: taskSd,
     runSdPoints: runSd,
     basePoints: num(args.flags, "base", DEFAULT_PARAMS.basePoints),
-    trials: num(args.flags, "trials", DEFAULT_PARAMS.trials),
+    trials: positiveInt(args.flags, "trials", DEFAULT_PARAMS.trials),
   };
 
   console.log(`\n${base.tasks} tasks x ${base.repeats} repeats, paired within task.`);
   console.log(`Assuming task x condition SD ${base.taskSdPoints} points and run-to-run SD ${base.runSdPoints} points.`);
   console.log(`${base.trials} simulated experiments per row, through the same pairedDifference the report uses.`);
-  console.log(`Resolved by ${base.method === "permutation" ? "an exact sign-flip test" : "the pre-registered bootstrap interval"}.\n`);
+  // Enumeration is exact; above the limit the test samples sign assignments and
+  // saying "exact" there would be a claim the implementation does not make.
+  const signFlipKind = base.tasks <= SIGN_FLIP_EXHAUSTIVE_LIMIT ? "an exact sign-flip test" : "a sampled sign-flip test";
+  console.log(`Resolved by ${base.method === "permutation" ? signFlipKind : "the pre-registered bootstrap interval"}.\n`);
 
   const single = args.flags["effect"] !== undefined;
   const effects = single ? [num(args.flags, "effect", 10)] : [0, 2, 5, 10, 15, 20];

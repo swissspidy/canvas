@@ -151,6 +151,37 @@ describe("variance estimation", () => {
     expect(estimate.taskSdPoints).toBe(0);
   });
 
+  it("does not invent an interaction out of unequal repeat counts", () => {
+    // A resumed or partly-failed sweep leaves cells with different repeat
+    // counts, and a thin cell's arm mean is noisier than a full one's. Charging
+    // every task the noise of the *best*-covered one subtracts too little, and
+    // the leftover looks like a task x condition interaction that is not there.
+    //
+    // Both arms here are drawn from one distribution, so the true interaction
+    // is zero and every delta is run noise. Half the tasks have 2 repeats and
+    // half have 8. Collapsing that to a single repeat count reports a ~6.5
+    // point interaction; charging each task its own noise reports none.
+    let seed = 12345 >>> 0;
+    const uniform = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    const gauss = () => Math.sqrt(-2 * Math.log(1 - uniform())) * Math.cos(2 * Math.PI * uniform());
+
+    const scores: RunScore[] = [];
+    for (let t = 0; t < 24; t++) {
+      const repeats = t % 2 === 0 ? 2 : 8;
+      for (const surface of ["a", "b"]) {
+        for (let i = 0; i < repeats; i++) scores.push(row(`t${t}`, surface, 50 + gauss() * 15, i));
+      }
+    }
+
+    const estimate = estimateVariance(scores, "a", "b");
+    expect(estimate.pairedTasks).toBe(24);
+    expect(estimate.runSdPoints).toBeGreaterThan(10);
+    expect(estimate.taskSdPoints).toBeLessThan(2);
+  });
+
   it("reports zeroes rather than throwing on a sweep too thin to estimate from", () => {
     const estimate = estimateVariance([row("t0", "a", 50, 0)], "a", "b");
     expect(estimate).toMatchObject({ runSdPoints: 0, taskSdPoints: 0, pairedTasks: 0, cellsWithRepeats: 0 });
