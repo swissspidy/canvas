@@ -31,12 +31,12 @@ headline improvement metric.
 
 | Family | Task | Baseline | Budget | Checks |
 |---|---|---|---|---|
-| compose | `compose.festival-poster` | 31.6% | 30 | 15 |
-| compose | `compose.event-flyer` | 37.5% | 30 | 15 |
-| compose | `compose.quote-card` | 53.3% | 25 | 13 |
-| compose | `compose.product-card` | 31.6% | 30 | 15 |
-| compose | `compose.sale-card` | 33.3% | 30 | 16 |
-| compose | `compose.title-card` | 62.5% | 25 | 14 |
+| compose | `compose.festival-poster` | 28.6% | 30 | 16 |
+| compose | `compose.event-flyer` | 33.3% | 30 | 16 |
+| compose | `compose.quote-card` | 47.1% | 25 | 14 |
+| compose | `compose.product-card` | 27.3% | 30 | 17 |
+| compose | `compose.sale-card` | 30.8% | 30 | 17 |
+| compose | `compose.title-card` | 55.6% | 25 | 15 |
 | repair | `repair.overlapping-stack` | 64.0% | 30 | 11 |
 | repair | `repair.off-canvas` | 61.8% | 30 | 12 |
 | repair | `repair.buried-text` | 71.4% | 25 | 12 |
@@ -177,6 +177,22 @@ button". `compose.sale-card` asks the same question of a ribbon, and adds the
 angle: a tilted label on an upright rect is not a ribbon, however well their
 bounding boxes agree. It is also the task where the margin is decided by
 geometry the numbers do not show — see the third fact above.
+
+**Scale is a stated number, since the first live pilot.** Every ratio check
+here — the title is the largest type, at least twice the smallest, larger
+than the dates — is satisfied at any scale, and the pilot produced posters
+whose title was 70 units on a 1080-unit canvas next to ones at 140: both
+hierarchies, both full marks, and only one of them a poster. The coverage
+check let the same pages through, because a 35% floor graded over 35 points
+kept three quarters of its value for a page that was 26% used. So each brief
+now states the size of the piece of copy that carries it (`dominantTypeAtLeast`
+— 120 units for the festival title, 84 for the flyer headline, 72 for the
+quote, 60 for the product name, 110 for the sale headline, 84 for the talk
+title) and a coverage floor of 40–45%, and the coverage grade bottoms out
+twenty points under its floor rather than thirty-five. Re-scored against the
+pilot's own documents, Opus 5's compositions kept 98–100% of their improvement
+and Haiku 4.5's dropped from 95–98% to 81–88%, which is the gap the renders
+show and the checks could not. `docs/PREREGISTRATION.md` §13 has the entry.
 
 ### `repair` — fix a broken layout (7 tasks)
 
@@ -328,6 +344,7 @@ Task-specific checks:
 | `textSizeOrder` | Named *copy* in decreasing font size — `fontSizeOrder` without the ids |
 | `fontSizeOrder` | Named elements in decreasing font size |
 | `fontSizeAtLeast` | Nothing set below a legible size, graded over a quarter of the floor |
+| `dominantTypeAtLeast` | The copy that carries the page is set at a stated size — poster scale, not heading scale |
 | `fullyOpaque` | The named elements are painted at full strength |
 | `coversCanvas` | Something matching covers the whole canvas — what "as a background" means |
 | `minFillContrast` | A filled shape is distinguishable from what it sits on |

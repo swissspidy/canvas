@@ -743,6 +743,59 @@ describe("the constraints the briefs state are actually scored", () => {
     expect(scoreOf(task, shrunk)).toBeLessThan(scoreOf(task, doc));
   });
 
+  /**
+   * The first live pilot: posters whose title was 70 units on a 1080-unit
+   * canvas scored the same as posters whose title was 140, because every
+   * ratio check is satisfied at any scale. The brief now states the scale.
+   * The renders are described in `docs/PREREGISTRATION.md` §13.
+   */
+  it("scores a poster set at document-heading scale below one set at poster scale", () => {
+    const task = getTask("compose.festival-poster");
+    const doc = task.initial();
+    const poster = (titleSize: number): Doc => ({
+      ...doc,
+      elements: [
+        { id: "bg", type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "photo/mountains", style: {} },
+        { id: "scrim", type: "rect", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 1, style: { fill: "#0b0b18aa" } },
+        { id: "title", type: "text", x: 80, y: 200, width: 920, height: titleSize * 2.8, rotation: 0, z: 2, text: "Ridgeline\nFestival", style: { fontSize: titleSize, fontWeight: "bold", color: "#ffffff", align: "center" } },
+        { id: "dates", type: "text", x: 80, y: 640, width: 920, height: 90, rotation: 0, z: 3, text: "September 12-14", style: { fontSize: 64, color: "#f6e7c1", align: "center" } },
+        { id: "venue", type: "text", x: 80, y: 760, width: 920, height: 70, rotation: 0, z: 4, text: "Alpine Meadow, Colorado", style: { fontSize: 42, color: "#e6e6f2", align: "center" } },
+        { id: "cta", type: "text", x: 80, y: 1180, width: 920, height: 70, rotation: 0, z: 5, text: "Tickets at ridgeline.fm", style: { fontSize: 36, color: "#ffffff", align: "center" } },
+      ],
+    });
+    // Both are hierarchies, and both would have scored the same.
+    expect(scoreOf(task, poster(140))).toBeCloseTo(1, 6);
+    expect(scoreOf(task, poster(70))).toBeLessThan(scoreOf(task, poster(140)) - 0.1);
+  });
+
+  /**
+   * The same pilot produced flyers with the copy in small type in the corners
+   * and two thirds of the page empty, and the coverage check kept most of its
+   * value for them: a 35% floor graded over 35 points let a page at 26% keep
+   * three quarters. The floor is stated in the brief now and the grade bites.
+   */
+  it("scores a flyer that leaves most of the page empty below one that fills it", () => {
+    const task = getTask("compose.event-flyer");
+    const doc = task.initial();
+    const flyer = (scale: number): Doc => ({
+      ...doc,
+      elements: [
+        { id: "head", type: "text", x: 60, y: 90, width: 960 * scale, height: 260 * scale, rotation: 0, z: 0, text: "Saturday\nCoffee Morning", style: { fontSize: 96 * scale, fontWeight: "bold", color: "#3a2417", align: "center" } },
+        { id: "photo", type: "image", x: 60, y: 400, width: 960 * scale, height: 520 * scale, rotation: 0, z: 1, src: "photo/coffee", style: {} },
+        { id: "when", type: "text", x: 60, y: 960, width: 960 * scale, height: 70, rotation: 0, z: 2, text: "Every Saturday, 9am to noon", style: { fontSize: 48 * scale, color: "#4a3121", align: "center" } },
+        { id: "where", type: "text", x: 60, y: 1050, width: 960 * scale, height: 60, rotation: 0, z: 3, text: "Corner of Fifth and Pine", style: { fontSize: 38 * scale, color: "#5a3d28", align: "center" } },
+        { id: "signoff", type: "text", x: 60, y: 1180, width: 960 * scale, height: 60, rotation: 0, z: 4, text: "All welcome. Bring a friend.", style: { fontSize: 32 * scale, color: "#6a4a30", align: "center" } },
+      ],
+    });
+    const filled = scoreOf(task, flyer(1));
+    const sparse = scoreOf(task, flyer(0.55));
+    expect(filled).toBeCloseTo(1, 6);
+    expect(sparse).toBeLessThan(filled - 0.1);
+    const results = runChecks(flyer(0.55), [...universalChecks(), ...task.checks]).results;
+    expect(results.find((r) => r.id === "coverage")!.score).toBeLessThan(0.5);
+    expect(results.find((r) => r.id === "dominant_type_size")!.score).toBeLessThan(0.5);
+  });
+
   it("penalises a row shoved to one side, however even its inner gaps", () => {
     const task = getTask("arrange.uneven-row");
     const doc = task.initial();

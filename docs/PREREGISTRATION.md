@@ -482,6 +482,50 @@ is no such difference to bound, and 324 runs' worth of budget is freed. Nothing
 in the hypotheses, the primary outcome, the analysis plan or the decision rules
 changes, and no run against a real model had been made when this was written.
 
+**2026-09-20 — the compose checks tightened, after looking at the pilot
+renders.** Written before any confirmatory run, and after the pilots below,
+which is the order this entry has to be read in.
+
+The 2026-09-19 entry records that the pilots saturated the constraint score
+on both a strong model and a weak one, and leaves open whether the checks
+were too lenient or the tasks too small. The thirty-six compose renders
+answered it. Set side by side, Opus 5's pages are composed — a title that
+fills the width, a card behind the product, a framed inset — and Haiku 4.5's
+carry the same elements at half the scale in an otherwise empty canvas: a
+festival title at 70 units on a 1080-unit canvas next to one at 140, a flyer
+using 34% of its page next to one using 93%. The judge saw it, ten points
+apart by surface. The checks did not, because every one of them is a floor
+or a ratio and a timid page clears both: a 60-unit title over 24-unit copy is
+a hierarchy, and a 35% coverage floor graded over thirty-five points kept
+three quarters of its value for a page 26% used.
+
+So the six compose briefs now state the scale, as they state every other
+constraint that is scored: the piece of copy that carries the page is set at
+a stated size (120 units for the festival title, 84 for the flyer headline,
+72 for the quote, 60 for the product name, 110 for the sale headline, 84 for
+the talk title; `dominantTypeAtLeast`, weight 2), the page is at least 40–45%
+used, and the coverage grade bottoms out twenty points under its floor rather
+than thirty-five. The floors were chosen by looking at those renders, and
+that is stated plainly: they sit where a page a designer would call poster
+scale lands and a page a designer would call a heading does not. They were
+not chosen to separate the surfaces — no surface comparison was consulted —
+and re-scoring the pilot's own documents shows what they do: Opus 5 keeps
+98–100% of its improvement on every surface, and Haiku 4.5 goes from 95–98%
+to 81–88%. The reference solutions in `solvable.test.ts` still score full
+marks, and two loophole tests in `tasks.test.ts` pin the two cheap pages
+below the composed ones.
+
+Baselines move — `docs/TASKS.md` carries the new table — and the primary
+outcome normalizes against them, so nothing about the metric's construction
+changes. The 2026-09-18 entry froze the weights and thresholds "as of this
+entry" and said a change afterwards gets its own entry and a re-run from
+scratch; this is that entry, and there is nothing to re-run, because no
+confirmatory cell has been run. Nothing in the question, the hypotheses, the
+primary outcome, the analysis plan or the decision rules changes. What the
+grid can now do that it could not is register the difference between a
+composed page and a timid one — on the family where the surfaces are
+predicted to differ most, that is the difference it exists to measure.
+
 **2026-09-19 — the first runs against a real model, and what changed after
 them.** Every entry above was written before any run against a real model.
 This one was not: on this date the pipeline was rehearsed live for the first

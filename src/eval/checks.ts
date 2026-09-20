@@ -719,7 +719,14 @@ export function coverage(min = 0.25, max = 0.95, weight = 1): Check {
     if (used >= min && used <= max) return { score: 1, detail: `${Math.round(used * 100)}% covered${note}.` };
     const distance = used < min ? min - used : used - max;
     return {
-      score: gradeDefect(distance, 0, 0.35),
+      // Twenty points under the floor bottoms out. It used to be thirty-five,
+      // and on that scale a festival poster covering 26% of its canvas against
+      // a stated 35% kept three quarters of the check — one point of
+      // improvement, on a task with fifteen checks, for leaving two thirds of
+      // the page empty. The pilot renders in `docs/PREREGISTRATION.md` §13
+      // are what a quarter-empty page looks like next to a composed one, and
+      // the grade has to be able to tell them apart.
+      score: gradeDefect(distance, 0, 0.2),
       detail: `${Math.round(used * 100)}% covered${note}; wanted ${Math.round(min * 100)}..${Math.round(max * 100)}%.`,
     };
   });
@@ -1056,6 +1063,29 @@ export function fontSizeAtLeast(min: number, weight = 1, selector?: Selector): C
       detail: offenders.length ? `Too small: ${offenders.join(", ")}` : `Smallest text ${round(worst)} units.`,
     };
   });
+}
+
+/**
+ * The piece of copy that carries the page is set at a stated size.
+ *
+ * Every ratio check in the compose family — the title is the largest type, at
+ * least twice the smallest, larger than the dates — is satisfied at any scale.
+ * A 60-unit title over 24-unit copy is a hierarchy, and it is also a document
+ * heading on a poster-sized canvas. The first live pilot produced exactly
+ * that: posters whose title was 70 units on 1080, next to ones at 140, and
+ * the checks could not tell them apart while anyone looking could. So the
+ * briefs now state the scale in units, as they state every other constraint,
+ * and this grades it the way `fontSizeAtLeast` grades a floor — a quarter
+ * under bottoms out — under its own id, so the report does not pool "is the
+ * body legible" and "is the title poster-sized" into one row.
+ */
+export function dominantTypeAtLeast(phrase: string, min: number, weight = 1): Check {
+  const inner = fontSizeAtLeast(min, weight, withText(phrase));
+  return {
+    ...inner,
+    id: "dominant_type_size",
+    label: `"${phrase}" is set at ${min} units or larger`,
+  };
 }
 
 /**
