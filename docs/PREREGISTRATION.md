@@ -503,9 +503,12 @@ So the six compose briefs now state the scale, as they state every other
 constraint that is scored: the piece of copy that carries the page is set at
 a stated size (120 units for the festival title, 84 for the flyer headline,
 72 for the quote, 60 for the product name, 110 for the sale headline, 84 for
-the talk title; `dominantTypeAtLeast`, weight 2), the page is at least 40–45%
-used, and the coverage grade bottoms out twenty points under its floor rather
-than thirty-five. The floors were chosen by looking at those renders, and
+the talk title; `dominantTypeAtLeast`, weight 2). The four briefs that carry a
+coverage check — the festival poster, the flyer, the product card and the
+sale card — now state a floor of 40–45%, and the coverage grade bottoms out
+twenty points under its floor rather than thirty-five. The quote card and the
+title card carry no coverage check, as before: a quote card is mostly empty
+by design, and the title card's gradient already fills its canvas. The floors were chosen by looking at those renders, and
 that is stated plainly: they sit where a page a designer would call poster
 scale lands and a page a designer would call a heading does not. They were
 not chosen to separate the surfaces — no surface comparison was consulted —
@@ -529,12 +532,18 @@ predicted to differ most, that is the difference it exists to measure.
 **2026-09-19 — the first runs against a real model, and what changed after
 them.** Every entry above was written before any run against a real model.
 This one was not: on this date the pipeline was rehearsed live for the first
-time, on four tasks (`fit.long-headline`, `repair.overlapping-stack`,
-`compose.festival-poster`, `arrange.card-grid`) across the three confirmatory
-surfaces, on Haiku 4.5, Sonnet 5 and Opus 5, thirty runs in all, judge
-included. They are pilots in the sense of §10, kept out of every grid, and
-they are named here because the discipline of this document is that anything
-decided after seeing a real result says so.
+time, thirty runs in all, judge included, each on all three confirmatory
+surfaces at one repeat. It was not a cross of tasks by models; it was four
+rehearsals, each sized to answer one question: `fit.long-headline` under
+`none` and `both` on Haiku 4.5 (six runs, does the pipeline work);
+`repair.overlapping-stack` under `both` on Opus 5 (three, does caching work on
+the confirmatory model); `compose.festival-poster` and `arrange.card-grid`
+under `both` on Opus 5 and Sonnet 5 (twelve, do harder tasks truncate or
+separate); and those two plus `fit.caption-under-image` under `none` on Opus 5
+(nine, is there headroom without feedback). Five tasks, three models, two
+feedback conditions, thirty cells. They are pilots in the sense of §10, kept
+out of every grid, and they are named here because the discipline of this
+document is that anything decided after seeing a real result says so.
 
 Three things changed after them, none of which touches the question, the
 hypotheses, the primary outcome, the analysis plan or the decision rules:

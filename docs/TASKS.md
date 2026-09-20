@@ -188,8 +188,12 @@ kept three quarters of its value for a page that was 26% used. So each brief
 now states the size of the piece of copy that carries it (`dominantTypeAtLeast`
 — 120 units for the festival title, 84 for the flyer headline, 72 for the
 quote, 60 for the product name, 110 for the sale headline, 84 for the talk
-title) and a coverage floor of 40–45%, and the coverage grade bottoms out
-twenty points under its floor rather than thirty-five. Re-scored against the
+title), the four briefs that carry a coverage check — the festival poster,
+the flyer, the product card and the sale card — state a floor of 40–45%, and
+the coverage grade bottoms out twenty points under its floor rather than
+thirty-five. The quote card and the title card carry no coverage check: a
+quote card is mostly empty by design, and the title card's gradient already
+fills its canvas. Re-scored against the
 pilot's own documents, Opus 5's compositions kept 98–100% of their improvement
 and Haiku 4.5's dropped from 95–98% to 81–88%, which is the gap the renders
 show and the checks could not. `docs/PREREGISTRATION.md` §13 has the entry.
