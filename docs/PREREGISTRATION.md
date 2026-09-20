@@ -224,6 +224,22 @@ difference in reasoning depth is therefore **confounded with** the model
 difference, and the write-up must say so wherever a cross-provider comparison
 appears.
 
+The same mapping also sets a different **output ceiling** per model, and it
+does so inside one provider, so the Claude ladder in §10 carries it too. Every
+turn is sent with `maxOutputTokens: 16000`. For a model with adaptive thinking
+(Opus 5, Sonnet 5) the SDK sends that as the request's `max_tokens` and the
+thinking counts inside it. For a model that takes a thinking *budget* instead
+(Haiku 4.5) the SDK sizes the budget from the model's own maximum output and
+adds it on top: the request goes out as `max_tokens: 54,400` with
+`budget_tokens: 38,400`, as captured from a live request. The ceiling on
+visible output is 16,000 for every model; the ceiling on thinking is not, and
+a `max_tokens` stop (§5) is therefore measured against a different limit on
+Haiku than on the other two. Levelling it would take a per-provider thinking
+setting, which is the invented mapping this section exists to avoid, so it is
+recorded here instead: a difference in `max_tokens` rates across the ladder is
+partly the ceiling, and the write-up must say so. The confirmatory grid runs on
+one model and is unaffected.
+
 ---
 
 ## 7. What "we could not pin the sampling" means
@@ -258,6 +274,7 @@ a refusal.
 | A judge that knows the condition | The judge is built from the task and the render only. Surface, feedback, model, turns and cost never enter its prompt. |
 | The harness differing between models | There is one agent loop, on the AI SDK, and every model goes through it — Claude included. No comparison in this study spans two harnesses, so there is no harness difference left to bound. |
 | Tool-calling reliability differing by provider | Tool-call failure rate is already a pre-registered secondary outcome; it is reported per provider as well as per surface. A provider whose rate is an outlier is named as a confound rather than left to ride. |
+| The output ceiling differing by model | The SDK adds a thinking budget on top of `maxOutputTokens` for models without adaptive thinking and not for those with it, so Haiku 4.5 runs under a 54,400-token ceiling and Opus 5 and Sonnet 5 under 16,000 (§6). Stated, not levelled; `max_tokens` rates across the ladder are read with it in mind. The confirmatory grid is one model. |
 | Cost comparisons across unpriced models | A model absent from `MODELS` is reported with `pricingKnown: false` and footnoted in the report, rather than costed at zero in silence. |
 | Tasks that are already nearly solved | The task suite fails CI if any starting document scores above 0.9. |
 | A task satisfiable without doing the work it describes | Every cheap path found so far — invisible elements, a document faded out of existence, shrinking type out of legibility, shortening copy, hiding the layer that is in the way, a background image that is not a background, deleting an element and recreating it under a new id — is asserted in `src/tasks/tasks.test.ts` to score below the honest fix. |
@@ -464,6 +481,117 @@ existed only to bound the difference between the two loops; with one loop there
 is no such difference to bound, and 324 runs' worth of budget is freed. Nothing
 in the hypotheses, the primary outcome, the analysis plan or the decision rules
 changes, and no run against a real model had been made when this was written.
+
+**2026-09-20 — the compose checks tightened, after looking at the pilot
+renders.** Written before any confirmatory run, and after the pilots below,
+which is the order this entry has to be read in.
+
+The 2026-09-19 entry records that the pilots saturated the constraint score
+on both a strong model and a weak one, and leaves open whether the checks
+were too lenient or the tasks too small. The thirty-six compose renders
+answered it. Set side by side, Opus 5's pages are composed — a title that
+fills the width, a card behind the product, a framed inset — and Haiku 4.5's
+carry the same elements at half the scale in an otherwise empty canvas: a
+festival title at 70 units on a 1080-unit canvas next to one at 140, a flyer
+using 34% of its page next to one using 93%. The judge saw it, ten points
+apart by surface. The checks did not, because every one of them is a floor
+or a ratio and a timid page clears both: a 60-unit title over 24-unit copy is
+a hierarchy, and a 35% coverage floor graded over thirty-five points kept
+three quarters of its value for a page 26% used.
+
+So the six compose briefs now state the scale, as they state every other
+constraint that is scored: the piece of copy that carries the page is set at
+a stated size (120 units for the festival title, 84 for the flyer headline,
+72 for the quote, 60 for the product name, 110 for the sale headline, 84 for
+the talk title; `dominantTypeAtLeast`, weight 2). The four briefs that carry a
+coverage check — the festival poster, the flyer, the product card and the
+sale card — now state a floor of 40–45%, and the coverage grade bottoms out
+twenty points under its floor rather than thirty-five. The quote card and the
+title card carry no coverage check, as before: a quote card is mostly empty
+by design, and the title card's gradient already fills its canvas. The floors were chosen by looking at those renders, and
+that is stated plainly: they sit where a page a designer would call poster
+scale lands and a page a designer would call a heading does not. They were
+not chosen to separate the surfaces — no surface comparison was consulted —
+and re-scoring the pilot's own documents shows what they do: Opus 5 keeps
+98–100% of its improvement on every surface, and Haiku 4.5 goes from 95–98%
+to 81–88%. The reference solutions in `solvable.test.ts` still score full
+marks, and two loophole tests in `tasks.test.ts` pin the two cheap pages
+below the composed ones.
+
+Baselines move — `docs/TASKS.md` carries the new table — and the primary
+outcome normalizes against them, so nothing about the metric's construction
+changes. The 2026-09-18 entry froze the weights and thresholds "as of this
+entry" and said a change afterwards gets its own entry and a re-run from
+scratch; this is that entry, and there is nothing to re-run, because no
+confirmatory cell has been run. Nothing in the question, the hypotheses, the
+primary outcome, the analysis plan or the decision rules changes. What the
+grid can now do that it could not is register the difference between a
+composed page and a timid one — on the family where the surfaces are
+predicted to differ most, that is the difference it exists to measure.
+
+**2026-09-19 — the first runs against a real model, and what changed after
+them.** Every entry above was written before any run against a real model.
+This one was not: on this date the pipeline was rehearsed live for the first
+time, thirty runs in all, judge included, each on all three confirmatory
+surfaces at one repeat. It was not a cross of tasks by models; it was four
+rehearsals, each sized to answer one question: `fit.long-headline` under
+`none` and `both` on Haiku 4.5 (six runs, does the pipeline work);
+`repair.overlapping-stack` under `both` on Opus 5 (three, does caching work on
+the confirmatory model); `compose.festival-poster` and `arrange.card-grid`
+under `both` on Opus 5 and Sonnet 5 (twelve, do harder tasks truncate or
+separate); and those two plus `fit.caption-under-image` under `none` on Opus 5
+(nine, is there headroom without feedback). Five tasks, three models, two
+feedback conditions, thirty cells. They are pilots in the sense of §10, kept
+out of every grid, and they are named here because the discipline of this
+document is that anything decided after seeing a real result says so.
+
+Three things changed after them, none of which touches the question, the
+hypotheses, the primary outcome, the analysis plan or the decision rules:
+
+1. The loop now caches the growing conversation as well as the instructions,
+   and retries a rate-limited request six times rather than twice. Both are
+   about what a sweep costs and whether its cells survive, not about what any
+   cell scores: a cache read returns the same tokens, and a retry re-sends
+   the same request. `docs/DESIGN.md` has the reasoning.
+2. §6 and §8 now state that the output ceiling differs by model — 16,000
+   tokens with thinking inside it on Opus 5 and Sonnet 5, 54,400 with a
+   38,400-token thinking budget on Haiku 4.5 — which the pilot found by
+   capturing the request the SDK actually sends. It was true before the pilot
+   and unstated; it is a confound of the exploratory model ladder and is now
+   written down as one.
+3. A run's saved transcript no longer carries the provider's reasoning
+   signatures, which are payloads rather than prose.
+
+What the pilots showed is also recorded, because it bears on §12. On
+twenty-nine of the thirty runs, under both the `none` and `both` feedback
+conditions, every surface satisfied every deterministic check: improvement was
+100%, and only the judge score and the cost moved. The thirtieth — the
+relational surface on `compose.festival-poster` with no feedback — left a
+line of the ticket copy clipped and closed 94% of the headroom. Five tasks on
+the two strongest models is not the grid, and the pilot tasks were not chosen
+to be hard — but it is the first evidence on the risk §12 names, that every
+cell ties, and it says the ceiling on the constraint score is the first thing
+the full grid has to be read for. If the confirmatory grid saturates the same
+way, the primary outcome cannot separate the surfaces on that model, and the
+honest result is that one, with the judge and cost carrying whatever remains
+— not a re-cut of the checks to manufacture headroom after the fact. No
+check, weight or threshold was changed in response.
+
+A second pilot the same day, run to test exactly that, said the same thing
+more clearly. The whole `compose` family — six tasks, the one the design
+notes call the family where the surfaces should differ most — with no
+feedback, one repeat, on Opus 5 and then on Haiku 4.5: thirty-six runs, kept
+out of the grid like the rest. On Opus the mean improvement was 97.2%
+(coordinate), 99.7% (relational) and 99.5% (document); on Haiku, 94.6%, 96.1%
+and 97.7%. The lowest single cell was 83%. The judge, meanwhile, spread from
+66% to 76% by surface on Haiku and from 82% to 87% on Opus, with intervals
+that overlap, and the turn counts differed by a factor of three or four
+between relational and the other two. So the pattern is not a strong model
+running out of task: a model two tiers down clears the deterministic checks
+almost as completely, and the deterministic score is the one outcome the
+grid appears unable to move. What the pilot does not settle is whether the
+checks are too lenient or the tasks too small, and that is a question for a
+harder task set in a new pre-registration, not for a re-cut of this one.
 
 **2026-09-18 (fourth entry) — harness failures are not runs.** Written before
 any run against a real model, from a pilot rehearsal that never reached one.

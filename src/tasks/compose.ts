@@ -27,6 +27,7 @@ import {
   containsText,
   coverage,
   coversCanvas,
+  dominantTypeAtLeast,
   elementCount,
   fontSizeAtLeast,
   geometryUnchanged,
@@ -71,10 +72,13 @@ export const composeTasks = [
       "Constraints:",
       "  - The title is the largest type on the poster and at least two and a half times",
       "    the size of the smallest, and it sits in the upper half.",
+      "  - This is a poster, read from across a room: set the title at 120 units or larger.",
       "  - The dates are set larger than the venue line.",
       "  - The ticket line sits in the bottom fifth.",
       "  - No text smaller than 24 units, and no two blocks of text overlapping.",
       "  - Keep everything at least 40 units clear of every canvas edge.",
+      "  - Fill the page: the elements you add should between them cover at least 40% of",
+      "    the canvas, not counting the background.",
     ].join("\n"),
     initial: () => blank({ background: "#101020" }),
     checks: [
@@ -97,9 +101,16 @@ export const composeTasks = [
         "The ticket line sits at the foot of the poster",
       ),
       fontSizeAtLeast(24, 1),
+      // "Set the title at 120 units or larger." The ratio checks above are
+      // satisfied at any scale — a 60-unit title over 24-unit copy is a
+      // hierarchy — and the first live pilot produced posters whose title was
+      // 70 units on a 1080-unit canvas, technically dominant and visibly a
+      // document heading. Poster scale is a stated number now, as every other
+      // constraint here is, and graded as `fontSizeAtLeast` grades a floor.
+      dominantTypeAtLeast("Ridgeline Festival", 120, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(40, 1),
-      coverage(0.35, 0.98, 1),
+      coverage(0.4, 0.98, 1),
     ],
     judgeCriteria: [
       "Does it read as a poster rather than a list of text boxes?",
@@ -127,10 +138,11 @@ export const composeTasks = [
       "",
       "Constraints:",
       "  - The headline is the largest type, at least twice the size of the smallest,",
-      "    and it sits in the top third.",
+      "    and it sits in the top third. Set it at 84 units or larger.",
       '  - "All welcome. Bring a friend." is the last thing on the page, below everything else.',
       "  - No text smaller than 22 units, and no two blocks of text overlapping.",
       "  - Keep everything at least 32 units clear of every canvas edge.",
+      "  - Fill the page: the elements should between them cover at least 45% of the canvas.",
     ].join("\n"),
     initial: () => blank({ background: "#fdf6ec" }),
     checks: [
@@ -158,9 +170,10 @@ export const composeTasks = [
       // cheapest way to make room for copy.
       notCovered(visibleImage, 1, "Nothing is painted over the photograph"),
       fontSizeAtLeast(22, 1),
+      dominantTypeAtLeast("Saturday Coffee Morning", 84, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(32, 1),
-      coverage(0.35, 0.98, 1),
+      coverage(0.45, 0.98, 1),
     ],
     judgeCriteria: [
       "Is there a clear reading order from headline to details?",
@@ -184,7 +197,8 @@ export const composeTasks = [
       "and no more than five elements in total.",
       "",
       "Constraints:",
-      "  - The quote is set larger than the attribution, and at least twice its size.",
+      "  - The quote is set larger than the attribution, and at least twice its size,",
+      "    and at 72 units or larger: it is the whole point of the card.",
       "  - The quote sits in the middle of the card, clear of the top and bottom sixths.",
       "  - Nothing smaller than 26 units, and nothing overlapping anything else.",
       "  - Keep everything at least 64 units clear of every canvas edge.",
@@ -205,6 +219,7 @@ export const composeTasks = [
         "The quote sits in the middle of the card",
       ),
       fontSizeAtLeast(26, 1),
+      dominantTypeAtLeast("We shape our buildings; thereafter they shape us.", 72, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(64, 1),
     ],
@@ -234,9 +249,12 @@ export const composeTasks = [
       "    half of the card, and nothing is painted over it.",
       "  - All four pieces of copy sit below the photo.",
       '  - The button label sits on a filled shape, so it reads as a button.',
-      "  - The product name is larger than the price, and the price larger than the description.",
+      "  - The product name is larger than the price, and the price larger than the description,",
+      "    and the name is set at 60 units or larger.",
       "  - No text smaller than 20 units, and no two blocks of text overlapping.",
       "  - Keep everything at least 24 units clear of every canvas edge.",
+      "  - Fill the card: the photo, copy and button should between them cover at least 45%",
+      "    of the canvas.",
     ].join("\n"),
     initial: () => blank({ background: "#ffffff" }),
     checks: [
@@ -252,8 +270,10 @@ export const composeTasks = [
       textSizeOrder(["Ridge Roast", "$18.00", "A dark, cocoa-forward blend from three Colorado farms. Roasted weekly."], 2),
       typeHierarchy(1.8, 1),
       fontSizeAtLeast(20, 1),
+      dominantTypeAtLeast("Ridge Roast", 60, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(24, 1),
+      coverage(0.45, 0.98, 1),
     ],
     judgeCriteria: [
       "Does the photo occupy the top of the card with the text below, as asked?",
@@ -297,10 +317,12 @@ export const composeTasks = [
       '  - "HALF PRICE" runs at a tilt of -14 degrees, set on a filled shape turned to the same angle,',
       "    so it reads as a ribbon across the card. It sits in the bottom third.",
       "  - The headline is the largest type, at least twice the size of the smallest, and sits in the top third.",
+      "    Set it at 110 units or larger.",
       "  - The shop name is set larger than the detail line.",
       "  - Everything else stays square to the canvas — the ribbon and its shape are the only things tilted.",
       "  - No text smaller than 24 units, and no two blocks of text overlapping.",
       "  - Nothing may come within 32 units of a canvas edge.",
+      "  - Fill the card: the elements should between them cover at least 45% of the canvas.",
     ].join("\n"),
     initial: () => blank({ background: "#f7f4ee" }),
     checks: [
@@ -327,12 +349,13 @@ export const composeTasks = [
       textSizeOrder(["Everything Must Go", "Ridgeline Supply Co.", "Last day Sunday the 26th"], 2),
       typeHierarchy(2, 1),
       fontSizeAtLeast(24, 1),
+      dominantTypeAtLeast("Everything Must Go", 110, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       // The check the rotation is really about: a tilted banner reaches
       // further than its width and height say, and this measures what it
       // paints rather than what it declared.
       marginAtLeast(32, 3),
-      coverage(0.3, 0.98, 1),
+      coverage(0.45, 0.98, 1),
     ],
     judgeCriteria: [
       "Does the ribbon read as a ribbon — a banner tilted across the card with its words on it?",
@@ -361,7 +384,8 @@ export const composeTasks = [
       "This will be projected, so:",
       "  - Nothing smaller than 30 units, and the talk title larger than the speaker's name,",
       "    which is larger than the event.",
-      "  - The talk title is at least twice the size of the smallest type.",
+      "  - The talk title is at least twice the size of the smallest type, and at 84 units",
+      "    or larger.",
       "  - No two blocks of text overlapping, and everything at least 56 units clear of every edge.",
     ].join("\n"),
     initial: titleCard,
@@ -370,6 +394,7 @@ export const composeTasks = [
       typeHierarchy(2, 1),
       textSizeOrder(["Interfaces That Explain Themselves", "Dana Okonkwo", "Layout Conf 2026"], 2),
       fontSizeAtLeast(30, 1),
+      dominantTypeAtLeast("Interfaces That Explain Themselves", 84, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(56, 1),
       // "Leave it exactly as it is." Nothing stopped a run deleting the

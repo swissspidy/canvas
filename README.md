@@ -176,7 +176,15 @@ Reasoning effort uses the AI SDK's **provider-neutral `reasoning` scale**
 providers by hand would have been the obvious validity hole; this way the
 mapping is maintained upstream rather than invented here. Prompt caching
 survives the move: the tools and the surface briefing are marked cacheable
-through `providerOptions`, which providers without such a knob simply ignore.
+through `providerOptions`, which providers without such a knob simply ignore,
+and a second breakpoint follows the newest message so each turn reads the
+conversation so far from cache rather than paying for it again.
+
+One thing that mapping does *not* hold constant is the output ceiling. The
+same `maxOutputTokens` reaches Opus 5 and Sonnet 5 as a 16,000-token limit
+with thinking inside it, and Haiku 4.5 as 54,400 with a 38,400-token thinking
+budget on top, because the SDK sizes a budget from the model's own maximum.
+`docs/PREREGISTRATION.md` §6 records it as a confound of the model ladder.
 
 Prices live in `MODELS` in `src/agent/models.ts`. A model that is not listed
 still runs — its cost is reported as *unknown* and footnoted in the report,
