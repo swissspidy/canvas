@@ -145,7 +145,12 @@ export interface RunResult {
  * confound of the cross-model comparison alongside the effort mapping it comes
  * from.
  */
-const DEFAULT_MAX_TOKENS = 16_000;
+/*
+ * 32,000 since 2026-10-07: at 16,000 the measurement family's many-call turns
+ * ended 17 of Sonnet 5's 30 runs and 5 of Opus 5's at the ceiling, which
+ * measured the ceiling rather than the model. `docs/PREREGISTRATION.md` §13.
+ */
+const DEFAULT_MAX_TOKENS = 32_000;
 
 /** Every surface tool, declared with no executor so the loop keeps control. */
 function buildToolSet(surface: ToolSurface): ToolSet {

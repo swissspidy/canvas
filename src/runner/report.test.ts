@@ -681,7 +681,9 @@ describe("effectiveness", () => {
     const md = buildReport(rows);
     expect(md).toContain("## Effectiveness");
     expect(md.split("\n").find((l) => l.startsWith("| cheap "))).toContain("$0.0200");
-    expect(md.split("\n").find((l) => l.startsWith("| dear "))).toContain("100.0%");
+    expect(md.split("\n").find((l) => l.startsWith("| dear "))).toContain("100% · 100% · 100%");
+    expect(md).toContain("### Pass rate by task");
+    expect(md.split("\n").find((l) => l.startsWith("| t1 "))).toContain("50% (1/2)");
     const json = buildReportJson(rows) as { effectiveness: { byModel: Record<string, { costPerPass: number }> } };
     expect(json.effectiveness.byModel["cheap"]!.costPerPass).toBeCloseTo(0.02, 9);
     expect(json.effectiveness.byModel["dear"]!.costPerPass).toBeCloseTo(0.5, 9);

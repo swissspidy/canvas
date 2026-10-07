@@ -688,24 +688,54 @@ export function effectiveness(rows: RunScore[]): Effectiveness {
   };
 }
 
+/**
+ * Pass rates task by task, lowest first: the spread a single pooled pass rate
+ * hides. A model that clears four tasks every time and one task never reads
+ * as "80%" pooled, which describes no task it was given.
+ */
+function passRatesByTask(rows: RunScore[]): number[] {
+  return [...groupBy(rows, (r) => r.taskId).values()].map((t) => t.filter(passed).length / t.length).sort((x, y) => x - y);
+}
+
 function effectivenessSection(scores: RunScore[], models: string[]): string {
+  const tasks = [...new Set(scores.map((s) => s.taskId))].sort();
   const lines = [
     "## Effectiveness",
     "",
-    "Per model: how often a run satisfied every check (a **pass**), and what it took — tool calls, rejected " +
-      "calls, turns, tokens and dollars. **Cost per pass** is the total spend over the number of passes, the one " +
-      "number that carries both how often and how much.",
+    "A **pass** is a run that satisfied every check. Pass rates are reported **task by task** — a rate pooled " +
+      "across tasks averages pages a model always finishes with pages it never does, and describes neither.",
+    "",
+    "### Pass rate by task",
     "",
     table(
-      ["Model", "Runs", "Pass rate", "Improvement", "Tool calls/run", "Rejected/run", "Turns/run", "Tokens/run", "Cost/run", "Cost per pass"],
+      ["Task", ...models],
+      tasks.map((task) => [
+        task,
+        ...models.map((model) => {
+          const rows = scores.filter((s) => s.model === model && s.taskId === task);
+          if (!rows.length) return "—";
+          return `${Math.round((rows.filter(passed).length / rows.length) * 100)}% (${rows.filter(passed).length}/${rows.length})`;
+        }),
+      ]),
+    ),
+    "",
+    "### What it took",
+    "",
+    "Per model, across its runs: the range of its per-task pass rates, and the cost of getting there. " +
+      "**Cost per pass** is total spend over passing runs.",
+    "",
+    table(
+      ["Model", "Runs", "Task pass rates (low · median · high)", "Tool calls/run", "Rejected/run", "Turns/run", "Tokens/run", "Cost/run", "Cost per pass"],
       models.map((model) => {
-        const e = effectiveness(scores.filter((s) => s.model === model));
+        const rows = scores.filter((s) => s.model === model);
+        const e = effectiveness(rows);
+        const rates = passRatesByTask(rows);
+        const median = rates.length ? rates[Math.floor((rates.length - 1) / 2)]! : 0;
         const unpriced = e.pricingKnown ? "" : " *";
         return [
           model,
           String(e.n),
-          `${pct(e.passRate)}%`,
-          pct(e.improvement),
+          rates.length ? `${Math.round(rates[0]! * 100)}% · ${Math.round(median * 100)}% · ${Math.round(rates.at(-1)! * 100)}%` : "—",
           e.toolCalls.toFixed(1),
           e.rejectedCalls.toFixed(1),
           e.turns.toFixed(1),
@@ -719,13 +749,10 @@ function effectivenessSection(scores: RunScore[], models: string[]): string {
   if (models.some((m) => !effectiveness(scores.filter((s) => s.model === m)).pricingKnown)) {
     lines.push("", "\\* No checked price for this model, so its cost reads as zero.");
   }
-  const tasks = [...new Set(scores.map((s) => s.taskId))].sort();
   if (tasks.length > 1) {
     lines.push(
       "",
-      "### By task",
-      "",
-      "Pass rate, tool calls per run and cost per run, model by model.",
+      "### Tool calls and cost by task",
       "",
       table(
         ["Task", ...models],
@@ -735,7 +762,7 @@ function effectivenessSection(scores: RunScore[], models: string[]): string {
             const rows = scores.filter((s) => s.model === model && s.taskId === task);
             if (!rows.length) return "—";
             const e = effectiveness(rows);
-            return `${Math.round(e.passRate * 100)}% · ${e.toolCalls.toFixed(0)} calls · ${usd(e.costUsd)}`;
+            return `${e.toolCalls.toFixed(0)} calls · ${usd(e.costUsd)}`;
           }),
         ]),
       ),
@@ -1184,7 +1211,9 @@ export function buildReportJson(allScores: RunScore[]): unknown {
     },
     bootstrap: { iterations: BOOTSTRAP_ITERATIONS, seed: BOOTSTRAP_SEED },
     effectiveness: {
-      byModel: Object.fromEntries([...groupBy(scores, (s) => s.model)].map(([k, v]) => [k, effectiveness(v)])),
+      byModel: Object.fromEntries(
+        [...groupBy(scores, (s) => s.model)].map(([k, v]) => [k, { ...effectiveness(v), passRateByTask: Object.fromEntries([...groupBy(v, (r) => r.taskId)].map(([t, rs]) => [t, rs.filter(passed).length / rs.length])) }]),
+      ),
       byModelAndTask: Object.fromEntries([...groupBy(scores, (s) => `${s.model}|${s.taskId}`)].map(([k, v]) => [k, effectiveness(v)])),
     },
     aggregates,
