@@ -521,4 +521,23 @@ export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
     }
     return { ...doc, elements: out };
   },
+
+  "proto.contents": () => {
+    const doc = getTask("proto.contents").initial();
+    const get = (id: string) => doc.elements.find((e) => e.id === id)!;
+    const out: Element[] = [get("header")];
+    for (const c of [0, 1]) {
+      let y = 200;
+      for (const r of [0, 1, 2]) {
+        const i = c * 3 + r + 1;
+        const x = c === 0 ? 60 : 570;
+        const num = hug({ ...get(`num${i}`), x, y, width: 450 });
+        const title = hug(onLines({ ...get(`title${i}`), x, y: bottom(num) + 8, width: 450 }, 2));
+        const teaser = hug({ ...get(`teaser${i}`), x, y: bottom(title) + 12, width: 450 });
+        out.push(num, title, teaser);
+        y = bottom(teaser) + 48;
+      }
+    }
+    return { ...doc, elements: out };
+  },
 };
