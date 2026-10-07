@@ -19,8 +19,11 @@
  */
 
 import { defineTask } from "./types.js";
-import { blank } from "./helpers.js";
-import type { Element } from "../doc/types.js";
+import { blank, doc, image } from "./helpers.js";
+import type { Doc, Element } from "../doc/types.js";
+import { aabb } from "../doc/geometry.js";
+import { assetAspect } from "../doc/assets.js";
+import type { Check } from "../eval/checks.js";
 import {
   alignedOn,
   centerAt,
@@ -73,6 +76,107 @@ const circle = shaped("ellipse", "#d62828");
 const triangle = shaped("polygon", "#f6bd60", 3);
 const square = plainRect("#1d3557");
 const bar = plainRect("#111111");
+
+// --- gallery ------------------------------------------------------------------
+
+/**
+ * Eleven photos in a fixed order, whose aspect ratios admit exactly one
+ * justified layout inside the brief's limits: rows of 3, 3, 3 and 2, 267, 267,
+ * 312 and 312 tall, ending at y = 1255. Found by enumerating every partition;
+ * no other one keeps every row between 180 and 340 and ends between 1240 and
+ * 1290. The brief states the rules, not the rows — finding them is the task.
+ */
+const GALLERY = ["coffee", "coffee", "mountains", "coffee", "mountains", "coffee", "coffee", "coffee", "coffee", "portrait", "city"];
+const PHOTOS = GALLERY.map((_, i) => `p${i + 1}`);
+
+const gallery = (): Doc =>
+  doc(
+    GALLERY.map((key, i) => {
+      const aspect = assetAspect(`photo/${key}`)!;
+      const h = 150;
+      return image({ id: PHOTOS[i]!, x: 80 + (i % 4) * 230 + ((i * 37) % 50), y: 120 + Math.floor(i / 4) * 330 + ((i * 53) % 70), w: h * aspect, h, src: `photo/${key}`, z: i });
+    }),
+    { background: "#f7f4ee" },
+  );
+
+interface Row {
+  ids: string[];
+  boxes: { x: number; y: number; width: number; height: number }[];
+}
+
+/** Photos grouped into rows by their top edge, rows top to bottom, each row left to right. */
+function rowsOf(d: Doc): Row[] {
+  const photos = PHOTOS.map((id) => d.elements.find((e) => e.id === id)).filter((e): e is Element => !!e);
+  const rows: Row[] = [];
+  for (const el of [...photos].sort((a, b) => aabb(a).y - aabb(b).y)) {
+    const b = aabb(el);
+    const row = rows.find((r) => Math.abs(r.boxes[0]!.y - b.y) <= 3);
+    if (row) {
+      row.ids.push(el.id);
+      row.boxes.push(b);
+    } else rows.push({ ids: [el.id], boxes: [b] });
+  }
+  for (const r of rows) {
+    const order = r.boxes.map((b, i) => i).sort((a, b) => r.boxes[a]!.x - r.boxes[b]!.x);
+    r.ids = order.map((i) => r.ids[i]!);
+    r.boxes = order.map((i) => r.boxes[i]!);
+  }
+  return rows;
+}
+
+function galleryCheck(id: string, label: string, weight: number, defect: (rows: Row[], d: Doc) => number, budget: number): Check {
+  return {
+    id,
+    label,
+    weight,
+    run(d) {
+      const rows = rowsOf(d);
+      if (rows.length === 0) return { score: 0, detail: "No photos." };
+      const amount = defect(rows, d);
+      return {
+        score: amount <= 0 ? 1 : Math.max(0, 1 - amount / budget),
+        detail: `Rows of ${rows.map((r) => r.ids.length).join(", ")}, ${rows.map((r) => Math.round(r.boxes[0]!.height)).join("/")} tall; worst miss ${Math.round(amount * 10) / 10}.`,
+      };
+    },
+  };
+}
+
+const galleryChecks: Check[] = [
+  galleryCheck("gallery_aspect", "Every photo keeps its proportions", 3, (_, d) => {
+    let worst = 0;
+    for (const [i, id] of PHOTOS.entries()) {
+      const el = d.elements.find((e) => e.id === id);
+      if (!el) return 1;
+      const want = assetAspect(`photo/${GALLERY[i]}`)!;
+      worst = Math.max(worst, Math.abs(el.width / el.height - want) / want);
+    }
+    return Math.max(0, worst - 0.01);
+  }, 0.1),
+  galleryCheck("gallery_order", "The photos keep their order, left to right and top to bottom", 3, (rows) => {
+    const read = rows.flatMap((r) => r.ids);
+    return read.join() === PHOTOS.join() ? 0 : 1;
+  }, 1),
+  galleryCheck("gallery_span", "Every row runs from x = 60 to x = 1020", 3, (rows) =>
+    Math.max(...rows.map((r) => Math.max(Math.abs(r.boxes[0]!.x - 60), Math.abs(r.boxes.at(-1)!.x + r.boxes.at(-1)!.width - 1020)) - 2), 0), 24),
+  galleryCheck("gallery_row_height", "Every photo in a row is the same height", 2, (rows) =>
+    Math.max(...rows.map((r) => Math.max(...r.boxes.map((b) => b.height)) - Math.min(...r.boxes.map((b) => b.height))), 0) - 1, 20),
+  galleryCheck("gallery_gutters", "12 units between photos, and between rows", 3, (rows) => {
+    let worst = 0;
+    for (const r of rows) for (let i = 1; i < r.boxes.length; i++) worst = Math.max(worst, Math.abs(r.boxes[i]!.x - (r.boxes[i - 1]!.x + r.boxes[i - 1]!.width) - 12));
+    for (let i = 1; i < rows.length; i++) {
+      const above = Math.max(...rows[i - 1]!.boxes.map((b) => b.y + b.height));
+      worst = Math.max(worst, Math.abs(rows[i]!.boxes[0]!.y - above - 12));
+    }
+    return worst - 2;
+  }, 24),
+  galleryCheck("gallery_heights", "Every row is between 180 and 340 tall", 2, (rows) =>
+    Math.max(...rows.map((r) => Math.max(180 - r.boxes[0]!.height, r.boxes[0]!.height - 340, 0))), 60),
+  galleryCheck("gallery_extent", "The gallery starts at y = 60 and ends between y = 1240 and 1290", 2, (rows) => {
+    const top = rows[0]!.boxes[0]!.y;
+    const end = Math.max(...rows.at(-1)!.boxes.map((b) => b.y + b.height));
+    return Math.max(Math.abs(top - 60) - 2, 1240 - end, end - 1290, 0);
+  }, 60),
+];
 
 export const prototypeTasks = [
   defineTask({
@@ -242,5 +346,30 @@ export const prototypeTasks = [
       "Does the title anchor the corner rather than float?",
     ],
     maxTurns: 40,
+  }),
+
+  defineTask({
+    id: "proto.gallery",
+    title: "A justified photo gallery",
+    family: "arrange",
+    brief: [
+      "Lay these eleven photos out as a justified gallery, the way a photo site does:",
+      "",
+      "  - The photos stay in their order, p1 to p11, reading left to right and then top to bottom.",
+      "  - Every photo keeps its own proportions (its box keeps the aspect ratio it has now, within 1%).",
+      "  - The photos in a row are all the same height, and each row runs exactly from x = 60 to x = 1020,",
+      "    with exactly 12 units between neighbouring photos.",
+      "  - Rows are exactly 12 units apart, and every row is between 180 and 340 tall.",
+      "  - The first row starts at y = 60, and the last row ends somewhere between y = 1240 and y = 1290.",
+      "",
+      "How many photos go in each row is up to you. Keep all eleven, and do not change which photo is which.",
+    ].join("\n"),
+    initial: gallery,
+    checks: galleryChecks,
+    judgeCriteria: [
+      "Does it read as a justified gallery — full-width rows of photos at consistent gutters?",
+      "Are the photos in their original proportions?",
+    ],
+    maxTurns: 45,
   }),
 ];

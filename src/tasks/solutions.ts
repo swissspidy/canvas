@@ -500,4 +500,25 @@ export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
       ],
     };
   },
+
+  // Rows of 3, 3, 3 and 2: each row's height is what makes its photos, at
+  // their own proportions, fill 960 less the gutters.
+  "proto.gallery": () => {
+    const doc = getTask("proto.gallery").initial();
+    const rows = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]];
+    const out: Element[] = [];
+    let y = 60;
+    for (const row of rows) {
+      const els = row.map((i) => doc.elements[i]!);
+      const h = (960 - 12 * (els.length - 1)) / els.reduce((s, e) => s + e.width / e.height, 0);
+      let x = 60;
+      for (const el of els) {
+        const w = (el.width / el.height) * h;
+        out.push({ ...el, x, y, width: w, height: h });
+        x += w + 12;
+      }
+      y += h + 12;
+    }
+    return { ...doc, elements: out };
+  },
 };
