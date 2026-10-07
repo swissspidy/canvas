@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, buildReportJson, clusterBootstrapCI, pairedDifference, signFlipTest } from "./report.js";
+import { buildReport, buildReportJson, clusterBootstrapCI, effectiveness, pairedDifference, signFlipTest } from "./report.js";
 import type { RunScore } from "../eval/score.js";
 import { fingerprintConflicts, runFingerprint } from "./run.js";
 
@@ -652,5 +652,38 @@ describe("harness failures in the report", () => {
     expect(json.harnessFailures.n).toBe(3);
     expect(json.harnessFailures.bySurface).toEqual({ coordinate: 2, relational: 1 });
     expect(json.harnessFailures.byStopReason).toEqual({ api_error: 2, aborted: 1 });
+  });
+});
+
+describe("effectiveness", () => {
+  const run = (model: string, constraint: number, cost: number, calls: number): RunScore => {
+    const base = score({ taskId: "t1", surfaceId: "coordinate", model, constraintScore: constraint });
+    return { ...base, efficiency: { ...base.efficiency, costUsd: cost, toolCalls: calls, failedToolCalls: 1 } };
+  };
+
+  it("counts a pass only when every check is satisfied, and prices each one", () => {
+    const rows = [run("a", 1, 0.1, 10), run("a", 0.98, 0.1, 30), run("a", 1, 0.2, 20), run("a", 0.5, 0.2, 40)];
+    const e = effectiveness(rows);
+    expect(e.passRate).toBe(0.5);
+    expect(e.toolCalls).toBe(25);
+    expect(e.rejectedCalls).toBe(1);
+    expect(e.costUsd).toBeCloseTo(0.15, 9);
+    // All four runs' spend over the two that passed.
+    expect(e.costPerPass).toBeCloseTo(0.3, 9);
+  });
+
+  it("has no cost per pass when nothing passed, rather than an infinite one", () => {
+    expect(effectiveness([run("a", 0.9, 0.1, 5)]).costPerPass).toBeNull();
+  });
+
+  it("shows a row per model in the report, and carries it into the JSON", () => {
+    const rows = [run("cheap", 1, 0.01, 50), run("cheap", 0.9, 0.01, 50), run("dear", 1, 0.5, 40), run("dear", 1, 0.5, 40)];
+    const md = buildReport(rows);
+    expect(md).toContain("## Effectiveness");
+    expect(md.split("\n").find((l) => l.startsWith("| cheap "))).toContain("$0.0200");
+    expect(md.split("\n").find((l) => l.startsWith("| dear "))).toContain("100.0%");
+    const json = buildReportJson(rows) as { effectiveness: { byModel: Record<string, { costPerPass: number }> } };
+    expect(json.effectiveness.byModel["cheap"]!.costPerPass).toBeCloseTo(0.02, 9);
+    expect(json.effectiveness.byModel["dear"]!.costPerPass).toBeCloseTo(0.5, 9);
   });
 });
