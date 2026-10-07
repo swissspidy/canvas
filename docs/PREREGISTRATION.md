@@ -614,6 +614,75 @@ measures what it cannot see, by iterating on feedback or with `fit_text`, as
 reliably as it computes geometry. No adjustment is made on this result; what
 the study does next is a decision for its author, recorded in the next entry.
 
+**2026-10-07 (eighth entry) — cost to pass becomes the primary outcome.**
+Written before any confirmatory run, and fixing everything below in advance.
+It replaces §3's primary outcome and restates §2's hypotheses in its terms;
+everything not named here stands.
+
+*Why.* On the confirmatory model the constraint score saturates on every task
+set this project has built — the newest Opus passes every run of the
+hardest. A study whose primary outcome sits at the ceiling cannot separate
+anything, and §12 asked for the honest result rather than a re-cut. What does
+still vary on that model, and widely, is what a correct page *costs*: 39 to
+108 tool calls and $0.36 to $0.98 a run across the measurement family. For
+anyone building an editor, "which tools and which feedback get a capable
+model to a correct page for the least" is the question that matters once it
+can reach one at all.
+
+*The outcome.*
+
+- A **pass** is a run that satisfies every deterministic check (constraint
+  score ≥ 0.999), as the report already counts it.
+- **Cost per pass**, per task and condition, is the agent's total spend over
+  that cell's runs — failed runs included — divided by the number of runs that
+  passed: the expected cost of one correct page. The judge's call is excluded;
+  it costs the same whatever the condition. A cell with no pass divides by
+  0.5, so its cost per pass is twice its spend, and is counted wherever it
+  occurs.
+- **Calls per pass**, the same construction with tool calls, is co-primary:
+  dollars depend on a price list and on token counts, calls on neither.
+- Combined across tasks as a **geometric mean**, so a cheap task and a dear one
+  count alike.
+- Comparisons are **paired within task**: the log of each task's ratio between
+  two conditions, averaged, with a 95% percentile interval from resampling
+  tasks (2000 iterations, the seed in `report.ts`). Reported as a ratio, A over
+  B; below 1 means A is cheaper.
+- Pass rate, improvement and the judge score become secondary, reported
+  task by task.
+
+*Decision rules.* A difference is **resolved** if the interval of the ratio
+excludes 1, and **practically meaningful** if it is also at least 15% from 1.
+Resolved differences under 15% are reported as such.
+
+*Hypotheses, restated.*
+
+- **H1.** Relational costs less per pass than coordinate, by at least 15%, in
+  dollars and in calls.
+- **H2.** Feedback moves cost per pass more than the surface does: the spread
+  (most over least expensive) across feedback conditions exceeds the spread
+  across surfaces.
+- **H3.** Document-as-code needs the fewest calls per pass, and its dollar cost
+  per pass is within 15% of the cheapest incremental surface.
+- **H4.** Relational's saving is largest in `fit`, `arrange` and `measure`, and
+  smallest in `restyle`.
+- **H5.** On the two rotation tasks, `screenshot` is cheaper per pass relative
+  to `structured_plain` than it is on the other twenty-five.
+
+*The grid.* Model `anthropic:claude-opus-5-5` at effort `high` (sent as
+`output_config.effort: high` with adaptive thinking, captured from a live
+request), `maxOutputTokens` 32,000. All 27 registered tasks — the v2 set and
+the measurement family. Surfaces `coordinate`, `relational`, `document`.
+Feedback `none`, `structured`, `screenshot`, `both`, and the confound controls
+`structured_plain` and `both_plain`. Three repeats: 27 × 3 × 6 × 3 = **1,458
+runs**, judged by `anthropic:claude-sonnet-5-5`. If its priced estimate is
+more than the author will spend, repeats fall to two for every cell — decided
+before the first confirmatory run and recorded here — and nothing else
+changes.
+
+*Blinding.* Until the grid has run, no per-surface or per-feedback figure on
+any outcome is computed or read; the report's cost-to-pass section is built
+and tested on synthetic data.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.

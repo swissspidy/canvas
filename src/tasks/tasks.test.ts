@@ -17,12 +17,12 @@ import { SOLUTIONS } from "./solutions.js";
 const HEADROOM_CEILING = 0.9;
 
 describe("task registry", () => {
-  it("holds eighteen to twenty-four tasks", () => {
+  it("holds eighteen to thirty tasks", () => {
     // The ceiling is a budget, not a principle: every task multiplies through
     // surfaces, feedback conditions, models and repeats, and
     // `docs/PREREGISTRATION.md` sizes the grid from this number.
     expect(TASKS.length).toBeGreaterThanOrEqual(18);
-    expect(TASKS.length).toBeLessThanOrEqual(24);
+    expect(TASKS.length).toBeLessThanOrEqual(30);
   });
 
   it("gives every task a unique id", () => {

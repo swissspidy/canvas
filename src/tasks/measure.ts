@@ -12,7 +12,8 @@
  * session titles in a programme's cards, a timeline whose spine has to run
  * exactly as far as its hugged entries do.
  *
- * Kept out of `TASKS` until calibrated. Run them with `--tasks measure`.
+ * Registered as its own family on 2026-10-07, when cost to pass became the
+ * primary outcome (`docs/PREREGISTRATION.md` §13, eighth entry).
  */
 
 import { defineTask, type Task } from "./types.js";
@@ -149,7 +150,7 @@ export function contentsTask(spec: ContentsSpec): Task {
   return defineTask({
     id: spec.id,
     title: "A contents page with auto-fit headlines",
-    family: "fit",
+    family: "measure",
     brief: [
       "Set this contents page. The header stays exactly as it is. The entries — each a page number, a headline",
       `and a teaser (num1, title1, teaser1 and so on) — go into ${columnWords}, in order: entries ${ranges.join(", then ")},`,
@@ -171,6 +172,7 @@ export function contentsTask(spec: ContentsSpec): Task {
     judgeCriteria: [
       "Does it read as a magazine contents page — tidy columns of entries?",
       "Do the headlines fill their measure without crowding?",
+      "Is the spacing between entries even, so the columns read as one grid?",
     ],
     maxTurns: 60,
   });
@@ -235,7 +237,7 @@ const inMenuColumn = (c: number) => dishIds.slice(c * 6, c * 6 + 6);
 export const menuTask = defineTask({
   id: "measure.menu",
   title: "A menu with auto-fit dish names",
-  family: "fit",
+  family: "measure",
   brief: [
     "Set this menu. The header stays exactly as it is. Two columns: section1 heads the left column with dishes",
     "1 to 6 under it, section2 heads the right column with dishes 7 to 12, in order. Each dish is a name, a price",
@@ -282,7 +284,11 @@ export const menuTask = defineTask({
     hugsText([...sectionIds, ...dishIds.flatMap((d) => [d.name, d.price, d.desc])], 4, 4),
     endsBy(dishIds.map((d) => d.desc), 1290),
   ],
-  judgeCriteria: ["Does it read as a menu — two columns of dishes with prices on the right?", "Do the dish names read as one family despite their different sizes?"],
+  judgeCriteria: [
+    "Does it read as a menu — two columns of dishes with prices on the right?",
+    "Do the dish names read as one family despite their different sizes?",
+    "Is each price easy to match to its dish?",
+  ],
   maxTurns: 60,
 });
 
@@ -324,7 +330,7 @@ const programme = (): Doc => {
 export const programmeTask = defineTask({
   id: "measure.programme",
   title: "A programme whose session titles fill their cards",
-  family: "fit",
+  family: "measure",
   brief: [
     "Set the session cards in this conference programme. The header and the twelve white cards stay exactly",
     "where they are. Each card holds a time, a session title and a speaker (time1, session1, speaker1 for card1,",
@@ -356,7 +362,11 @@ export const programmeTask = defineTask({
     fillsBox(CARD.map((c) => c.title), 0.98, 8, { label: "Every title is as large as it goes in its box" }),
     hugsText(CARD.flatMap((c) => [c.time, c.speaker]), 4, 4),
   ],
-  judgeCriteria: ["Does every card read cleanly — time, title, speaker?", "Do the titles fill their cards without crowding them?"],
+  judgeCriteria: [
+    "Does every card read cleanly — time, title, speaker?",
+    "Do the titles fill their cards without crowding them?",
+    "Does the programme read as one grid, the same rhythm in every card?",
+  ],
   maxTurns: 60,
 });
 
@@ -388,7 +398,7 @@ const timeline = (): Doc => {
 export const timelineTask = defineTask({
   id: "measure.timeline",
   title: "A timeline whose spine runs exactly as far as its entries",
-  family: "fit",
+  family: "measure",
   brief: [
     "Set this timeline. The header stays exactly as it is. Six events, in order — each a year, a headline and a",
     "note (year1, event1, note1 and so on) — and a spine, the thin red rule that runs down beside them.",
@@ -436,7 +446,11 @@ export const timelineTask = defineTask({
     alignedOn("bottom", ["spine", EV.at(-1)!.body], 1.5, 3),
     endsBy(EV.flatMap((e) => [e.year, e.head, e.body]), 1290),
   ],
-  judgeCriteria: ["Does it read as a timeline — years down the left, events beside them, a spine joining them?", "Is the vertical rhythm even?"],
+  judgeCriteria: [
+    "Does it read as a timeline — years down the left, events beside them, a spine joining them?",
+    "Is the vertical rhythm even?",
+    "Does each year line up with its event?",
+  ],
   maxTurns: 60,
 });
 

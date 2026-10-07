@@ -31,7 +31,16 @@ export interface Efficiency {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Agent and judge together: the sweep's bill. */
   costUsd: number;
+  /**
+   * The agent's spend alone — what it took to produce the page. The cost-to-
+   * pass outcome reads this, because the judge's call is the same price
+   * whatever the surface and would only dilute the difference. Absent on
+   * records written before it existed, which ran without a judge, so
+   * `costUsd` is the same number there (`agentCost` in the report).
+   */
+  agentCostUsd?: number;
   /** False when the model has no pricing entry; `costUsd` is then 0 and meaningless. */
   pricingKnown: boolean;
   wallMs: number;
@@ -148,6 +157,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
       outputTokens: run.usage.output,
       totalTokens,
       costUsd: run.costUsd + (judge?.costUsd ?? 0),
+      agentCostUsd: run.costUsd,
       // Both models, because the figure above is both models. An unpriced
       // judge contributes a confident $0 to every run in the sweep — the same
       // silent-zero problem the model table already guards against, one level

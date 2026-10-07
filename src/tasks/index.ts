@@ -1,7 +1,7 @@
 /**
  * The task registry.
  *
- * Eighteen tasks across five families. Enough that a per-family breakdown has
+ * Twenty-seven tasks across six families. Enough that a per-family breakdown has
  * something to say, few enough that a full sweep across surfaces, feedback
  * conditions, models and repeats stays affordable — the run matrix multiplies
  * fast, and `docs/PREREGISTRATION.md` sizes it.
@@ -22,14 +22,14 @@ export const TASKS: Task[] = [
   ...fitTasks,
   ...restyleTasks,
   ...arrangeTasks,
+  ...measureTasks,
 ];
 
 /**
- * Prototype tasks: resolvable by id, or as `proto` (constructions) and
- * `measure` (the measurement family), and never
+ * Prototype tasks: resolvable by id, or all together as `proto`, and never
  * part of `TASKS` — so no default sweep, grid or registry test includes them.
  */
-export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...measureTasks];
+export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks];
 
 export const TASKS_BY_ID: Map<string, Task> = new Map([...TASKS, ...PROTOTYPE_TASKS].map((t) => [t.id, t]));
 
@@ -60,10 +60,6 @@ export function resolveTasks(selector: string): Task[] {
   for (const part of parts) {
     if (part === "proto") {
       out.push(...prototypeTasks);
-      continue;
-    }
-    if (part === "measure") {
-      out.push(...measureTasks);
       continue;
     }
     const family = tasksInFamily(part as TaskFamily);

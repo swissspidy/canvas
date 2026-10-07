@@ -413,6 +413,69 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     });
     return { ...doc, elements };
   },
+
+  // --- measure: many measured pieces of text ------------------------------
+
+  "measure.contents": () => contentsSolution("measure.contents", [60, 305, 550, 795], 225, 4),
+
+  "measure.menu": () => {
+    const doc = getTask("measure.menu").initial();
+    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
+    const out: Element[] = [get("header")];
+    [60, 560].forEach((x, c) => {
+      const heading = hug({ ...get(`section${c + 1}`), x, y: 200, width: 460 });
+      out.push(heading);
+      let y = bottom(heading) + 16;
+      for (let k = 0; k < 6; k++) {
+        const i = c * 6 + k + 1;
+        const nameEl = { ...get(`dish${i}`), x, y, width: 360 };
+        const fit = largestFontSizeForLines(nameEl, 2)!;
+        const name = hug({ ...nameEl, style: { ...nameEl.style, fontSize: Math.min(40, fit) } });
+        const price = hug({ ...get(`price${i}`), x: x + 380, y, width: 80 });
+        const desc = hug({ ...get(`desc${i}`), x, y: bottom(name) + 6, width: 460 });
+        out.push(name, price, desc);
+        y = bottom(desc) + 28;
+      }
+    });
+    return { ...doc, elements: out };
+  },
+
+  "measure.programme": () => {
+    const doc = getTask("measure.programme").initial();
+    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
+    const out: Element[] = [get("header")];
+    for (let i = 1; i <= 12; i++) {
+      const card = get(`card${i}`);
+      const time = hug({ ...get(`time${i}`), x: card.x + 20, y: card.y + 20 });
+      const speaker = endAt(hug({ ...get(`speaker${i}`), x: card.x + 20 }), card.y + card.height - 20);
+      const top = bottom(time) + 8;
+      const title = fillTo({ ...get(`session${i}`), x: card.x + 20, y: top, width: 260, height: speaker.y - 12 - top });
+      out.push(card, time, title, speaker);
+    }
+    return { ...doc, elements: out };
+  },
+
+  "measure.timeline": () => {
+    const doc = getTask("measure.timeline").initial();
+    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
+    const out: Element[] = [get("header")];
+    let y = 200;
+    let last = 0;
+    for (let i = 1; i <= 6; i++) {
+      const headEl = get(`event${i}`);
+      const fit = largestFontSizeForLines({ ...headEl, width: 760 }, 1)!;
+      const head = hug({ ...headEl, x: 260, y, width: 760, style: { ...headEl.style, fontSize: Math.min(48, fit) } });
+      const year = hug({ ...get(`year${i}`), x: 60, y, width: 150 });
+      const noteEl = { ...get(`note${i}`), x: 260, y: bottom(head) + 8, width: 760 };
+      const noteFit = largestFontSizeForLines(noteEl, 2)!;
+      const note = hug({ ...noteEl, style: { ...noteEl.style, fontSize: Math.min(30, noteFit) } });
+      out.push(year, head, note);
+      last = bottom(note);
+      y = last + 40;
+    }
+    out.push({ ...get("spine"), y: 200, height: last - 200 });
+    return { ...doc, elements: out };
+  },
 };
 
 
@@ -519,67 +582,6 @@ export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
       }
       y += h + 12;
     }
-    return { ...doc, elements: out };
-  },
-
-  "measure.contents": () => contentsSolution("measure.contents", [60, 305, 550, 795], 225, 4),
-
-  "measure.menu": () => {
-    const doc = getTask("measure.menu").initial();
-    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
-    const out: Element[] = [get("header")];
-    [60, 560].forEach((x, c) => {
-      const heading = hug({ ...get(`section${c + 1}`), x, y: 200, width: 460 });
-      out.push(heading);
-      let y = bottom(heading) + 16;
-      for (let k = 0; k < 6; k++) {
-        const i = c * 6 + k + 1;
-        const nameEl = { ...get(`dish${i}`), x, y, width: 360 };
-        const fit = largestFontSizeForLines(nameEl, 2)!;
-        const name = hug({ ...nameEl, style: { ...nameEl.style, fontSize: Math.min(40, fit) } });
-        const price = hug({ ...get(`price${i}`), x: x + 380, y, width: 80 });
-        const desc = hug({ ...get(`desc${i}`), x, y: bottom(name) + 6, width: 460 });
-        out.push(name, price, desc);
-        y = bottom(desc) + 28;
-      }
-    });
-    return { ...doc, elements: out };
-  },
-
-  "measure.programme": () => {
-    const doc = getTask("measure.programme").initial();
-    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
-    const out: Element[] = [get("header")];
-    for (let i = 1; i <= 12; i++) {
-      const card = get(`card${i}`);
-      const time = hug({ ...get(`time${i}`), x: card.x + 20, y: card.y + 20 });
-      const speaker = endAt(hug({ ...get(`speaker${i}`), x: card.x + 20 }), card.y + card.height - 20);
-      const top = bottom(time) + 8;
-      const title = fillTo({ ...get(`session${i}`), x: card.x + 20, y: top, width: 260, height: speaker.y - 12 - top });
-      out.push(card, time, title, speaker);
-    }
-    return { ...doc, elements: out };
-  },
-
-  "measure.timeline": () => {
-    const doc = getTask("measure.timeline").initial();
-    const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
-    const out: Element[] = [get("header")];
-    let y = 200;
-    let last = 0;
-    for (let i = 1; i <= 6; i++) {
-      const headEl = get(`event${i}`);
-      const fit = largestFontSizeForLines({ ...headEl, width: 760 }, 1)!;
-      const head = hug({ ...headEl, x: 260, y, width: 760, style: { ...headEl.style, fontSize: Math.min(48, fit) } });
-      const year = hug({ ...get(`year${i}`), x: 60, y, width: 150 });
-      const noteEl = { ...get(`note${i}`), x: 260, y: bottom(head) + 8, width: 760 };
-      const noteFit = largestFontSizeForLines(noteEl, 2)!;
-      const note = hug({ ...noteEl, style: { ...noteEl.style, fontSize: Math.min(30, noteFit) } });
-      out.push(year, head, note);
-      last = bottom(note);
-      y = last + 40;
-    }
-    out.push({ ...get("spine"), y: 200, height: last - 200 });
     return { ...doc, elements: out };
   },
 };
