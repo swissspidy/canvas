@@ -1725,7 +1725,7 @@ export function lineCount(selector: Selector, lines: number, weight = 1, label?:
  * text takes another line, which `lineCount` scores; this one scores falling
  * short of it.
  */
-export function fillsMeasure(selector: Selector, lines: number, minFraction = 0.95, weight = 1, label?: string): Check {
+export function fillsMeasure(selector: Selector, lines: number, minFraction = 0.95, weight = 1, label?: string, max?: number): Check {
   return check(
     "fills_measure",
     label ?? `Set as large as it goes on ${lines} line(s)`,
@@ -1738,14 +1738,19 @@ export function fillsMeasure(selector: Selector, lines: number, minFraction = 0.
       const parts: string[] = [];
       for (const el of els) {
         const size = el.style.fontSize ?? DEFAULT_FONT_SIZE;
-        const target = largestFontSizeForLines(el, lines);
+        // `max` caps the target: "as large as it goes, up to 44" — a short
+        // name stops at the cap, a long one at its measure.
+        const fit = largestFontSizeForLines(el, lines);
+        const target = fit === null ? null : max === undefined ? fit : Math.min(fit, max);
         if (target === null) {
           worst = 1;
           parts.push(`${el.id} cannot fit ${lines} line(s) at this width`);
           continue;
         }
         const shortfall = Math.max(0, 1 - size / target);
-        worst = Math.max(worst, shortfall);
+        // Over the cap is as much a miss as under the measure.
+        const over = max === undefined ? 0 : Math.max(0, size / max - 1);
+        worst = Math.max(worst, shortfall, over);
         parts.push(`${el.id} ${round(size)} of ${target}`);
       }
       const slack = 1 - minFraction;
