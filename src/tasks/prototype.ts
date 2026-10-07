@@ -200,71 +200,127 @@ function inRegionWhole(ids: string[], y: number): Check {
  * A magazine contents page whose headlines auto-fit: each is set as large as
  * it will go on exactly two lines of its column — the "auto-fit text" a
  * story editor offers, and a measurement the agent cannot read off the
- * document. Six of them, plus six teasers whose boxes must hug text whose
- * line breaks are just as unseen. The prototypes above showed geometry is
- * solved and measurement is not; this asks for many measurements at once.
+ * document. Every teaser box must also hug text whose line breaks are just as
+ * unseen. The construction prototypes showed geometry is solved and
+ * measurement is not; this asks for many measurements at once. Two sizes: six
+ * entries in two columns, nine in three.
  */
-const ENTRIES = [
+const ENTRY_COPY = [
   { n: "04", title: "The Crossing We Moved Upstream", teaser: "Why we rebuilt on rock, and what it cost." },
   { n: "12", title: "Nine Thousand Feet of Stage", teaser: "Hauling a festival above the treeline, one crate at a time." },
   { n: "19", title: "What the Ford Taught Us", teaser: "Four days a year you do not cross. That turns out to be enough." },
+  { n: "23", title: "Winter Notes From the Valley Road", teaser: "What the snowplough saw, and what it did not." },
   { n: "27", title: "Letters From the Eastern Bank", teaser: "Readers write in about the spring melt and the long way round." },
   { n: "33", title: "A Bridge Is a Promise", teaser: "Four times the price, and there in April. Is that worth it?" },
   { n: "41", title: "Notes on Patching, Honestly", teaser: "A season of quick fixes, totted up in one honest column." },
+  { n: "46", title: "The Long Way Round, Measured", teaser: "Seven extra miles a day, and why nobody minded." },
+  { n: "52", title: "Rebuilding the Footbridge in a Week", teaser: "Six volunteers, one borrowed winch, and a very long Saturday." },
 ];
-const NUM = ENTRIES.map((_, i) => `num${i + 1}`);
-const TITLE = ENTRIES.map((_, i) => `title${i + 1}`);
-const TEASER = ENTRIES.map((_, i) => `teaser${i + 1}`);
 const NUM_STYLE = { fontSize: 30, fontWeight: "bold" as const, color: "#c0392b" };
 const TITLE_STYLE = { fontSize: 40, fontWeight: "bold" as const, color: "#1d1d2b" };
 const TEASER_STYLE = { fontSize: 26, color: "#55556b", lineHeight: 1.35 };
 
-const contents = (): Doc =>
-  doc(
-    [
-      text({ id: "header", x: 60, y: 60, w: 960, h: 90, z: 0, text: "In this issue", style: { fontSize: 72, fontWeight: "bold", color: "#1d1d2b" } }),
-      ...ENTRIES.flatMap((e, i) => {
-        // Roughly where each entry belongs, every box the wrong size.
-        const x = (i < 3 ? 60 : 570) + ((i * 29) % 40) - 20;
-        const y = 220 + (i % 3) * 330 + ((i * 41) % 60) - 30;
-        return [
-          text({ id: NUM[i]!, x, y, w: 300, h: 60, z: 1 + i * 3, text: e.n, style: NUM_STYLE }),
-          text({ id: TITLE[i]!, x, y: y + 50, w: 420, h: 100, z: 2 + i * 3, text: e.title, style: TITLE_STYLE }),
-          text({ id: TEASER[i]!, x, y: y + 170, w: 470, h: 50, z: 3 + i * 3, text: e.teaser, style: TEASER_STYLE }),
-        ];
-      }),
+/** Every matched element ends by `y`. */
+function endsBy(ids: string[], y: number): Check {
+  return {
+    id: "ends_by",
+    label: `Nothing goes below y = ${y}`,
+    weight: 1,
+    run(d) {
+      const bottoms = ids.map((id) => d.elements.find((e) => e.id === id)).filter((e): e is Element => !!e).map((e) => aabb(e).y + aabb(e).height);
+      const worst = Math.max(...bottoms, 0) - y;
+      return { score: worst <= 0 ? 1 : Math.max(0, 1 - worst / 60), detail: `Lowest edge at ${Math.round(Math.max(...bottoms, 0))}.` };
+    },
+  };
+}
+
+export interface ContentsSpec {
+  id: string;
+  entries: number;
+  /** Left edge of each column. */
+  columns: number[];
+  width: number;
+}
+
+export function contentsTask(spec: ContentsSpec) {
+  const entries = ENTRY_COPY.slice(0, spec.entries);
+  const perColumn = spec.entries / spec.columns.length;
+  const NUM = entries.map((_, i) => `num${i + 1}`);
+  const TITLE = entries.map((_, i) => `title${i + 1}`);
+  const TEASER = entries.map((_, i) => `teaser${i + 1}`);
+  const columnOf = (i: number) => Math.floor(i / perColumn);
+  const initial = (): Doc =>
+    doc(
+      [
+        text({ id: "header", x: 60, y: 60, w: 960, h: 90, z: 0, text: "In this issue", style: { fontSize: 72, fontWeight: "bold", color: "#1d1d2b" } }),
+        ...entries.flatMap((e, i) => {
+          // Roughly where each entry belongs, every box the wrong size.
+          const x = spec.columns[columnOf(i)]! + ((i * 29) % 40) - 20;
+          const y = 220 + (i % perColumn) * (1000 / perColumn) + ((i * 41) % 60) - 30;
+          return [
+            text({ id: NUM[i]!, x, y, w: spec.width - 150, h: 60, z: 1 + i * 3, text: e.n, style: NUM_STYLE }),
+            text({ id: TITLE[i]!, x, y: y + 50, w: spec.width - 30, h: 100, z: 2 + i * 3, text: e.title, style: TITLE_STYLE }),
+            text({ id: TEASER[i]!, x, y: y + 170, w: spec.width + 20, h: 50, z: 3 + i * 3, text: e.teaser, style: TEASER_STYLE }),
+          ];
+        }),
+      ],
+      { background: "#f7f4ee" },
+    );
+  const ids = (i: number) => [NUM[i]!, TITLE[i]!, TEASER[i]!];
+  const inColumn = (c: number) => entries.map((_, i) => i).filter((i) => columnOf(i) === c);
+  const checks: Check[] = [
+    geometryUnchanged(initial(), ["header"], 1),
+    styleUnchanged(initial(), [...NUM, ...TEASER], 2, { keys: ["fontSize", "fontWeight", "lineHeight"] }),
+    styleUnchanged(initial(), TITLE, 1, { keys: ["fontWeight", "lineHeight"] }),
+    sizeIs([...NUM, ...TITLE, ...TEASER], { width: spec.width }, 1.5, 3, `Every box is ${spec.width} wide`),
+    ...spec.columns.flatMap((x, c) => [
+      edgeAt(inColumn(c).flatMap(ids), "left", x, 1.5, 1, `Column ${c + 1} starts at x = ${x}`),
+      alignedOn("left", inColumn(c).flatMap(ids), 1.5, 1),
+      edgeAt([NUM[inColumn(c)[0]!]!], "top", 200, 1.5, 1, `Column ${c + 1} starts at y = 200`),
+    ]),
+    ...entries.flatMap((_, i) => [
+      gapBetween([NUM[i]!], [TITLE[i]!], "vertical", 8, 1.5, 1, `Headline ${i + 1} sits 8 below its number`),
+      gapBetween([TITLE[i]!], [TEASER[i]!], "vertical", 12, 1.5, 1, `Teaser ${i + 1} sits 12 below its headline`),
+      ...(i % perColumn < perColumn - 1
+        ? [gapBetween([TEASER[i]!], [NUM[i + 1]!], "vertical", 48, 1.5, 1, `Entry ${i + 2} sits 48 below entry ${i + 1}`)]
+        : []),
+    ]),
+    lineCount(TITLE, 2, 3, "Every headline is set on two lines"),
+    fillsMeasure(TITLE, 2, 0.98, 6, "Every headline is as large as it goes on two lines"),
+    hugsText([...NUM, ...TITLE, ...TEASER], 4, 4),
+    endsBy([...NUM, ...TITLE, ...TEASER], 1290),
+  ];
+  const columnWords = ["", "one column", "two columns", "three columns"][spec.columns.length];
+  const ranges = spec.columns.map((_, c) => `${inColumn(c)[0]! + 1} to ${inColumn(c).at(-1)! + 1}`);
+  return defineTask({
+    id: spec.id,
+    title: "A contents page with auto-fit headlines",
+    family: "fit",
+    brief: [
+      "Set this contents page. The header stays exactly as it is. The entries — each a page number, a headline",
+      `and a teaser (num1, title1, teaser1 and so on) — go into ${columnWords}, in order: entries ${ranges.join(", then ")},`,
+      "each column filled top to bottom, columns left to right.",
+      "",
+      `  - The columns' boxes start at x = ${spec.columns.join(", ")}; every box is ${spec.width} wide.`,
+      "  - Each column's first page number starts at y = 200.",
+      "  - Within an entry, the headline sits exactly 8 units below its number, and the teaser exactly 12 below",
+      "    the headline. Each entry sits exactly 48 units below the teaser of the entry above it.",
+      "  - The headlines auto-fit: each is set on exactly two lines, as large as it will go on two lines at the",
+      `    ${spec.width} width (within 2% of the largest size that still breaks into two lines).`,
+      "  - Every box is no taller than its text needs, plus at most 4 units, and nothing goes below y = 1290.",
+      "",
+      "Page numbers and teasers keep their type size, weight and line height; headlines keep their weight and",
+      "line height. Keep every element and every word.",
+    ].join("\n"),
+    initial,
+    checks,
+    judgeCriteria: [
+      "Does it read as a magazine contents page — tidy columns of entries?",
+      "Do the headlines fill their measure without crowding?",
     ],
-    { background: "#f7f4ee" },
-  );
-
-const column = (c: 0 | 1) => [0, 1, 2].map((r) => c * 3 + r);
-
-const contentsChecks: Check[] = [
-  geometryUnchanged(contents(), ["header"], 1),
-  styleUnchanged(contents(), [...NUM, ...TEASER], 2, { keys: ["fontSize", "fontWeight", "lineHeight"] }),
-  styleUnchanged(contents(), TITLE, 1, { keys: ["fontWeight", "lineHeight"] }),
-  sizeIs([...NUM, ...TITLE, ...TEASER], { width: 450 }, 1.5, 3, "Every box is 450 wide"),
-  edgeAt(column(0).flatMap((i) => [NUM[i]!, TITLE[i]!, TEASER[i]!]), "left", 60, 1.5, 1, "The left column starts at x = 60"),
-  alignedOn("left", column(0).flatMap((i) => [NUM[i]!, TITLE[i]!, TEASER[i]!]), 1.5, 1),
-  edgeAt(column(1).flatMap((i) => [NUM[i]!, TITLE[i]!, TEASER[i]!]), "left", 570, 1.5, 1, "The right column starts at x = 570"),
-  alignedOn("left", column(1).flatMap((i) => [NUM[i]!, TITLE[i]!, TEASER[i]!]), 1.5, 1),
-  edgeAt([NUM[0]!], "top", 200, 1.5, 1, "The left column starts at y = 200"),
-  edgeAt([NUM[3]!], "top", 200, 1.5, 1, "The right column starts at y = 200"),
-  ...ENTRIES.flatMap((_, i) => [
-    gapBetween([NUM[i]!], [TITLE[i]!], "vertical", 8, 1.5, 1, `Headline ${i + 1} sits 8 below its number`),
-    gapBetween([TITLE[i]!], [TEASER[i]!], "vertical", 12, 1.5, 1, `Teaser ${i + 1} sits 12 below its headline`),
-  ]),
-  ...[0, 1].flatMap((c) =>
-    [0, 1].map((r) => {
-      const i = c * 3 + r;
-      return gapBetween([TEASER[i]!], [NUM[i + 1]!], "vertical", 48, 1.5, 1, `Entry ${i + 2} sits 48 below entry ${i + 1}`);
-    }),
-  ),
-  lineCount(TITLE, 2, 3, "Every headline is set on two lines"),
-  fillsMeasure(TITLE, 2, 0.98, 6, "Every headline is as large as it goes on two lines"),
-  hugsText([...NUM, ...TITLE, ...TEASER], 4, 4),
-  inRegionWhole([...NUM, ...TITLE, ...TEASER], 1290),
-];
+    maxTurns: 60,
+  });
+}
 
 export const prototypeTasks = [
   defineTask({
@@ -461,32 +517,6 @@ export const prototypeTasks = [
     maxTurns: 45,
   }),
 
-  defineTask({
-    id: "proto.contents",
-    title: "A contents page with auto-fit headlines",
-    family: "fit",
-    brief: [
-      "Set this contents page. The header stays exactly as it is. The six entries — each a page number, a",
-      "headline and a teaser (num1, title1, teaser1 and so on) — go into two columns: entries 1 to 3 down the",
-      "left, 4 to 6 down the right, in order.",
-      "",
-      "  - The left column's boxes start at x = 60 and the right column's at x = 570; every box is 450 wide.",
-      "  - Each column's first page number starts at y = 200.",
-      "  - Within an entry, the headline sits exactly 8 units below its number, and the teaser exactly 12 below",
-      "    the headline. Each entry sits exactly 48 units below the teaser of the entry above it.",
-      "  - The headlines auto-fit: each is set on exactly two lines, as large as it will go on two lines at the",
-      "    450 width (within 2% of the largest size that still breaks into two lines).",
-      "  - Every box is no taller than its text needs, plus at most 4 units, and nothing goes below y = 1290.",
-      "",
-      "Page numbers and teasers keep their type size, weight and line height; headlines keep their weight and",
-      "line height. Keep every element and every word.",
-    ].join("\n"),
-    initial: contents,
-    checks: contentsChecks,
-    judgeCriteria: [
-      "Does it read as a magazine contents page — two tidy columns of entries?",
-      "Do the headlines fill their measure without crowding?",
-    ],
-    maxTurns: 50,
-  }),
+  contentsTask({ id: "proto.contents", entries: 6, columns: [60, 570], width: 450 }),
+  contentsTask({ id: "proto.contents3", entries: 9, columns: [60, 390, 720], width: 300 }),
 ];
