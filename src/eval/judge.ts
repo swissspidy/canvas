@@ -46,7 +46,7 @@ import {
  * work — exactly the sibling-grading confound `--judge-model` exists to let
  * anyone check.
  */
-export const DEFAULT_JUDGE_MODEL = "anthropic:claude-sonnet-5";
+export const DEFAULT_JUDGE_MODEL = "anthropic:claude-sonnet-5-5";
 export const JUDGE_SCREENSHOT_WIDTH = 768;
 
 /** 1..5 per criterion. A 5-point scale is what the human raters also use. */

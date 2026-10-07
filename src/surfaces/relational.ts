@@ -26,12 +26,13 @@ import { aabb, round } from "../doc/geometry.js";
 import { normalizeAngle } from "../doc/schema.js";
 import { patchElement, requireElement, requireElements, ToolError } from "../doc/ops.js";
 import type { Doc, Element, Rect } from "../doc/types.js";
-import { largestFittingFontSize, layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
+import { largestFittingFontSize, largestFontSizeForLines, layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
 import type { ToolDef, ToolSurface } from "./types.js";
 import {
   buildElement,
   commitNew,
   deleteTool,
+  setBackgroundTool,
   setStyleTool,
   zCreateContent,
   zElementId,
@@ -82,7 +83,7 @@ function crossPosition(
 
 // --- place -----------------------------------------------------------------
 
-const TARGET_RELATIONS = ["below", "above", "left_of", "right_of", "centered_on", "cover"] as const;
+const TARGET_RELATIONS = ["below", "above", "left_of", "right_of", "centered_on", "cover", "around"] as const;
 const CANVAS_RELATIONS = [
   "canvas_center",
   "canvas_top",
@@ -120,11 +121,21 @@ function refuseRotation(relation: Relation, rotation: number | undefined): void 
 
 const zPlacement = {
   relation: z.enum(ALL_RELATIONS).describe(
-    "Where to put it. 'below', 'above', 'left_of', 'right_of', 'centered_on' and 'cover' need a target. " +
+    "Where to put it. 'below', 'above', 'left_of', 'right_of', 'centered_on', 'cover' and 'around' need a target. " +
       "The 'canvas_*' relations and 'fill_canvas' do not.",
   ),
   target: zElementId.optional().describe("The element to place relative to. Required for target relations."),
-  gap: z.number().min(0).optional().describe("Distance from the target, in canvas units. Default 0."),
+  gap: z
+    .number()
+    .min(0)
+    .optional()
+    .describe("Distance from the target, in canvas units. For 'around', from the target's centre to this element's centre. Default 0."),
+  angle: z
+    .number()
+    .min(-360)
+    .max(360)
+    .optional()
+    .describe("For 'around' only: direction from the target's centre, in degrees clockwise from straight up. Default 0."),
   margin: z.number().min(0).optional().describe("Distance from the canvas edge for canvas_* relations. Default 0."),
   align: zAlignAcross,
 } as const;
@@ -133,6 +144,7 @@ interface PlacementArgs {
   relation: Relation;
   target?: string;
   gap?: number;
+  angle?: number;
   margin?: number;
   align?: "start" | "center" | "end";
 }
@@ -198,6 +210,20 @@ function computePlacement(
         };
       case "cover":
         return { x: t.x, y: t.y, width: t.width, height: t.height, label: `covering ${args.target}` };
+      case "around": {
+        // Radial: the element's centre `gap` units from the target's centre,
+        // at `angle` clockwise from straight up. The relation a sunburst, a
+        // clock face or a ring of badges is made of, and one that would
+        // otherwise take a sine and a cosine per element.
+        const a = ((args.angle ?? 0) * Math.PI) / 180;
+        const cx = t.x + t.width / 2 + Math.sin(a) * gap;
+        const cy = t.y + t.height / 2 - Math.cos(a) * gap;
+        return {
+          x: cx - size.width / 2,
+          y: cy - size.height / 2,
+          label: `${round(gap, 1)} units from ${args.target}'s centre at ${round(args.angle ?? 0, 1)} degrees`,
+        };
+      }
     }
   }
 
@@ -412,6 +438,13 @@ const zAlignInput = z.strictObject({
     .describe(
       "What to align to: 'selection' (the combined bounding box of ids, the default), 'canvas', or an element id.",
     ),
+  margin: z
+    .number()
+    .optional()
+    .describe(
+      "Inset from the reference's edge, in canvas units: with to='canvas', edge='left' and margin=140, the left " +
+        "edges land 140 units in from the canvas's left edge. Ignored for the two centres. Default 0.",
+    ),
 });
 
 const alignTool: ToolDef<z.infer<typeof zAlignInput>> = {
@@ -422,6 +455,11 @@ const alignTool: ToolDef<z.infer<typeof zAlignInput>> = {
     const els = requireElements(ctx.doc, input.ids);
     const to = input.to ?? "selection";
     const reference = to === "selection" ? groupBounds(els) : resolveContainer(ctx.doc, to);
+    // A single-axis position from an edge is a relation — "140 in from the
+    // left" — and without it a relational agent could set one coordinate only
+    // by moving the other along with it, which the coordinate surface never
+    // has to. `docs/PREREGISTRATION.md` §13, 2026-10-07.
+    const m = input.margin ?? 0;
 
     let doc = ctx.doc;
     let value = 0;
@@ -430,19 +468,19 @@ const alignTool: ToolDef<z.infer<typeof zAlignInput>> = {
       const box = aabb(el);
       switch (input.edge) {
         case "left":
-          value = reference.x;
+          value = reference.x + m;
           doc = moveAabbTo(doc, el, value, box.y);
           break;
         case "right":
-          value = reference.x + reference.width;
+          value = reference.x + reference.width - m;
           doc = moveAabbTo(doc, el, value - box.width, box.y);
           break;
         case "top":
-          value = reference.y;
+          value = reference.y + m;
           doc = moveAabbTo(doc, el, box.x, value);
           break;
         case "bottom":
-          value = reference.y + reference.height;
+          value = reference.y + reference.height - m;
           doc = moveAabbTo(doc, el, box.x, value - box.height);
           break;
         case "horizontal_center":
@@ -525,11 +563,22 @@ const distributeTool: ToolDef<z.infer<typeof zDistributeInput>> = {
 const zFitTextInput = z.strictObject({
   id: zElementId,
   mode: z
-    .enum(["shrink_to_fit", "grow_to_fit", "grow_box"])
+    .enum(["shrink_to_fit", "grow_to_fit", "grow_box", "fit_box"])
     .describe(
       "'shrink_to_fit' reduces the font size only if the text currently overflows. " +
         "'grow_to_fit' sets the largest font size that fits, growing or shrinking as needed. " +
-        "'grow_box' keeps the font size and makes the element taller until the text fits.",
+        "'grow_box' keeps the font size and makes the element taller until the text fits. " +
+        "'fit_box' keeps the font size and sets the element's height to exactly what its text needs, " +
+        "growing or shrinking it; the top edge stays put.",
+    ),
+  lines: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      "With 'grow_to_fit': size the text to the largest font size at which it breaks into at most this many lines " +
+        "at the box's current width, ignoring the box's height. Follow with 'fit_box' if the box should match.",
     ),
   min_font_size: z.number().min(4).max(400).optional().describe("Lower bound when changing font size. Default 8."),
   max_font_size: z.number().min(4).max(400).optional().describe("Upper bound when changing font size. Default 400."),
@@ -543,8 +592,14 @@ const fitTextTool: ToolDef<z.infer<typeof zFitTextInput>> = {
     const el = requireElement(ctx.doc, input.id);
     if (el.type !== "text") throw new ToolError(`${input.id} is a ${el.type} element, not text.`);
 
+    // Checked before any mode runs, so an argument a mode ignores fails
+    // instead of reporting success without having honoured it.
+    if (input.lines !== undefined && input.mode !== "grow_to_fit") {
+      throw new ToolError("'lines' only applies to mode 'grow_to_fit'.");
+    }
+
     const before = layoutTextElement(el);
-    if (input.mode === "grow_box") {
+    if (input.mode === "grow_box" || input.mode === "fit_box") {
       const needed = before.blockHeight + (el.style.padding ?? 0) * 2;
       if (before.overflowX > 0.01) {
         throw new ToolError(
@@ -552,16 +607,43 @@ const fitTextTool: ToolDef<z.infer<typeof zFitTextInput>> = {
           "Widen the element or reduce the font size instead.",
         );
       }
-      const doc = patchElement(ctx.doc, input.id, { height: Math.max(el.height, needed) });
+      const height = input.mode === "fit_box" ? needed : Math.max(el.height, needed);
+      const doc = patchElement(ctx.doc, input.id, { height });
       return {
         doc,
-        message: `Grew ${input.id} to ${round(Math.max(el.height, needed), 1)} units tall so its ${before.lines.length} line(s) fit.`,
+        message:
+          input.mode === "fit_box"
+            ? `Set ${input.id} to ${round(height, 1)} units tall, exactly what its ${before.lines.length} line(s) need.`
+            : `Grew ${input.id} to ${round(height, 1)} units tall so its ${before.lines.length} line(s) fit.`,
         touched: [input.id],
       };
     }
 
     const min = input.min_font_size ?? 8;
     const max = input.max_font_size ?? 400;
+    if (input.lines !== undefined) {
+      // "As large as it goes on two lines" is a statement about the measure,
+      // which a box-height fit cannot express: the box can always be the
+      // height of whatever size the text happens to be. Task set v2 states
+      // it in most briefs. `docs/PREREGISTRATION.md` §13, 2026-10-07.
+      const size = largestFontSizeForLines(el, input.lines, min, max);
+      if (size === null) {
+        throw new ToolError(
+          `${input.id}'s text cannot fit on ${input.lines} line(s) at its ${round(el.width, 1)} width at any size from ${min} to ${max}.`,
+          "Widen the element, allow more lines, or lower min_font_size.",
+        );
+      }
+      const doc = patchElement(ctx.doc, input.id, { style: { fontSize: size } });
+      const after = layoutTextElement(requireElement(doc, input.id));
+      return {
+        doc,
+        message:
+          `Set ${input.id} to font size ${size} (was ${before.fontSize}), the largest at which it breaks into ` +
+          `${after.lines.length} line(s) at this width.` +
+          (after.clipped ? ` Its box is now too short: it needs ${round(after.blockHeight + (el.style.padding ?? 0) * 2, 1)} units.` : ""),
+        touched: [input.id],
+      };
+    }
     if (input.mode === "shrink_to_fit" && !before.clipped) {
       return { doc: ctx.doc, message: `${input.id} already fits its box; font size left at ${before.fontSize}.`, touched: [] };
     }
@@ -627,6 +709,56 @@ const fitWithinTool: ToolDef<z.infer<typeof zFitWithinInput>> = {
         scale < 1
           ? `Scaled ${input.id} to ${Math.round(scale * 100)}% (${round(after.width, 1)}x${round(after.height, 1)}) and centered it inside ${input.container}.`
           : `${input.id} already fitted inside ${input.container}; centered it there.`,
+      touched: [input.id],
+    };
+  },
+};
+
+// --- set_size --------------------------------------------------------------
+
+const SIZE_ANCHORS = ["top_left", "center"] as const;
+
+const zSetSizeInput = z.strictObject({
+  id: zElementId,
+  width: z.number().min(1).optional().describe("New width in canvas units. Left unchanged if omitted."),
+  height: z.number().min(1).optional().describe("New height in canvas units. Left unchanged if omitted."),
+  anchor: z
+    .enum(SIZE_ANCHORS)
+    .optional()
+    .describe("Which point of the box stays where it is: 'top_left' (the default) or 'center'."),
+});
+
+/**
+ * Sizes are numbers on this surface — `create` has always taken a width and a
+ * height — but until task set v2 nothing could change the size of an element
+ * that already existed. `fit_within` only shrinks, `fit_text` only touches
+ * text, and the one way left to reach a different box was to delete the
+ * element and create it again, which every "keep this element" check scores
+ * as a loss. The pilots of 2026-10-07 recorded relational agents doing exactly
+ * that, and losing exactly those points. Positions stay relational; this sets
+ * dimensions only, about a stated anchor.
+ */
+const setSizeTool: ToolDef<z.infer<typeof zSetSizeInput>> = {
+  name: "set_size",
+  description:
+    "Change an element's width and/or height. Its top-left corner stays put by default, or its center with anchor='center'.",
+  schema: zSetSizeInput,
+  run(ctx, input) {
+    const el = requireElement(ctx.doc, input.id);
+    if (input.width === undefined && input.height === undefined) {
+      throw new ToolError("Nothing to change.", "Pass 'width', 'height' or both.");
+    }
+    const width = input.width ?? el.width;
+    const height = input.height ?? el.height;
+    const patch =
+      input.anchor === "center"
+        ? { width, height, x: el.x + (el.width - width) / 2, y: el.y + (el.height - height) / 2 }
+        : { width, height };
+    const doc = patchElement(ctx.doc, input.id, patch);
+    const after = requireElement(doc, input.id);
+    return {
+      doc,
+      message: `Resized ${input.id} to ${round(after.width, 1)}x${round(after.height, 1)}, keeping its ${input.anchor === "center" ? "center" : "top-left corner"}.`,
       touched: [input.id],
     };
   },
@@ -736,6 +868,7 @@ export const relationalTools = [
   distributeTool,
   fitTextTool,
   fitWithinTool,
+  setSizeTool,
   avoidOverlapTool,
 ];
 
@@ -747,7 +880,8 @@ export const relationalSurface: ToolSurface = {
     "you say what an element should be placed relative to, what it should line up with, or what it should fit inside,",
     "and the exact geometry is computed for you. Relations work on what is visible on screen, so an element's",
     "rotation is already accounted for, and rotating one turns it about its own center without moving it.",
+    "Sizes are numbers you give, as in create and set_size; positions never are.",
     "Each tool reports the numbers it worked out, so you can see where things landed.",
   ].join(" "),
-  tools: [...relationalTools, setStyleTool, deleteTool],
+  tools: [...relationalTools, setStyleTool, setBackgroundTool, deleteTool],
 };

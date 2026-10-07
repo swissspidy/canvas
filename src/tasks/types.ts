@@ -11,7 +11,7 @@
 import type { Doc } from "../doc/types.js";
 import type { Check } from "../eval/checks.js";
 
-export const TASK_FAMILIES = ["compose", "repair", "fit", "restyle", "arrange"] as const;
+export const TASK_FAMILIES = ["compose", "repair", "fit", "restyle", "arrange", "measure"] as const;
 export type TaskFamily = (typeof TASK_FAMILIES)[number];
 
 export interface Task {

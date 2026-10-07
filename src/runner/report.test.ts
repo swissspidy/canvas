@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReport, buildReportJson, clusterBootstrapCI, pairedDifference, signFlipTest } from "./report.js";
+import { buildReport, buildReportJson, clusterBootstrapCI, compareCostToPass, effectiveness, pairedDifference, perPass, signFlipTest } from "./report.js";
 import type { RunScore } from "../eval/score.js";
 import { fingerprintConflicts, runFingerprint } from "./run.js";
 
@@ -652,5 +652,95 @@ describe("harness failures in the report", () => {
     expect(json.harnessFailures.n).toBe(3);
     expect(json.harnessFailures.bySurface).toEqual({ coordinate: 2, relational: 1 });
     expect(json.harnessFailures.byStopReason).toEqual({ api_error: 2, aborted: 1 });
+  });
+});
+
+describe("effectiveness", () => {
+  const run = (model: string, constraint: number, cost: number, calls: number): RunScore => {
+    const base = score({ taskId: "t1", surfaceId: "coordinate", model, constraintScore: constraint });
+    return { ...base, efficiency: { ...base.efficiency, costUsd: cost, toolCalls: calls, failedToolCalls: 1 } };
+  };
+
+  it("counts a pass only when every check is satisfied, and prices each one", () => {
+    const rows = [run("a", 1, 0.1, 10), run("a", 0.98, 0.1, 30), run("a", 1, 0.2, 20), run("a", 0.5, 0.2, 40)];
+    const e = effectiveness(rows);
+    expect(e.passRate).toBe(0.5);
+    expect(e.toolCalls).toBe(25);
+    expect(e.rejectedCalls).toBe(1);
+    expect(e.costUsd).toBeCloseTo(0.15, 9);
+    // All four runs' spend over the two that passed.
+    expect(e.costPerPass).toBeCloseTo(0.3, 9);
+  });
+
+  it("has no cost per pass when nothing passed, rather than an infinite one", () => {
+    expect(effectiveness([run("a", 0.9, 0.1, 5)]).costPerPass).toBeNull();
+  });
+
+  it("shows a row per model in the report, and carries it into the JSON", () => {
+    const rows = [run("cheap", 1, 0.01, 50), run("cheap", 0.9, 0.01, 50), run("dear", 1, 0.5, 40), run("dear", 1, 0.5, 40)];
+    const md = buildReport(rows);
+    expect(md).toContain("## Effectiveness");
+    expect(md.split("\n").find((l) => l.startsWith("| cheap "))).toContain("$0.0200");
+    expect(md.split("\n").find((l) => l.startsWith("| dear "))).toContain("100% · 100% · 100%");
+    expect(md).toContain("### Pass rate by task");
+    expect(md.split("\n").find((l) => l.startsWith("| t1 "))).toContain("50% (1/2)");
+    const json = buildReportJson(rows) as { effectiveness: { byModel: Record<string, { costPerPass: number }> } };
+    expect(json.effectiveness.byModel["cheap"]!.costPerPass).toBeCloseTo(0.02, 9);
+    expect(json.effectiveness.byModel["dear"]!.costPerPass).toBeCloseTo(0.5, 9);
+  });
+});
+
+describe("cost to pass", () => {
+  const run = (taskId: string, surfaceId: string, cost: number, pass: boolean, calls = 10): RunScore => {
+    const base = score({ taskId, surfaceId, constraintScore: pass ? 1 : 0.9 });
+    return { ...base, efficiency: { ...base.efficiency, costUsd: cost + 0.05, agentCostUsd: cost, toolCalls: calls } };
+  };
+
+  it("divides a cell's whole spend, failures included, by its passes — and leaves the judge out", () => {
+    const cell = [run("t", "a", 0.2, true), run("t", "a", 0.2, false), run("t", "a", 0.2, true)];
+    expect(perPass(cell, "cost").value).toBeCloseTo(0.3, 9);
+    expect(perPass(cell, "calls").value).toBeCloseTo(15, 9);
+  });
+
+  it("charges a cell with no pass twice its spend, and says so", () => {
+    const cell = [run("t", "a", 0.2, false), run("t", "a", 0.1, false)];
+    const p = perPass(cell, "cost");
+    expect(p.value).toBeCloseTo(0.6, 9);
+    expect(p.zeroPass).toBe(true);
+  });
+
+  it("recovers a planted saving, paired within task, and calls it meaningful", () => {
+    const rows: RunScore[] = [];
+    for (let t = 0; t < 12; t++) {
+      const base = 0.1 + t * 0.05;
+      for (let r = 0; r < 3; r++) {
+        rows.push(run(`t${t}`, "relational", base * 0.7 * (1 + 0.02 * r), true));
+        rows.push(run(`t${t}`, "coordinate", base * (1 + 0.02 * r), true));
+      }
+    }
+    const c = compareCostToPass(rows, (s) => s.surfaceId, "relational", "coordinate", "cost");
+    expect(c.ratio).toBeCloseTo(0.7, 2);
+    expect(c.resolved).toBe(true);
+    expect(c.meaningful).toBe(true);
+    expect(c.clusters).toBe(12);
+  });
+
+  it("does not resolve a difference that is not there", () => {
+    const rows: RunScore[] = [];
+    for (let t = 0; t < 12; t++) {
+      const noise = t % 2 ? 1.1 : 0.9;
+      rows.push(run(`t${t}`, "a", 0.2 * noise, true), run(`t${t}`, "b", 0.2 / noise, true));
+    }
+    const c = compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost");
+    expect(c.resolved).toBe(false);
+  });
+
+  it("renders the section, and the JSON carries it", () => {
+    const rows = [run("t1", "coordinate", 0.2, true), run("t1", "relational", 0.1, true), run("t2", "coordinate", 0.3, true), run("t2", "relational", 0.2, false)];
+    const md = buildReport(rows);
+    expect(md).toContain("## Cost to pass");
+    expect(md).toContain("### Paired ratios");
+    const json = buildReportJson(rows) as { costToPass: { bySurface: Record<string, unknown> } };
+    expect(Object.keys(json.costToPass.bySurface).sort()).toEqual(["coordinate", "relational"]);
   });
 });

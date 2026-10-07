@@ -1,7 +1,7 @@
 /**
  * Surface 1 — coordinate primitives.
  *
- * `create`, `move`, `resize`, `set_style`, `delete`. Every position and size
+ * `create`, `move`, `resize`, `set_style`, `set_background`, `delete`. Every position and size
  * is an absolute number the agent worked out itself. No tool computes
  * geometry on its behalf: centring something means knowing the canvas width,
  * the element width, and doing the subtraction.
@@ -21,6 +21,7 @@ import {
   buildElement,
   commitNew,
   deleteTool,
+  setBackgroundTool,
   setStyleTool,
   zCreateContent,
   zElementId,
@@ -117,5 +118,5 @@ export const coordinateSurface: ToolSurface = {
     "An element's x and y are its top-left corner before rotation; rotation turns it about its center.",
     "Nothing computes geometry for you — work out the numbers yourself and pass them in.",
   ].join(" "),
-  tools: [createTool, moveTool, resizeTool, setStyleTool, deleteTool],
+  tools: [createTool, moveTool, resizeTool, setStyleTool, setBackgroundTool, deleteTool],
 };

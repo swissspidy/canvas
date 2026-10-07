@@ -288,9 +288,12 @@ describe("scoring a run", () => {
   it("rewards a run that actually fixes the layout", async () => {
     const run = await runScripted(
       [
-        { tools: [{ name: "align", input: { ids: ["r1", "r2", "r3", "r4", "r5"], edge: "left" } }] },
-        { tools: [{ name: "distribute", input: { ids: ["r1", "r2", "r3", "r4", "r5"], axis: "vertical", spacing: 30 } }] },
-        { text: "Aligned and spaced." },
+        {
+          tools: ["r1", "r2", "r3", "r4", "r5"].map((id) => ({ name: "fit_text", input: { id, mode: "fit_box" } })),
+        },
+        { tools: [{ name: "align", input: { ids: ["r1", "r2", "r3", "r4", "r5"], edge: "left", to: "canvas", margin: 140 } }] },
+        { tools: [{ name: "distribute", input: { ids: ["r1", "r2", "r3", "r4", "r5"], axis: "vertical", spacing: 36 } }] },
+        { text: "Fitted, aligned and spaced." },
       ],
       relationalSurface,
     );
@@ -391,9 +394,12 @@ describe("scoring a run", () => {
     );
     const alignAndSpace = await runScripted(
       [
-        { tools: [{ name: "align", input: { ids: ["r1", "r2", "r3", "r4", "r5"], edge: "left" } }] },
-        { tools: [{ name: "distribute", input: { ids: ["r1", "r2", "r3", "r4", "r5"], axis: "vertical", spacing: 30 } }] },
-        { text: "Aligned and spaced." },
+        {
+          tools: ["r1", "r2", "r3", "r4", "r5"].map((id) => ({ name: "fit_text", input: { id, mode: "fit_box" } })),
+        },
+        { tools: [{ name: "align", input: { ids: ["r1", "r2", "r3", "r4", "r5"], edge: "left", to: "canvas", margin: 140 } }] },
+        { tools: [{ name: "distribute", input: { ids: ["r1", "r2", "r3", "r4", "r5"], axis: "vertical", spacing: 36 } }] },
+        { text: "Fitted, aligned and spaced." },
       ],
       relationalSurface,
     );

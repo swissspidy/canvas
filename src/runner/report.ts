@@ -12,6 +12,7 @@
  */
 
 import type { RunScore } from "../eval/score.js";
+import { PASS_THRESHOLD } from "../eval/checks.js";
 import { isHarnessFailure } from "../agent/events.js";
 import { feedbackLabel, type FeedbackMode } from "../feedback/index.js";
 
@@ -532,6 +533,9 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
     out.push("");
   }
 
+  out.push(costToPassSection(scores, surfaces, feedbacks, families));
+  out.push(effectivenessSection(scores, models));
+
   // --- by model ---
   if (models.length > 1) {
     out.push("## By model");
@@ -644,6 +648,325 @@ export function buildReport(allScores: RunScore[], opts: ReportOptions = {}): st
  * larger than the gap between two models' averages. Both are single cells with
  * no interval, so they are a place to look rather than a result.
  */
+// --- cost to pass ---------------------------------------------------------------
+
+/**
+ * The agent's spend on a run, without the judge's call — what it cost to make
+ * the page. Records written before `agentCostUsd` existed ran without a judge,
+ * so their `costUsd` is the same number.
+ */
+export const agentCost = (s: RunScore) => s.efficiency.agentCostUsd ?? s.efficiency.costUsd;
+
+/**
+ * What a cell with no passing run divides by: half a pass, so its cost per
+ * pass is twice its spend rather than infinite. Fixed in advance
+ * (`docs/PREREGISTRATION.md` §13, 2026-10-07 eighth entry) and flagged
+ * wherever it applies.
+ */
+export const ZERO_PASS_DENOMINATOR = 0.5;
+
+/** Practically meaningful: a ratio at least this far from 1 (15% cheaper or dearer). */
+export const MEANINGFUL_RATIO = 0.15;
+
+export type PerPassMetric = "cost" | "calls";
+
+const metricOf = (metric: PerPassMetric) => (s: RunScore) => (metric === "cost" ? agentCost(s) : s.efficiency.toolCalls);
+
+/**
+ * Spend (or tool calls) per passing run in one cell: everything the cell
+ * spent, failed runs included, over the runs that passed — the expected cost
+ * of one correct page.
+ */
+export function perPass(rows: RunScore[], metric: PerPassMetric): { value: number; zeroPass: boolean } {
+  const total = rows.reduce((sum, r) => sum + metricOf(metric)(r), 0);
+  const passes = rows.filter(passed).length;
+  return { value: total / Math.max(passes, ZERO_PASS_DENOMINATOR), zeroPass: passes === 0 };
+}
+
+/** The cluster a cost comparison pairs within: a task, on one model. */
+const costCluster = (s: RunScore) => `${s.model}|${s.taskId}`;
+
+/** Geometric mean over clusters of per-cluster cost per pass, for one condition. */
+export function geometricPerPass(rows: RunScore[], metric: PerPassMetric): { value: number; zeroPassCells: number; cells: number } {
+  const cells = [...groupBy(rows, costCluster).values()].map((r) => perPass(r, metric));
+  if (cells.length === 0) return { value: NaN, zeroPassCells: 0, cells: 0 };
+  const logMean = cells.reduce((sum, c) => sum + Math.log(Math.max(c.value, 1e-9)), 0) / cells.length;
+  return { value: Math.exp(logMean), zeroPassCells: cells.filter((c) => c.zeroPass).length, cells: cells.length };
+}
+
+export interface RatioComparison {
+  a: string;
+  b: string;
+  /** Geometric-mean ratio a / b over paired clusters; below 1 means a is cheaper. */
+  ratio: number;
+  ci: [number, number];
+  clusters: number;
+  resolved: boolean;
+  meaningful: boolean;
+}
+
+/**
+ * A against B on cost (or calls) per pass, paired within task: the log of
+ * each task's ratio, averaged, with a percentile interval from resampling
+ * tasks. Resolved when the interval excludes a ratio of 1; practically
+ * meaningful when the ratio is at least 15% from 1 as well.
+ */
+export function compareCostToPass(
+  scores: RunScore[],
+  key: (s: RunScore) => string,
+  a: string,
+  b: string,
+  metric: PerPassMetric,
+): RatioComparison {
+  const byCluster = groupBy(scores, costCluster);
+  const logs: number[] = [];
+  for (const rows of byCluster.values()) {
+    const ra = rows.filter((r) => key(r) === a);
+    const rb = rows.filter((r) => key(r) === b);
+    if (!ra.length || !rb.length) continue;
+    logs.push(Math.log(Math.max(perPass(ra, metric).value, 1e-9)) - Math.log(Math.max(perPass(rb, metric).value, 1e-9)));
+  }
+  if (logs.length === 0) return { a, b, ratio: NaN, ci: [NaN, NaN], clusters: 0, resolved: false, meaningful: false };
+  const rand = mulberry32(BOOTSTRAP_SEED);
+  const means: number[] = [];
+  for (let i = 0; i < BOOTSTRAP_ITERATIONS; i++) {
+    let sum = 0;
+    for (let j = 0; j < logs.length; j++) sum += logs[Math.floor(rand() * logs.length)]!;
+    means.push(sum / logs.length);
+  }
+  means.sort((x, y) => x - y);
+  const lo = Math.exp(means[Math.floor(0.025 * BOOTSTRAP_ITERATIONS)]!);
+  const hi = Math.exp(means[Math.ceil(0.975 * BOOTSTRAP_ITERATIONS) - 1]!);
+  const ratio = Math.exp(mean(logs));
+  // One cluster cannot resolve anything, whatever its interval says.
+  const resolved = logs.length > 1 && (hi < 1 || lo > 1);
+  return { a, b, ratio, ci: [lo, hi], clusters: logs.length, resolved, meaningful: resolved && Math.abs(ratio - 1) >= MEANINGFUL_RATIO };
+}
+
+function costToPassSection(scores: RunScore[], surfaces: string[], feedbacks: string[], families: string[]): string {
+  const money = (v: number) => (Number.isFinite(v) ? usd(v) : "—");
+  const calls = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : "—");
+  const ratio = (c: RatioComparison) => (Number.isFinite(c.ratio) ? `${c.ratio.toFixed(2)} [${c.ci[0].toFixed(2)}–${c.ci[1].toFixed(2)}]` : "—");
+  const verdict = (c: RatioComparison) => (c.meaningful ? "resolved" : c.resolved ? "resolved, under 15%" : "not resolved");
+  const zeroNote = (g: { zeroPassCells: number }) => (g.zeroPassCells ? ` (${g.zeroPassCells} with no pass)` : "");
+  const conditionTable = (label: string, levels: string[], key: (s: RunScore) => string, name: (l: string) => string) =>
+    table(
+      [label, "Cost per pass", "Calls per pass", "Pass rate", "Cells"],
+      levels.map((l) => {
+        const rows = scores.filter((s) => key(s) === l);
+        const cost = geometricPerPass(rows, "cost");
+        const call = geometricPerPass(rows, "calls");
+        return [name(l), money(cost.value), calls(call.value), `${pct(rows.filter(passed).length / rows.length)}%`, `${cost.cells}${zeroNote(cost)}`];
+      }),
+    );
+  const comparisons = (axis: string, levels: string[], key: (s: RunScore) => string, name: (l: string) => string) => {
+    const rows: string[][] = [];
+    for (let i = 0; i < levels.length; i++) {
+      for (let j = i + 1; j < levels.length; j++) {
+        const cost = compareCostToPass(scores, key, levels[i]!, levels[j]!, "cost");
+        const call = compareCostToPass(scores, key, levels[i]!, levels[j]!, "calls");
+        rows.push([axis, `${name(levels[i]!)} vs ${name(levels[j]!)}`, ratio(cost), verdict(cost), ratio(call), verdict(call), String(cost.clusters)]);
+      }
+    }
+    return rows;
+  };
+  const spread = (levels: string[], key: (s: RunScore) => string) => {
+    const values = levels.map((l) => geometricPerPass(scores.filter((s) => key(s) === l), "cost").value).filter(Number.isFinite);
+    return values.length > 1 ? Math.max(...values) / Math.min(...values) : 1;
+  };
+
+  const lines = [
+    "## Cost to pass",
+    "",
+    "The primary outcome (`docs/PREREGISTRATION.md` §13, eighth entry). **Cost per pass** is what a task cost the agent " +
+      "in a condition — every run's spend, failed ones included — over the runs that passed: the expected cost of one " +
+      "correct page. **Calls per pass** is the same with tool calls, which no price list moves. Both are taken per task " +
+      "and combined across tasks as a geometric mean, so a cheap task and a dear one count alike. A cell with no pass " +
+      `divides by ${ZERO_PASS_DENOMINATOR} and is counted. Judge calls are left out.`,
+    "",
+  ];
+  if (surfaces.length > 1) lines.push("### By tool surface", "", conditionTable("Surface", surfaces, (s) => s.surfaceId, (l) => l), "");
+  if (feedbacks.length > 1) {
+    lines.push("### By feedback condition", "", conditionTable("Feedback", feedbacks, (s) => s.feedbackMode, (l) => feedbackLabel(l as FeedbackMode)), "");
+  }
+  if (surfaces.length > 1 && feedbacks.length > 1) {
+    lines.push(
+      "### Surface x feedback",
+      "",
+      "Cost per pass.",
+      "",
+      table(
+        ["Feedback", ...surfaces],
+        feedbacks.map((f) => [
+          feedbackLabel(f as FeedbackMode),
+          ...surfaces.map((sf) => money(geometricPerPass(scores.filter((s) => s.surfaceId === sf && s.feedbackMode === f), "cost").value)),
+        ]),
+      ),
+      "",
+      `Spread of cost per pass across surfaces: ${spread(surfaces, (s) => s.surfaceId).toFixed(2)}x. ` +
+        `Across feedback conditions: ${spread(feedbacks, (s) => s.feedbackMode).toFixed(2)}x.`,
+      "",
+    );
+  }
+  const pairs = [
+    ...(surfaces.length > 1 ? comparisons("surface", surfaces, (s) => s.surfaceId, (l) => l) : []),
+    ...(feedbacks.length > 1 ? comparisons("feedback", feedbacks, (s) => s.feedbackMode, (l) => l) : []),
+  ];
+  if (pairs.length) {
+    lines.push(
+      "### Paired ratios",
+      "",
+      "A over B, paired within task: below 1 means A is cheaper. Resolved when the interval excludes 1; " +
+        `practically meaningful when it is also at least ${MEANINGFUL_RATIO * 100}% from 1.`,
+      "",
+      table(["Axis", "Comparison", "Cost ratio", "Verdict", "Calls ratio", "Verdict", "Tasks"], pairs),
+      "",
+    );
+  }
+  if (surfaces.length > 1 && families.length > 1) {
+    lines.push(
+      "### By task family",
+      "",
+      "Cost per pass.",
+      "",
+      table(
+        ["Family", ...surfaces],
+        families.map((fam) => [
+          fam,
+          ...surfaces.map((sf) => money(geometricPerPass(scores.filter((s) => s.taskFamily === fam && s.surfaceId === sf), "cost").value)),
+        ]),
+      ),
+      "",
+    );
+  }
+  return lines.join("\n");
+}
+
+/** A run that satisfied every deterministic check. */
+export const passed = (s: RunScore) => s.constraintScore >= PASS_THRESHOLD;
+
+export interface Effectiveness {
+  n: number;
+  /** Share of runs that satisfied every check. */
+  passRate: number;
+  improvement: number;
+  toolCalls: number;
+  rejectedCalls: number;
+  turns: number;
+  totalTokens: number;
+  costUsd: number;
+  /** Total spend over the number of passing runs; null when nothing passed. */
+  costPerPass: number | null;
+  pricingKnown: boolean;
+}
+
+/**
+ * How much it took a model to get somewhere, beside how often it got there.
+ * A model that passes as often as another at a fifth of the cost has done
+ * something the pass rate alone cannot show, and cost per pass is the single
+ * number that carries both.
+ */
+export function effectiveness(rows: RunScore[]): Effectiveness {
+  const cost = rows.reduce((sum, r) => sum + agentCost(r), 0);
+  const passes = rows.filter(passed).length;
+  return {
+    n: rows.length,
+    passRate: rows.length ? passes / rows.length : 0,
+    improvement: mean(rows.map((r) => r.normalizedScore)),
+    toolCalls: mean(rows.map((r) => r.efficiency.toolCalls)),
+    rejectedCalls: mean(rows.map((r) => r.efficiency.failedToolCalls)),
+    turns: mean(rows.map((r) => r.efficiency.turns)),
+    totalTokens: mean(rows.map((r) => r.efficiency.totalTokens)),
+    costUsd: rows.length ? cost / rows.length : 0,
+    costPerPass: passes ? cost / passes : null,
+    pricingKnown: rows.every((r) => r.efficiency.pricingKnown),
+  };
+}
+
+/**
+ * Pass rates task by task, lowest first: the spread a single pooled pass rate
+ * hides. A model that clears four tasks every time and one task never reads
+ * as "80%" pooled, which describes no task it was given.
+ */
+function passRatesByTask(rows: RunScore[]): number[] {
+  return [...groupBy(rows, (r) => r.taskId).values()].map((t) => t.filter(passed).length / t.length).sort((x, y) => x - y);
+}
+
+function effectivenessSection(scores: RunScore[], models: string[]): string {
+  const tasks = [...new Set(scores.map((s) => s.taskId))].sort();
+  const lines = [
+    "## Effectiveness",
+    "",
+    "A **pass** is a run that satisfied every check. Pass rates are reported **task by task** — a rate pooled " +
+      "across tasks averages pages a model always finishes with pages it never does, and describes neither.",
+    "",
+    "### Pass rate by task",
+    "",
+    table(
+      ["Task", ...models],
+      tasks.map((task) => [
+        task,
+        ...models.map((model) => {
+          const rows = scores.filter((s) => s.model === model && s.taskId === task);
+          if (!rows.length) return "—";
+          return `${Math.round((rows.filter(passed).length / rows.length) * 100)}% (${rows.filter(passed).length}/${rows.length})`;
+        }),
+      ]),
+    ),
+    "",
+    "### What it took",
+    "",
+    "Per model, across its runs: the range of its per-task pass rates, and the cost of getting there. " +
+      "**Cost per pass** is total spend over passing runs.",
+    "",
+    table(
+      ["Model", "Runs", "Task pass rates (low · median · high)", "Tool calls/run", "Rejected/run", "Turns/run", "Tokens/run", "Cost/run", "Cost per pass"],
+      models.map((model) => {
+        const rows = scores.filter((s) => s.model === model);
+        const e = effectiveness(rows);
+        const rates = passRatesByTask(rows);
+        const median = rates.length ? rates[Math.floor((rates.length - 1) / 2)]! : 0;
+        const unpriced = e.pricingKnown ? "" : " *";
+        return [
+          model,
+          String(e.n),
+          rates.length ? `${Math.round(rates[0]! * 100)}% · ${Math.round(median * 100)}% · ${Math.round(rates.at(-1)! * 100)}%` : "—",
+          e.toolCalls.toFixed(1),
+          e.rejectedCalls.toFixed(1),
+          e.turns.toFixed(1),
+          Math.round(e.totalTokens).toLocaleString("en-US"),
+          usd(e.costUsd) + unpriced,
+          (e.costPerPass === null ? "—" : usd(e.costPerPass)) + unpriced,
+        ];
+      }),
+    ),
+  ];
+  if (models.some((m) => !effectiveness(scores.filter((s) => s.model === m)).pricingKnown)) {
+    lines.push("", "\\* No checked price for this model, so its cost reads as zero.");
+  }
+  if (tasks.length > 1) {
+    lines.push(
+      "",
+      "### Tool calls and cost by task",
+      "",
+      table(
+        ["Task", ...models],
+        tasks.map((task) => [
+          task,
+          ...models.map((model) => {
+            const rows = scores.filter((s) => s.model === model && s.taskId === task);
+            if (!rows.length) return "—";
+            const e = effectiveness(rows);
+            return `${e.toolCalls.toFixed(0)} calls · ${usd(e.costUsd)}`;
+          }),
+        ]),
+      ),
+    );
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 function leaderboard(scores: RunScore[], models: string[]): string {
   const grid = commonGrid(scores, models);
   const aligned = scores.filter((s) => grid.has(gridKey(s)));
@@ -1060,6 +1383,9 @@ export function buildReportJson(allScores: RunScore[]): unknown {
         failureRate: mean(rows.map((r) => r.efficiency.failureRate)),
         costUsd: mean(rows.map((r) => r.efficiency.costUsd)),
         totalTokens: mean(rows.map((r) => r.efficiency.totalTokens)),
+        passRate: effectiveness(rows).passRate,
+        rejectedCalls: effectiveness(rows).rejectedCalls,
+        costPerPass: effectiveness(rows).costPerPass,
       };
     }
     aggregates[name] = byKey;
@@ -1079,6 +1405,19 @@ export function buildReportJson(allScores: RunScore[]): unknown {
       ),
     },
     bootstrap: { iterations: BOOTSTRAP_ITERATIONS, seed: BOOTSTRAP_SEED },
+    costToPass: {
+      zeroPassDenominator: ZERO_PASS_DENOMINATOR,
+      meaningfulRatio: MEANINGFUL_RATIO,
+      bySurface: Object.fromEntries([...groupBy(scores, (s) => s.surfaceId)].map(([k, v]) => [k, { cost: geometricPerPass(v, "cost"), calls: geometricPerPass(v, "calls") }])),
+      byFeedback: Object.fromEntries([...groupBy(scores, (s) => s.feedbackMode)].map(([k, v]) => [k, { cost: geometricPerPass(v, "cost"), calls: geometricPerPass(v, "calls") }])),
+      byCell: Object.fromEntries([...groupBy(scores, (s) => `${s.model}|${s.surfaceId}|${s.feedbackMode}`)].map(([k, v]) => [k, { cost: geometricPerPass(v, "cost"), calls: geometricPerPass(v, "calls") }])),
+    },
+    effectiveness: {
+      byModel: Object.fromEntries(
+        [...groupBy(scores, (s) => s.model)].map(([k, v]) => [k, { ...effectiveness(v), passRateByTask: Object.fromEntries([...groupBy(v, (r) => r.taskId)].map(([t, rs]) => [t, rs.filter(passed).length / rs.length])) }]),
+      ),
+      byModelAndTask: Object.fromEntries([...groupBy(scores, (s) => `${s.model}|${s.taskId}`)].map(([k, v]) => [k, effectiveness(v)])),
+    },
     aggregates,
   };
 }

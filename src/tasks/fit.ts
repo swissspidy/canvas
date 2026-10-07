@@ -23,7 +23,15 @@ import { defineTask } from "./types.js";
 import { doc, image, rect, text, POSTER_W } from "./helpers.js";
 import {
   alignedOn,
+  columnFillsSpace,
   containsText,
+  edgeAt,
+  fillsBox,
+  fillsMeasure,
+  gapBetween,
+  hugsText,
+  lineCount,
+  styleUnchanged,
   fontSizeAtLeast,
   geometryUnchanged,
   inRegion,
@@ -199,6 +207,14 @@ const twoColumns = () =>
     }),
   ], { background: "#f7f4ee" });
 
+/**
+ * Task set v2 (`docs/PREREGISTRATION.md` §13, 2026-10-07). The v1 briefs set a
+ * floor and let the agent find any room above it, and a strong model found it
+ * nearly every time. Each brief now also pins the box and asks for the type to
+ * be as large as that box allows — the inverse of shrink-to-fit, and the same
+ * font metrics the agent cannot read off the document. Line heights are held,
+ * so "as large as it goes" cannot be bought by opening the leading.
+ */
 export const fitTasks = [
   defineTask({
     id: "fit.long-headline",
@@ -211,6 +227,15 @@ export const fitTasks = [
       "",
       "The headline must stay at least 48 units, the paragraph at least 26, the two must not overlap,",
       "and neither may be painted over the other or run off the card.",
+      "",
+      "Precisely:",
+      "  - The headline's box keeps its position and width (x = 130, y = 310, 820 wide). The headline",
+      "    is set on exactly three lines, as large as it will go on three lines at that width (within 2%",
+      "    of the largest size that still breaks into three lines).",
+      "  - The paragraph's box keeps x = 130 and 820 wide, sits exactly 32 units below the headline's box,",
+      "    and is set on exactly three lines, as large as it will go on three lines (within 2%).",
+      "  - Both boxes are no taller than their text needs, plus at most 8 units.",
+      "  - Keep both line heights as they are.",
     ].join("\n"),
     initial: longHeadline,
     checks: [
@@ -223,13 +248,24 @@ export const fitTasks = [
       fontSizeAtLeast(26, 1, ["para"]),
       noOverlap(["headline", "para"], 2),
       inRegion(["headline"], { x0: 0.3, y0: 0.15, x1: 0.7, y1: 0.45 }, 1, "The headline box stays put"),
+      // v2.
+      geometryUnchanged(longHeadline(), ["headline"], 2, { fields: ["x", "y", "width"] }),
+      geometryUnchanged(longHeadline(), ["para"], 2, { fields: ["x", "width"] }),
+      lineCount(["headline"], 3, 2, "The headline is set on three lines"),
+      fillsMeasure(["headline"], 3, 0.98, 2, "The headline is as large as it goes on three lines"),
+      lineCount(["para"], 3, 2, "The paragraph is set on three lines"),
+      fillsMeasure(["para"], 3, 0.98, 2, "The paragraph is as large as it goes on three lines"),
+      gapBetween(["headline"], ["para"], "vertical", 32, 2, 1, "The paragraph sits 32 below the headline"),
+      hugsText(["headline", "para"], 8, 2),
+      styleUnchanged(longHeadline(), ["headline", "para"], 1, { keys: ["lineHeight"] }),
+      inRegion(["headline", "para"], { x0: 80 / 1080, y0: 260 / 1350, x1: 1000 / 1080, y1: 980 / 1350 }, 1, "The text stays on the card", { whole: true }),
     ],
     judgeCriteria: [
       "Is the entire headline visible?",
       "Is the headline still clearly the dominant piece of type?",
       "Does the card still look balanced, or has the fix left an awkward gap or a cramped block?",
     ],
-    maxTurns: 20,
+    maxTurns: 30,
   }),
 
   defineTask({
@@ -242,6 +278,13 @@ export const fitTasks = [
       "",
       "The body must stay at least 24 units, the caption stays at the foot of the page,",
       "the order down the page stays title, body, caption, and nothing may overlap or cover anything else.",
+      "",
+      "Precisely:",
+      "  - The title and the caption do not move or resize.",
+      "  - The body's box keeps x = 100, y = 280 and its 880 width, and grows down to end exactly",
+      "    40 units above the caption's box.",
+      "  - Use the room: set the body as large as it will go in that box (within 2% of the largest",
+      "    size at which it still fits), keeping its line height as it is.",
     ].join("\n"),
     initial: bodyOverflow,
     checks: [
@@ -253,13 +296,19 @@ export const fitTasks = [
       verticalOrder(["title", "body", "caption"], 2),
       noOverlap(["title", "body", "caption"], 2),
       inRegion(["caption"], { x0: 0, y0: 0.7, x1: 1, y1: 1 }, 1, "The caption stays at the bottom"),
+      // v2.
+      geometryUnchanged(bodyOverflow(), ["title", "caption"], 1),
+      geometryUnchanged(bodyOverflow(), ["body"], 3, { fields: ["x", "y", "width"] }),
+      gapBetween(["body"], ["caption"], "vertical", 40, 2, 2, "The body ends 40 above the caption"),
+      fillsBox(["body"], 0.98, 3, { label: "The body is as large as it goes in its box" }),
+      styleUnchanged(bodyOverflow(), ["body"], 1, { keys: ["lineHeight"] }),
     ],
     judgeCriteria: [
       "Is every line of the body text visible?",
       "Is the body still set at a comfortable reading size, rather than shrunk to the point of illegibility?",
       "Does the page still have a sensible rhythm between title, body and caption?",
     ],
-    maxTurns: 20,
+    maxTurns: 30,
   }),
 
   defineTask({
@@ -273,6 +322,14 @@ export const fitTasks = [
       "",
       "They must stay in the same top-to-bottom order, keep the single left edge they share now,",
       "must not overlap each other, and must stay inside the canvas.",
+      "",
+      "Precisely:",
+      "  - Keep every block's x and its 840 width. The first block's box still starts at y = 120.",
+      "  - Every box is no taller than its text needs, plus at most 8 units, and the gaps between",
+      "    consecutive boxes are exactly 60 units.",
+      "  - Use the room: the shared size is as large as it can be while the last box still ends at",
+      "    least 80 units above the bottom of the canvas (within 2% of that largest size).",
+      "  - Keep the line height as it is.",
     ].join("\n"),
     initial: threeOverflowing,
     checks: [
@@ -287,13 +344,22 @@ export const fitTasks = [
       verticalOrder(["one", "two", "three"], 2),
       noOverlap(["one", "two", "three"], 2),
       alignedOn("left", ["one", "two", "three"], 2, 1),
+      // v2.
+      geometryUnchanged(threeOverflowing(), ["one", "two", "three"], 3, { fields: ["x", "width"] }),
+      edgeAt(["one"], "top", 120, 2, 1, "The first block starts at y = 120"),
+      hugsText(["one", "two", "three"], 8, 2),
+      gapBetween(["one"], ["two"], "vertical", 60, 2, 1, "60 between the first and second"),
+      gapBetween(["two"], ["three"], "vertical", 60, 2, 1, "60 between the second and third"),
+      columnFillsSpace(["one", "two", "three"], { top: 120, bottom: 1270, gap: 60 }, 0.98, 3),
+      inRegion(["three"], { x0: 0, y0: 0, x1: 1, y1: 1270 / 1350 }, 1, "The column ends 80 above the bottom", { whole: true }),
+      styleUnchanged(threeOverflowing(), ["one", "two", "three"], 1, { keys: ["lineHeight"] }),
     ],
     judgeCriteria: [
       "Is all three blocks' text fully visible?",
       "Are the three treated consistently — the same size and the same spacing logic, not three different fixes?",
       "Does the column look evenly set?",
     ],
-    maxTurns: 25,
+    maxTurns: 35,
   }),
 
   defineTask({
@@ -307,6 +373,12 @@ export const fitTasks = [
       "Make the caption fully readable. The photo, the rule and the footer stay exactly where they are,",
       "at exactly their current size, and nothing may be painted over any of them.",
       "The caption must stay at least 26 units.",
+      "",
+      "Precisely:",
+      "  - The caption's box keeps x = 80 and its 920 width, starts exactly 32 units below the photo",
+      "    and ends exactly 32 units above the rule.",
+      "  - Use the room: set the caption as large as it will go in that box (within 2% of the largest",
+      "    size at which it still fits), keeping its line height as it is.",
     ].join("\n"),
     initial: captionUnderImage,
     checks: [
@@ -319,13 +391,19 @@ export const fitTasks = [
       // over the photograph cleared the clipping and buried the picture.
       geometryUnchanged(captionUnderImage(), ["photo", "rule", "footer"], 3),
       notCovered(["photo", "rule", "footer"], 3, "Nothing is painted over the photo, the rule or the footer"),
+      // v2.
+      geometryUnchanged(captionUnderImage(), ["caption"], 3, { fields: ["x", "width"] }),
+      gapBetween(["photo"], ["caption"], "vertical", 32, 2, 1, "The caption starts 32 below the photo"),
+      gapBetween(["caption"], ["rule"], "vertical", 32, 2, 1, "The caption ends 32 above the rule"),
+      fillsBox(["caption"], 0.98, 3, { label: "The caption is as large as it goes in its box" }),
+      styleUnchanged(captionUnderImage(), ["caption"], 1, { keys: ["lineHeight"] }),
     ],
     judgeCriteria: [
       "Is the whole caption readable?",
       "Are the photo and footer exactly where they were?",
       "Does the caption sit comfortably in the space between them rather than touching either?",
     ],
-    maxTurns: 20,
+    maxTurns: 30,
   }),
 
   defineTask({
@@ -342,6 +420,12 @@ export const fitTasks = [
       "The two columns must end up at the same font size, no smaller than 24 units. The heading stays",
       "above both and the footnote below both, nothing overlaps anything else, and everything stays at",
       "least 40 units clear of every canvas edge.",
+      "",
+      "Precisely:",
+      "  - The heading and the footnote do not move or resize.",
+      "  - Both column boxes end exactly 40 units above the footnote's box.",
+      "  - Use the room: the shared size is as large as it can be while both columns still fit their",
+      "    boxes (within 2% of that largest size), keeping the line height as it is.",
     ].join("\n"),
     initial: twoColumns,
     checks: [
@@ -360,6 +444,12 @@ export const fitTasks = [
       verticalOrder(["heading", "left_col", "foot"], 1),
       verticalOrder(["heading", "right_col", "foot"], 1),
       marginAtLeast(40, 1),
+      // v2.
+      geometryUnchanged(twoColumns(), ["heading", "foot"], 1),
+      edgeAt(["left_col"], "bottom", 1140, 2, 1, "The left column ends 40 above the footnote"),
+      edgeAt(["right_col"], "bottom", 1140, 2, 1, "The right column ends 40 above the footnote"),
+      fillsBox(["left_col", "right_col"], 0.98, 3, { shared: true, label: "The columns are as large as both allow" }),
+      styleUnchanged(twoColumns(), ["left_col", "right_col"], 1, { keys: ["lineHeight"] }),
     ],
     judgeCriteria: [
       "Is every line of both columns visible?",
@@ -367,6 +457,6 @@ export const fitTasks = [
       "Is the spread still balanced, or has one column been squeezed to make the other work?",
       "Does the type stay comfortable to read?",
     ],
-    maxTurns: 25,
+    maxTurns: 35,
   }),
 ];

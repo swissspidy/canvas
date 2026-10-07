@@ -186,6 +186,8 @@ function extraModels(): Record<string, ModelSpec> {
 export const MODELS: Record<string, ModelSpec> = {
   ...extraModels(),
   ...table({
+    "anthropic:claude-opus-5-5": { label: "Opus 5.5", inputPerMTok: 4, cachedInputPerMTok: 0.2, outputPerMTok: 20 },
+    "anthropic:claude-sonnet-5-5": { label: "Sonnet 5.5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
     "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, cachedInputPerMTok: 0.5, outputPerMTok: 25 },
     "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
     "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 5 },
@@ -231,10 +233,13 @@ export const MODELS: Record<string, ModelSpec> = {
  */
 export const MAX_RETRIES = 6;
 
-export const DEFAULT_MODEL = "anthropic:claude-opus-5";
+export const DEFAULT_MODEL = "anthropic:claude-opus-5-5";
 
 /**
- * What `--models sweep` expands to: one model per Claude tier.
+ * What `--models sweep` expands to: one model per current Claude tier.
+ * Haiku 4.5 left the ladder on 2026-10-07 — a generation behind the other two,
+ * it measured the age of a model as much as its tier. It stays priced so older
+ * runs keep their cost.
  *
  * A capability ladder inside one family, which is the comparison that isolates
  * "does a weaker model need a better tool surface?" from every other way two
@@ -243,9 +248,8 @@ export const DEFAULT_MODEL = "anthropic:claude-opus-5";
  * larger bill.
  */
 export const MODEL_SWEEP = [
-  "anthropic:claude-opus-5",
-  "anthropic:claude-sonnet-5",
-  "anthropic:claude-haiku-4-5",
+  "anthropic:claude-opus-5-5",
+  "anthropic:claude-sonnet-5-5",
 ];
 
 /** Every model in the registry, in table order. What `--models all` expands to. */

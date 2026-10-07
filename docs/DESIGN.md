@@ -43,6 +43,13 @@ two decisions that read oddly against the original five-primitive sketch:
   element's, and the equivalence test reaches the same rotated document through
   all three surfaces. Had it survived into the runs, every rotation result
   would have been a power difference wearing a mechanism's clothes.
+- The canvas background has its own tool, `set_background`, on every surface
+  that edits incrementally. It belongs to the document rather than to any
+  element, so `set_style` cannot reach it and only `write_document` could —
+  while two restyle tasks score it. That one was found the expensive way, in
+  the first large pilot: both briefs were unsatisfiable on coordinate and
+  relational, and the report showed it as a 28-point surface effect. The
+  equivalence tests now cover the document as well as its elements.
 - Relational's `place_below(target, gap)` is generalized to
   `place(id, relation, target, gap)` with `below` among the relations, and
   `fit_within` is split into `fit_text` (text against its box) and `fit_within`

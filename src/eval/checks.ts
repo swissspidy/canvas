@@ -13,9 +13,9 @@
  */
 
 import type { Doc, Element, ElementType, Rect, Style } from "../doc/types.js";
-import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
+import { aabb, center, corners, outOfBoundsArea, polygonContainsPoint, round } from "../doc/geometry.js";
 import { effectiveAlpha, occlusionOf, paintedPolygons, paintsAnything } from "../doc/occlusion.js";
-import { layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
+import { layoutTextElement, largestFittingFontSize, largestFontSizeForLines, requiredHeight, DEFAULT_FONT_SIZE } from "../text/layout.js";
 import { assetAspect } from "../doc/assets.js";
 import { normalizeAngle } from "../doc/schema.js";
 import {
@@ -51,13 +51,18 @@ export interface CheckResult extends CheckOutcome {
 /** A check counts as passed at this score. Used for reporting, not for scoring. */
 export const PASS_THRESHOLD = 0.999;
 
-export type Selector = string[] | ((el: Element) => boolean);
+/**
+ * Ids, or a predicate. A predicate also receives the document, for the few
+ * selectors that have to find an element by its relation to another — the
+ * shape a label sits on, in a compose task where the agent named both.
+ */
+export type Selector = string[] | ((el: Element, doc: Doc) => boolean);
 
 export function select(doc: Doc, selector: Selector): Element[] {
   if (Array.isArray(selector)) {
     return selector.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is Element => !!e);
   }
-  return doc.elements.filter(selector);
+  return doc.elements.filter((el) => selector(el, doc));
 }
 
 export const isText = (el: Element) => el.type === "text";
@@ -127,6 +132,25 @@ function normalizeCopy(text: string): string {
  * is correct rather than a limitation: a title and a footer poured into one
  * text block really are one element, and it cannot be in two places.
  */
+/**
+ * The smallest visible rect containing the centre of the text carrying
+ * `phrase` — the shape a label sits on, which is how a reader would identify
+ * the button or the ribbon. Smallest, because a card or panel behind the whole
+ * layout contains the label too.
+ */
+export function shapeUnder(phrase: string): (el: Element, doc: Doc) => boolean {
+  return (el, doc) => {
+    if (el.type !== "rect" || !paintsAnything(el)) return false;
+    const label = doc.elements.find(withText(phrase));
+    if (!label) return false;
+    const c = center(label);
+    const under = doc.elements
+      .filter((e) => e.type === "rect" && paintsAnything(e) && polygonContainsPoint(corners(e), c))
+      .sort((a, b) => a.width * a.height - b.width * b.height);
+    return under[0] === el;
+  };
+}
+
 export function withText(phrase: string): (el: Element) => boolean {
   const wanted = normalizeCopy(phrase);
   return (el) => el.type === "text" && normalizeCopy(el.text ?? "").includes(wanted) && paintsAnything(el);
@@ -306,6 +330,33 @@ export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check
     return {
       score,
       detail: offenders.length ? `Below ${ratio}:1 — ${offenders.join(", ")}` : `Worst contrast ${worst.toFixed(2)}:1.`,
+    };
+  });
+}
+
+/**
+ * Text contrast inside a band — legible, and not glaring. A dark theme sets
+ * its text a measured distance from its surface, and the same grey that is
+ * 8:1 on the sheet is 6:1 on a lighter card on it: hitting the band on every
+ * backdrop is colour arithmetic, not a guess from a hex code.
+ */
+export function contrastWithin(min: number, max: number, weight = 1, selector?: Selector): Check {
+  return check("contrast_band", `Text contrast is between ${min}:1 and ${max}:1`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
+    if (els.length === 0) return { score: 1, detail: "No text elements." };
+    const offenders: string[] = [];
+    let worst = 0;
+    for (const el of els) {
+      const backdrop = effectiveBackdrop(doc, el);
+      const r = contrastRatio(effectiveTextColor(el), backdrop);
+      const off = r < min ? min - r : r > max ? r - max : 0;
+      worst = Math.max(worst, off);
+      if (off > 0) offenders.push(`${el.id} ${r.toFixed(2)}:1 on ${backdrop}`);
+    }
+    return {
+      score: gradeDefect(worst, 0, 2),
+      detail: offenders.length ? `Outside ${min}–${max}:1 — ${offenders.join(", ")}` : "Every text is inside the band.",
     };
   });
 }
@@ -1625,6 +1676,544 @@ export function minFillContrast(ratio = 1.5, weight = 1, selector?: Selector): C
       detail: offenders.length ? offenders.join(", ") : `Worst fill contrast ${worst.toFixed(2)}:1.`,
     };
   });
+}
+
+// --- task set v2: precision and measurement ---------------------------------
+//
+// The first task set saturated: on the strongest model nearly every run closed
+// every check. These are the constraints v2 adds, and every one of them is a
+// thing a designer states — a gap, a size, a measure — and every one is stated
+// in the brief that is scored against it. `docs/PREREGISTRATION.md` §13.
+
+/** The box around every matched element, or null when nothing matched. */
+function unionBox(els: Element[]): Rect | null {
+  if (els.length === 0) return null;
+  const boxes = els.map(aabb);
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  return {
+    x,
+    y,
+    width: Math.max(...boxes.map((b) => b.x + b.width)) - x,
+    height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
+  };
+}
+
+/** Text set on exactly `lines` lines. */
+export function lineCount(selector: Selector, lines: number, weight = 1, label?: string): Check {
+  return check("line_count", label ?? `Set on exactly ${lines} line(s)`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+    const els = visible(select(doc, selector)).filter(isText);
+    if (els.length === 0) return { score: 0, detail: "No matching text." };
+    let worst = 0;
+    const parts: string[] = [];
+    for (const el of els) {
+      const n = layoutTextElement(el).lines.length;
+      worst = Math.max(worst, Math.abs(n - lines));
+      parts.push(`${el.id} ${n}`);
+    }
+    // One line off is half marks; two is a different layout.
+    return { score: gradeDefect(worst, 0, 2), detail: `Lines: ${parts.join(", ")} (wanted ${lines}).` };
+  });
+}
+
+/**
+ * Type set as large as it will go on `lines` lines at its box's width.
+ *
+ * Measured against the measure rather than the box, because a box can always
+ * be sized to whatever the type happens to be. Above the largest such size the
+ * text takes another line, which `lineCount` scores; this one scores falling
+ * short of it.
+ */
+export function fillsMeasure(selector: Selector, lines: number, minFraction = 0.95, weight = 1, label?: string, max?: number): Check {
+  return check(
+    "fills_measure",
+    label ?? `Set as large as it goes on ${lines} line(s)`,
+    weight,
+    (doc) => {
+      if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+      const els = visible(select(doc, selector)).filter(isText);
+      if (els.length === 0) return { score: 0, detail: "No matching text." };
+      let worst = 0;
+      const parts: string[] = [];
+      for (const el of els) {
+        const size = el.style.fontSize ?? DEFAULT_FONT_SIZE;
+        // `max` caps the target: "as large as it goes, up to 44" — a short
+        // name stops at the cap, a long one at its measure.
+        const fit = largestFontSizeForLines(el, lines);
+        const target = fit === null ? null : max === undefined ? fit : Math.min(fit, max);
+        if (target === null) {
+          worst = 1;
+          parts.push(`${el.id} cannot fit ${lines} line(s) at this width`);
+          continue;
+        }
+        const shortfall = Math.max(0, 1 - size / target);
+        // Over the cap is as much a miss as under the measure.
+        const over = max === undefined ? 0 : Math.max(0, size / max - 1);
+        worst = Math.max(worst, shortfall, over);
+        parts.push(`${el.id} ${round(size)} of ${target}`);
+      }
+      const slack = 1 - minFraction;
+      return { score: gradeDefect(worst, slack, slack + 0.2), detail: `Size against the largest that fits: ${parts.join(", ")}.` };
+    },
+  );
+}
+
+/**
+ * Every text box is no taller than its text needs, plus `slack`.
+ *
+ * A box that hugs its text is what makes a stated gap mean something: a 40-unit
+ * gap below a box with 200 units of empty space at its foot is a 240-unit gap
+ * on the page. Clipping is `noTextClipping`'s to score, so a box that is too
+ * short counts as hugging here.
+ */
+export function hugsText(selector: Selector, slack = 8, weight = 1, label?: string): Check {
+  return check("hugs_text", label ?? `Text boxes are no taller than their text plus ${slack}`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+    const els = visible(select(doc, selector)).filter(isText);
+    if (els.length === 0) return { score: 0, detail: "No matching text." };
+    let worst = 0;
+    const offenders: string[] = [];
+    for (const el of els) {
+      const extra = el.height - requiredHeight(el);
+      worst = Math.max(worst, extra);
+      if (extra > slack) offenders.push(`${el.id} (${round(extra)} spare)`);
+    }
+    return {
+      score: gradeDefect(worst, slack, slack + 60),
+      detail: offenders.length ? `Loose boxes: ${offenders.join(", ")}` : "Every box hugs its text.",
+    };
+  });
+}
+
+/**
+ * The gap between two groups along an axis is a stated value.
+ *
+ * Measured box to box: from the bottom (or right) edge of everything `first`
+ * matches to the top (or left) edge of everything `second` matches.
+ */
+export function gapBetween(
+  first: Selector,
+  second: Selector,
+  axis: "vertical" | "horizontal",
+  value: number,
+  tolerance = 2,
+  weight = 1,
+  label?: string,
+): Check {
+  return check("gap", label ?? `A ${value} unit ${axis} gap`, weight, (doc) => {
+    const a = unionBox(visible(select(doc, first)));
+    const b = unionBox(visible(select(doc, second)));
+    if (!a || !b) return { score: 0, detail: "An element is missing." };
+    const gap = axis === "vertical" ? b.y - (a.y + a.height) : b.x - (a.x + a.width);
+    return {
+      score: gradeDefect(Math.abs(gap - value), tolerance, tolerance + 24),
+      detail: `Gap ${round(gap)} (wanted ${value}).`,
+    };
+  });
+}
+
+/** Every matched element has a stated width and/or height. */
+export function sizeIs(
+  selector: Selector,
+  size: { width?: number; height?: number },
+  tolerance = 2,
+  weight = 1,
+  label?: string,
+): Check {
+  const wanted = [size.width !== undefined ? `${size.width} wide` : "", size.height !== undefined ? `${size.height} tall` : ""]
+    .filter(Boolean)
+    .join(", ");
+  return check("size", label ?? `Sized ${wanted}`, weight, (doc) => {
+    const els = select(doc, selector);
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    let worst = 0;
+    for (const el of els) {
+      if (size.width !== undefined) worst = Math.max(worst, Math.abs(el.width - size.width));
+      if (size.height !== undefined) worst = Math.max(worst, Math.abs(el.height - size.height));
+    }
+    return {
+      score: gradeDefect(worst, tolerance, tolerance + 40),
+      detail: `Worst size error ${round(worst)} units (${els.map((e) => `${e.id} ${round(e.width)}x${round(e.height)}`).join(", ")}).`,
+    };
+  });
+}
+
+/** An edge of the matched group sits at a stated canvas coordinate. */
+export function edgeAt(
+  selector: Selector,
+  edge: "left" | "right" | "top" | "bottom",
+  value: number,
+  tolerance = 2,
+  weight = 1,
+  label?: string,
+): Check {
+  return check("edge_at", label ?? `The ${edge} edge sits at ${value}`, weight, (doc) => {
+    const b = unionBox(visible(select(doc, selector)));
+    if (!b) return { score: 0, detail: "No matching element." };
+    const at = edge === "left" ? b.x : edge === "right" ? b.x + b.width : edge === "top" ? b.y : b.y + b.height;
+    return {
+      score: gradeDefect(Math.abs(at - value), tolerance, tolerance + 24),
+      detail: `${edge} edge at ${round(at)} (wanted ${value}).`,
+    };
+  });
+}
+
+/** The matched group, taken as one block, is centred on the canvas along an axis. */
+export function centeredOnCanvas(
+  selector: Selector,
+  axis: "horizontal" | "vertical",
+  tolerance = 2,
+  weight = 1,
+  label?: string,
+): Check {
+  return check("centered", label ?? `Centred ${axis}ly on the canvas`, weight, (doc) => {
+    const b = unionBox(visible(select(doc, selector)));
+    if (!b) return { score: 0, detail: "No matching element." };
+    const off =
+      axis === "horizontal" ? b.x + b.width / 2 - doc.width / 2 : b.y + b.height / 2 - doc.height / 2;
+    return {
+      score: gradeDefect(Math.abs(off), tolerance, tolerance + 30),
+      detail: `${round(Math.abs(off))} units off centre.`,
+    };
+  });
+}
+
+/**
+ * Type set as large as it will go in its box — or, with `shared`, every
+ * matched block at one size, as large as the tightest of them allows.
+ *
+ * Only meaningful where the brief pins the box, which every task using it
+ * does; a box sized to its text always "fits" at the size it was sized for.
+ */
+export function fillsBox(selector: Selector, minFraction = 0.95, weight = 1, opts: { shared?: boolean; label?: string } = {}): Check {
+  return check("fills_box", opts.label ?? "Set as large as it goes in its box", weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+    const els = visible(select(doc, selector)).filter(isText);
+    if (els.length === 0) return { score: 0, detail: "No matching text." };
+    const targets = els.map((el) => largestFittingFontSize(el));
+    if (targets.some((t) => t === null)) return { score: 0, detail: "Some text cannot fit its box at any size." };
+    const shared = Math.min(...(targets as number[]));
+    let worst = 0;
+    const parts: string[] = [];
+    els.forEach((el, i) => {
+      const target = opts.shared ? shared : (targets[i] as number);
+      const size = el.style.fontSize ?? DEFAULT_FONT_SIZE;
+      worst = Math.max(worst, Math.max(0, 1 - size / target));
+      parts.push(`${el.id} ${round(size)} of ${target}`);
+    });
+    const slack = 1 - minFraction;
+    return { score: gradeDefect(worst, slack, slack + 0.2), detail: `Size against the largest that fits: ${parts.join(", ")}.` };
+  });
+}
+
+/**
+ * A column of text blocks, stacked from `top` with `gap` between them, set at
+ * one size — the largest at which the whole stack still ends by `bottom`.
+ *
+ * The size is derived from the blocks' own measure and line height, so it is
+ * the answer to the brief's rule rather than a number the brief withholds.
+ */
+export function columnFillsSpace(
+  ids: string[],
+  space: { top: number; bottom: number; gap: number },
+  minFraction = 0.95,
+  weight = 1,
+  label?: string,
+): Check {
+  return check("column_fills", label ?? "The column is set as large as the space allows", weight, (doc) => {
+    const els = ids.map((id) => doc.elements.find((e) => e.id === id)).filter((e): e is Element => !!e);
+    if (els.length !== ids.length) return { score: 0, detail: "A block is missing." };
+    const available = space.bottom - space.top - space.gap * (els.length - 1);
+    const stackAt = (size: number) =>
+      els.reduce((sum, el) => sum + requiredHeight({ ...el, style: { ...el.style, fontSize: size } }), 0);
+    let lo = 8;
+    let hi = 400;
+    let best = 0;
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (stackAt(mid) <= available) {
+        best = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (best === 0) return { score: 0, detail: "The blocks cannot fit the space at any size." };
+    const sizes = els.map((el) => el.style.fontSize ?? DEFAULT_FONT_SIZE);
+    const worst = Math.max(...sizes.map((s) => Math.max(0, 1 - s / best)));
+    const slack = 1 - minFraction;
+    return {
+      score: gradeDefect(worst, slack, slack + 0.2),
+      detail: `Sizes ${sizes.map((s) => round(s)).join(", ")}; the largest that fits is ${best}.`,
+    };
+  });
+}
+
+/** Each `[inner, outer]` pair is centred, on both axes, on its outer element. */
+export function centeredOnEach(pairs: [string, string][], tolerance = 2, weight = 1, label?: string): Check {
+  return check("centered_on", label ?? "Each label is centred on its shape", weight, (doc) => {
+    let worst = 0;
+    const offenders: string[] = [];
+    for (const [inner, outer] of pairs) {
+      const a = doc.elements.find((e) => e.id === inner);
+      const b = doc.elements.find((e) => e.id === outer);
+      if (!a || !b) return { score: 0, detail: `${a ? outer : inner} is missing.` };
+      const ca = center(a);
+      const cb = center(b);
+      const off = Math.max(Math.abs(ca.x - cb.x), Math.abs(ca.y - cb.y));
+      worst = Math.max(worst, off);
+      if (off > tolerance) offenders.push(`${inner} ${round(off)} off ${outer}`);
+    }
+    return { score: gradeDefect(worst, tolerance, tolerance + 24), detail: offenders.length ? offenders.join(", ") : "All centred." };
+  });
+}
+
+/**
+ * Every matched element lies entirely on a shape — all four of its (rotated)
+ * corners inside the shape's (rotated) outline. The shape is convex, so that
+ * is the whole element.
+ */
+export function insideShape(selector: Selector, shapeId: string, weight = 1, label?: string): Check {
+  return check("inside_shape", label ?? `Sits entirely on ${shapeId}`, weight, (doc) => {
+    const shape = doc.elements.find((e) => e.id === shapeId);
+    if (!shape) return { score: 0, detail: `${shapeId} is missing.` };
+    const els = select(doc, selector);
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    const outline = corners(shape);
+    const outside: string[] = [];
+    for (const el of els) {
+      const out = corners(el).filter((p) => !polygonContainsPoint(outline, p)).length;
+      if (out > 0) outside.push(`${el.id} (${out} corner${out === 1 ? "" : "s"} off)`);
+    }
+    return {
+      score: (els.length - outside.length) / els.length,
+      detail: outside.length ? `Off ${shapeId}: ${outside.join(", ")}` : `Everything sits on ${shapeId}.`,
+    };
+  });
+}
+
+/**
+ * The matched group sits inside an element at stated insets — the padding of a
+ * plate around the copy on it. Only the sides given are scored.
+ */
+export function insetWithin(
+  selector: Selector,
+  outerId: string,
+  inset: { left?: number; top?: number; right?: number; bottom?: number },
+  tolerance = 2,
+  weight = 1,
+  label?: string,
+): Check {
+  return check("inset", label ?? `Inset within ${outerId}`, weight, (doc) => {
+    const outer = doc.elements.find((e) => e.id === outerId);
+    const inner = unionBox(visible(select(doc, selector)));
+    if (!outer || !inner) return { score: 0, detail: "An element is missing." };
+    const o = aabb(outer);
+    const actual = {
+      left: inner.x - o.x,
+      top: inner.y - o.y,
+      right: o.x + o.width - (inner.x + inner.width),
+      bottom: o.y + o.height - (inner.y + inner.height),
+    };
+    let worst = 0;
+    const parts: string[] = [];
+    for (const side of ["left", "top", "right", "bottom"] as const) {
+      const want = inset[side];
+      if (want === undefined) continue;
+      worst = Math.max(worst, Math.abs(actual[side] - want));
+      parts.push(`${side} ${round(actual[side])} (wanted ${want})`);
+    }
+    return { score: gradeDefect(worst, tolerance, tolerance + 24), detail: parts.join(", ") };
+  });
+}
+
+/** An element's box keeps a stated width-to-height ratio. */
+export function aspectOf(id: string, ratio: number, tolerance = 0.01, weight = 1, label?: string): Check {
+  return check("box_aspect", label ?? `${id} keeps its proportions`, weight, (doc) => {
+    const el = doc.elements.find((e) => e.id === id);
+    if (!el) return { score: 0, detail: `${id} is missing.` };
+    const off = Math.abs(el.width / el.height - ratio) / ratio;
+    return { score: gradeDefect(off, tolerance, tolerance + 0.1), detail: `${id} is ${round(el.width)}x${round(el.height)}, ${(off * 100).toFixed(1)}% off.` };
+  });
+}
+
+// --- prototype: constructions from shapes ------------------------------------
+
+/** Every matched element draws a stated shape (and, for polygons and stars, a stated number of sides). */
+export function shapeIs(selector: Selector, shape: NonNullable<Style["shape"]>, sides?: number, weight = 1, label?: string): Check {
+  return check("shape", label ?? `Drawn as ${shape === "rect" ? "a box" : `a ${shape}`}${sides ? ` with ${sides}` : ""}`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    const wrong = els.filter((el) => {
+      const s = el.style.shape ?? "rect";
+      const n = el.style.sides ?? (s === "star" ? 5 : 6);
+      return el.type !== "rect" || s !== shape || (sides !== undefined && n !== sides);
+    });
+    return {
+      score: (els.length - wrong.length) / els.length,
+      detail: wrong.length ? `Wrong shape: ${wrong.map((e) => e.id).join(", ")}` : "Right shape.",
+    };
+  });
+}
+
+/** A linear gradient from one stated colour to another, at a stated angle. */
+export function gradientIs(selector: Selector, from: string, to: string, angle: number, weight = 1, label?: string): Check {
+  return check("gradient", label ?? `A gradient from ${from} to ${to} at ${angle} degrees`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    const ok = els.filter(
+      (el) =>
+        el.style.fill?.toLowerCase() === from.toLowerCase() &&
+        el.style.fillTo?.toLowerCase() === to.toLowerCase() &&
+        Math.abs(normalizeAngle((el.style.gradientAngle ?? 90) - angle)) < 1,
+    );
+    return {
+      score: ok.length / els.length,
+      detail: ok.length === els.length ? "Right gradient." : `Gradient is ${els[0]!.style.fill} to ${els[0]!.style.fillTo ?? "(none)"} at ${els[0]!.style.gradientAngle ?? 90}.`,
+    };
+  });
+}
+
+/**
+ * Elements arranged in a ring: one centred at each of `count` angles, every
+ * `step` degrees from `start` (clockwise from straight up), `radius` from a
+ * centre point, and — with `facing` — turned to point along their own angle.
+ *
+ * Matched to slots by angle rather than by id, because the agent names them.
+ * Each slot takes its nearest unclaimed element; an empty slot or a spare
+ * element is a miss. A ray points both ways, so `facing` accepts the angle
+ * or its opposite.
+ */
+export function ring(
+  selector: Selector,
+  spec: {
+    cx: number;
+    cy: number;
+    radius: number;
+    count: number;
+    start?: number;
+    step: number;
+    facing?: boolean;
+    tolerance?: number;
+    /** The copy each slot must carry, in slot order — a clock's numerals. */
+    texts?: string[];
+  },
+  weight = 1,
+  label?: string,
+): Check {
+  const tol = spec.tolerance ?? 3;
+  return check("ring", label ?? `${spec.count} elements in a ring`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    const unclaimed = new Set(els);
+    let worst = 0;
+    const misses: string[] = [];
+    for (let i = 0; i < spec.count; i++) {
+      const deg = (spec.start ?? 0) + i * spec.step;
+      const a = (deg * Math.PI) / 180;
+      const want = { x: spec.cx + Math.sin(a) * spec.radius, y: spec.cy - Math.cos(a) * spec.radius };
+      let best: Element | undefined;
+      let bestD = Infinity;
+      for (const el of unclaimed) {
+        const c = center(el);
+        const d = Math.hypot(c.x - want.x, c.y - want.y);
+        if (d < bestD) {
+          bestD = d;
+          best = el;
+        }
+      }
+      if (!best) {
+        worst = Math.max(worst, tol + 24);
+        misses.push(`nothing at ${round(deg)} degrees`);
+        continue;
+      }
+      unclaimed.delete(best);
+      let off = bestD;
+      if (spec.facing) {
+        const turn = Math.abs(normalizeAngle(best.rotation - deg));
+        const facingOff = Math.min(turn, Math.abs(180 - turn));
+        // A degree of turn counts as much as eight units of displacement: on
+        // a 150-unit ray that is about where a reader sees it as crooked.
+        off = Math.max(off, facingOff * 8);
+      }
+      const wantText = spec.texts?.[i];
+      if (wantText !== undefined && normalizeCopy(best.text ?? "") !== normalizeCopy(wantText)) {
+        off = tol + 24;
+        misses.push(`${best.id} at ${round(deg)} degrees reads "${best.text ?? ""}", wanted "${wantText}"`);
+      }
+      worst = Math.max(worst, off);
+      if (off > tol) misses.push(`${best.id} at ${round(deg)} degrees is ${round(off)} off`);
+    }
+    if (unclaimed.size > 0) {
+      worst = Math.max(worst, tol + 24);
+      misses.push(`spare: ${[...unclaimed].map((e) => e.id).join(", ")}`);
+    }
+    return { score: gradeDefect(worst, tol, tol + 24), detail: misses.length ? misses.join("; ") : "Every slot filled." };
+  });
+}
+
+/** The centre of the matched group sits at a stated point. */
+export function centerAt(selector: Selector, x: number, y: number, tolerance = 2, weight = 1, label?: string): Check {
+  return check("center_at", label ?? `Centred at (${x}, ${y})`, weight, (doc) => {
+    const b = unionBox(visible(select(doc, selector)));
+    if (!b) return { score: 0, detail: "No matching element." };
+    const off = Math.max(Math.abs(b.x + b.width / 2 - x), Math.abs(b.y + b.height / 2 - y));
+    return { score: gradeDefect(off, tolerance, tolerance + 30), detail: `${round(off)} units from (${x}, ${y}).` };
+  });
+}
+
+/**
+ * The fill of one surface against the fill of the surface it sits on, as a
+ * contrast ratio within a stated band — the "one step lighter" of a dark
+ * theme, which nobody can judge by eye from a hex code. `"canvas"` names the
+ * document background.
+ */
+export function fillContrastBetween(upper: string, lower: string, min: number, max: number, weight = 1, label?: string): Check {
+  return check("fill_step", label ?? `${upper} against ${lower} is ${min}:1 to ${max}:1`, weight, (doc) => {
+    const fillOf = (id: string) => (id === "canvas" ? doc.background : doc.elements.find((e) => e.id === id)?.style.fill);
+    const a = fillOf(upper);
+    const b = fillOf(lower);
+    if (!a || !b) return { score: 0, detail: "A surface has no fill." };
+    const ratio = contrastRatio(a, b);
+    const defect = ratio < min ? min - ratio : ratio > max ? ratio - max : 0;
+    return { score: gradeDefect(defect, 0, 0.5), detail: `${upper} ${a} on ${lower} ${b}: ${ratio.toFixed(2)}:1.` };
+  });
+}
+
+/**
+ * What an element *paints* reaches to within a stated band of two opposite
+ * canvas edges.
+ *
+ * For a rotated element this is the trigonometry its declared box hides: a
+ * banner that is to run "edge to edge, 40 units in" has to be sized from where
+ * its corners land, not from its width.
+ */
+export function paintedReach(
+  selector: Selector,
+  axis: "horizontal" | "vertical",
+  minMargin: number,
+  maxMargin: number,
+  weight = 1,
+  label?: string,
+): Check {
+  return check(
+    "painted_reach",
+    label ?? `Reaches to between ${minMargin} and ${maxMargin} units of both ${axis === "horizontal" ? "side" : "top and bottom"} edges`,
+    weight,
+    (doc) => {
+      const els = visible(select(doc, selector));
+      const painted = els.map(paintedBounds).filter((b): b is Rect => !!b);
+      if (painted.length === 0) return { score: 0, detail: "Nothing painted." };
+      const x = Math.min(...painted.map((b) => b.x));
+      const y = Math.min(...painted.map((b) => b.y));
+      const r = Math.max(...painted.map((b) => b.x + b.width));
+      const bt = Math.max(...painted.map((b) => b.y + b.height));
+      const near = axis === "horizontal" ? [x, doc.width - r] : [y, doc.height - bt];
+      const defect = Math.max(...near.map((m) => (m < minMargin ? minMargin - m : m > maxMargin ? m - maxMargin : 0)));
+      return {
+        score: gradeDefect(defect, 0, 40),
+        detail: `Painted margins ${near.map((m) => round(m)).join(" and ")} (wanted ${minMargin}–${maxMargin}).`,
+      };
+    },
+  );
 }
 
 /** Run a check list and produce a weighted constraint score. */

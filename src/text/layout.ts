@@ -275,8 +275,9 @@ export function layoutTextElement(el: Element, fontOverride?: FontMetrics): Text
  * renderer does this arithmetic so the agent does not have to.
  */
 export function largestFittingFontSize(el: Element, min = 8, max = 400): number | null {
-  let lo = min;
-  let hi = max;
+  // Integer sizes inside the bounds: 24.5 to 24.5 holds none, not 24.
+  let lo = Math.ceil(min);
+  let hi = Math.floor(max);
   let best: number | null = null;
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
@@ -295,4 +296,32 @@ export function largestFittingFontSize(el: Element, min = 8, max = 400): number 
 export function requiredHeight(el: Element): number {
   const layout = layoutTextElement(el);
   return layout.blockHeight + (el.style.padding ?? 0) * 2;
+}
+
+/**
+ * Largest integer font size at which `el`'s text wraps to at most `lines`
+ * lines at its current box width, ignoring the box height.
+ *
+ * "As large as it will go on two lines" is a statement about the measure, not
+ * about the box: a box sized to hug its text always "fits" at the size it was
+ * sized for, so `largestFittingFontSize` would call any hugged headline as
+ * large as possible. This one asks the question a designer means.
+ */
+export function largestFontSizeForLines(el: Element, lines: number, min = 8, max = 400): number | null {
+  // Integer sizes inside the bounds: 24.5 to 24.5 holds none, not 24.
+  let lo = Math.ceil(min);
+  let hi = Math.floor(max);
+  let best: number | null = null;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const probe: Element = { ...el, height: 100_000, style: { ...el.style, fontSize: mid } };
+    const layout = layoutTextElement(probe);
+    if (layout.lines.length <= lines && layout.overflowX <= 0.01) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
 }

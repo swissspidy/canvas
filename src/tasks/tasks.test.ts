@@ -4,7 +4,9 @@ import { TASK_FAMILIES } from "./types.js";
 import { normalizeDoc, parseDoc } from "../doc/schema.js";
 import { runChecks, universalChecks } from "../eval/checks.js";
 import { renderSvg } from "../render/svg.js";
+import { requiredHeight } from "../text/layout.js";
 import type { Doc, Element } from "../doc/types.js";
+import { SOLUTIONS } from "./solutions.js";
 
 /**
  * A task whose starting document already scores well teaches nothing: every
@@ -15,12 +17,12 @@ import type { Doc, Element } from "../doc/types.js";
 const HEADROOM_CEILING = 0.9;
 
 describe("task registry", () => {
-  it("holds eighteen to twenty-four tasks", () => {
+  it("holds eighteen to thirty tasks", () => {
     // The ceiling is a budget, not a principle: every task multiplies through
     // surfaces, feedback conditions, models and repeats, and
     // `docs/PREREGISTRATION.md` sizes the grid from this number.
     expect(TASKS.length).toBeGreaterThanOrEqual(18);
-    expect(TASKS.length).toBeLessThanOrEqual(24);
+    expect(TASKS.length).toBeLessThanOrEqual(30);
   });
 
   it("gives every task a unique id", () => {
@@ -229,34 +231,23 @@ describe("the constraints the briefs state are actually scored", () => {
    * has to score below the fix that finds the room instead.
    */
   it("prefers finding the room to shrinking the type out of legibility", () => {
-    const cases: { id: string; ids: string[]; shrunk: number; honest: (el: Element) => Element }[] = [
-      {
-        id: "fit.body-overflow",
-        ids: ["body"],
-        shrunk: 9,
-        honest: (el) => (el.id === "body" ? { ...el, height: 800 } : el),
-      },
-      {
-        id: "fit.long-headline",
-        ids: ["headline"],
-        shrunk: 20,
-        honest: (el) =>
-          el.id === "headline"
-            ? { ...el, y: 300, height: 280, style: { ...el.style, fontSize: 52 } }
-            : el.id === "para"
-              ? { ...el, y: 610, height: 320 }
-              : el,
-      },
+    const cases: { id: string; ids: string[]; shrunk: number }[] = [
+      { id: "fit.body-overflow", ids: ["body"], shrunk: 9 },
+      { id: "fit.long-headline", ids: ["headline"], shrunk: 20 },
     ];
     for (const c of cases) {
       const task = getTask(c.id);
       const shrunk = edit(task, (el) =>
         c.ids.includes(el.id) ? { ...el, style: { ...el.style, fontSize: c.shrunk } } : el,
       );
-      const honest = edit(task, c.honest);
+      const honest = SOLUTIONS[c.id]!();
       expect(scoreOf(task, honest), `${c.id} honest`).toBeGreaterThan(scoreOf(task, shrunk));
       // And it is a real fix, not just a better one: full marks are reachable.
       expect(scoreOf(task, honest), `${c.id} honest`).toBeCloseTo(1, 6);
+      // v2 asks for the type to fill the room, so shrinking the reference
+      // fix — every other constraint still met — is not a near miss either.
+      const timid = { ...honest, elements: honest.elements.map((el) => (c.ids.includes(el.id) ? { ...el, style: { ...el.style, fontSize: (el.style.fontSize ?? 32) * 0.8 } } : el)) };
+      expect(scoreOf(task, timid), `${c.id} timid`).toBeLessThan(scoreOf(task, honest) - 0.05);
     }
   });
 
@@ -347,28 +338,10 @@ describe("the constraints the briefs state are actually scored", () => {
    */
   it("does not charge a composition for breaking a title with a newline", () => {
     const task = getTask("compose.festival-poster");
-    const doc = task.initial();
+    const solution = SOLUTIONS["compose.festival-poster"]!();
     const composed: Doc = {
-      ...doc,
-      elements: [
-        { id: "bg", type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "photo/mountains", style: {} },
-        { id: "scrim", type: "rect", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 1, style: { fill: "#0b0b18aa" } },
-        {
-          id: "title",
-          type: "text",
-          x: 80,
-          y: 200,
-          width: 920,
-          height: 380,
-          rotation: 0,
-          z: 2,
-          text: "Ridgeline\nFestival",
-          style: { fontSize: 140, fontWeight: "bold", color: "#ffffff", align: "center" },
-        },
-        { id: "dates", type: "text", x: 80, y: 640, width: 920, height: 90, rotation: 0, z: 3, text: "September 12-14", style: { fontSize: 64, color: "#f6e7c1", align: "center" } },
-        { id: "venue", type: "text", x: 80, y: 760, width: 920, height: 70, rotation: 0, z: 4, text: "Alpine Meadow, Colorado", style: { fontSize: 42, color: "#e6e6f2", align: "center" } },
-        { id: "cta", type: "text", x: 80, y: 1180, width: 920, height: 70, rotation: 0, z: 5, text: "Tickets at ridgeline.fm", style: { fontSize: 36, color: "#ffffff", align: "center" } },
-      ],
+      ...solution,
+      elements: solution.elements.map((el) => (el.id === "title" ? { ...el, text: "Ridgeline\nFestival" } : el)),
     };
     expect(scoreOf(task, composed)).toBeCloseTo(1, 6);
   });
@@ -443,14 +416,16 @@ describe("the constraints the briefs state are actually scored", () => {
 
   it("penalises straightening a knocked-about card by moving it instead", () => {
     const task = getTask("repair.tilted-stack");
-    // Shoving the card left brings it back on the canvas and leaves every
-    // element as crooked as it was found.
+    // Shoving the card left brings part of it back on the canvas and leaves
+    // every element as crooked as it was found.
     const shoved = edit(task, (el) => (el.id === "card" ? { ...el, x: el.x - 40 } : el));
-    const straightened = edit(task, (el) =>
-      ["card", "title", "body", "stamp"].includes(el.id) ? { ...el, rotation: 0 } : el,
-    );
-    expect(scoreOf(task, straightened)).toBeGreaterThan(scoreOf(task, shoved));
-    expect(scoreOf(task, straightened)).toBeCloseTo(1, 6);
+    // Straightening everything, card included, is the v1 answer: v2 keeps
+    // the card's tilt and asks for it to be sized from where it paints.
+    const allUpright = edit(task, (el) => ({ ...el, rotation: 0 }));
+    const solved = SOLUTIONS["repair.tilted-stack"]!();
+    expect(scoreOf(task, solved)).toBeGreaterThan(scoreOf(task, shoved));
+    expect(scoreOf(task, solved)).toBeGreaterThan(scoreOf(task, allUpright));
+    expect(scoreOf(task, solved)).toBeCloseTo(1, 6);
   });
 
   /**
@@ -479,7 +454,7 @@ describe("the constraints the briefs state are actually scored", () => {
   it("fails a named-element check whose elements all paint nothing", () => {
     const task = getTask("restyle.dark-mode");
     const hidden = edit(task, (el) =>
-      ["title", "standfirst", "byline", "tag_label"].includes(el.id)
+      ["title", "standfirst", "byline", "tag_label", "callout_text", "button_label"].includes(el.id)
         ? { ...el, style: { ...el.style, opacity: 0 } }
         : el,
     );
@@ -492,21 +467,13 @@ describe("the constraints the briefs state are actually scored", () => {
 
   it("penalises a chip whose fill was removed, however readable the label", () => {
     const task = getTask("restyle.dark-mode");
+    const solution = SOLUTIONS["restyle.dark-mode"]!();
     const converted = (tagFill: string): Doc => ({
-      ...edit(task, (el) => {
-        const style = { ...el.style };
-        if (el.id === "sheet") style.fill = "#12121f";
-        if (el.id === "title") style.color = "#f4f1ea";
-        if (el.id === "standfirst") style.color = "#cfcadd";
-        if (el.id === "byline") style.color = "#b3aec6";
-        if (el.id === "tag") style.fill = tagFill;
-        if (el.id === "tag_label") style.color = "#e9e4f2";
-        return { ...el, style };
-      }),
-      background: "#0e0e18",
+      ...solution,
+      elements: solution.elements.map((el) => (el.id === "tag" ? { ...el, style: { ...el.style, fill: tagFill } } : el)),
     });
-    expect(scoreOf(task, converted("#4a3d72"))).toBeGreaterThan(scoreOf(task, converted("transparent")));
-    expect(scoreOf(task, converted("#4a3d72"))).toBeCloseTo(1, 6);
+    expect(scoreOf(task, converted("#3a3a5a"))).toBeGreaterThan(scoreOf(task, converted("transparent")));
+    expect(scoreOf(task, converted("#3a3a5a"))).toBeCloseTo(1, 6);
   });
 
   /**
@@ -603,12 +570,7 @@ describe("the constraints the briefs state are actually scored", () => {
     const faded = edit(task, (el) => (el.id === "hero_photo" ? { ...el, style: { ...el.style, opacity: 0 } } : el));
     // Normalized, because changing a `z` is exactly the mutation that reorders
     // the array, and every surface hands the scorer a normalized document.
-    const restacked = normalizeDoc(
-      edit(task, (el) => {
-        const z: Record<string, number> = { hero_photo: 0, scrim: 1, hero_title: 2, hero_sub: 3 };
-        return z[el.id] === undefined ? el : { ...el, z: z[el.id]! };
-      }),
-    );
+    const restacked = normalizeDoc(SOLUTIONS["repair.z-order"]!());
     expect(scoreOf(task, restacked)).toBeGreaterThan(scoreOf(task, faded));
     expect(scoreOf(task, restacked)).toBeCloseTo(1, 6);
   });
@@ -704,10 +666,15 @@ describe("the constraints the briefs state are actually scored", () => {
   });
 
   it("penalises resizing elements on an arrange task that says not to", () => {
-    for (const id of ["arrange.ragged-column", "arrange.uneven-row"]) {
+    // v2's ragged column asks for every box to hug its text, so its heights
+    // are meant to change; its widths are what the brief holds.
+    const forbidden: Record<string, (el: Element) => Element> = {
+      "arrange.ragged-column": (el) => ({ ...el, width: el.width / 2 }),
+      "arrange.uneven-row": (el) => (el.type === "rect" ? { ...el, width: el.width / 2, height: el.height / 2 } : el),
+    };
+    for (const [id, squash] of Object.entries(forbidden)) {
       const task = getTask(id);
-      const squashed = edit(task, (el) => ({ ...el, width: el.width / 2, height: el.height / 2 }));
-      expect(scoreOf(task, squashed), id).toBeLessThan(scoreOf(task, task.initial()));
+      expect(scoreOf(task, edit(task, squash)), id).toBeLessThan(scoreOf(task, task.initial()));
     }
   });
 
@@ -751,21 +718,26 @@ describe("the constraints the briefs state are actually scored", () => {
    */
   it("scores a poster set at document-heading scale below one set at poster scale", () => {
     const task = getTask("compose.festival-poster");
-    const doc = task.initial();
-    const poster = (titleSize: number): Doc => ({
-      ...doc,
-      elements: [
-        { id: "bg", type: "image", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 0, src: "photo/mountains", style: {} },
-        { id: "scrim", type: "rect", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 1, style: { fill: "#0b0b18aa" } },
-        { id: "title", type: "text", x: 80, y: 200, width: 920, height: titleSize * 2.8, rotation: 0, z: 2, text: "Ridgeline\nFestival", style: { fontSize: titleSize, fontWeight: "bold", color: "#ffffff", align: "center" } },
-        { id: "dates", type: "text", x: 80, y: 640, width: 920, height: 90, rotation: 0, z: 3, text: "September 12-14", style: { fontSize: 64, color: "#f6e7c1", align: "center" } },
-        { id: "venue", type: "text", x: 80, y: 760, width: 920, height: 70, rotation: 0, z: 4, text: "Alpine Meadow, Colorado", style: { fontSize: 42, color: "#e6e6f2", align: "center" } },
-        { id: "cta", type: "text", x: 80, y: 1180, width: 920, height: 70, rotation: 0, z: 5, text: "Tickets at ridgeline.fm", style: { fontSize: 36, color: "#ffffff", align: "center" } },
-      ],
-    });
-    // Both are hierarchies, and both would have scored the same.
-    expect(scoreOf(task, poster(140))).toBeCloseTo(1, 6);
-    expect(scoreOf(task, poster(70))).toBeLessThan(scoreOf(task, poster(140)) - 0.1);
+    const solution = SOLUTIONS["compose.festival-poster"]!();
+    // The reference poster, with its title dropped to heading scale and every
+    // gap below it kept: the only thing that changed is the scale.
+    const scaled = (titleSize: number): Doc => {
+      const title = solution.elements.find((e) => e.id === "title")!;
+      const shrunk = { ...title, style: { ...title.style, fontSize: titleSize } };
+      const lost = title.height - requiredHeight(shrunk);
+      return {
+        ...solution,
+        elements: solution.elements.map((el) =>
+          el.id === "title"
+            ? { ...shrunk, height: title.height - lost }
+            : el.id === "dates" || el.id === "venue"
+              ? { ...el, y: el.y - lost }
+              : el,
+        ),
+      };
+    };
+    expect(scoreOf(task, solution)).toBeCloseTo(1, 6);
+    expect(scoreOf(task, scaled(70))).toBeLessThan(scoreOf(task, solution) - 0.1);
   });
 
   /**
@@ -776,22 +748,23 @@ describe("the constraints the briefs state are actually scored", () => {
    */
   it("scores a flyer that leaves most of the page empty below one that fills it", () => {
     const task = getTask("compose.event-flyer");
-    const doc = task.initial();
-    const flyer = (scale: number): Doc => ({
-      ...doc,
-      elements: [
-        { id: "head", type: "text", x: 60, y: 90, width: 960 * scale, height: 260 * scale, rotation: 0, z: 0, text: "Saturday\nCoffee Morning", style: { fontSize: 96 * scale, fontWeight: "bold", color: "#3a2417", align: "center" } },
-        { id: "photo", type: "image", x: 60, y: 400, width: 960 * scale, height: 520 * scale, rotation: 0, z: 1, src: "photo/coffee", style: {} },
-        { id: "when", type: "text", x: 60, y: 960, width: 960 * scale, height: 70, rotation: 0, z: 2, text: "Every Saturday, 9am to noon", style: { fontSize: 48 * scale, color: "#4a3121", align: "center" } },
-        { id: "where", type: "text", x: 60, y: 1050, width: 960 * scale, height: 60, rotation: 0, z: 3, text: "Corner of Fifth and Pine", style: { fontSize: 38 * scale, color: "#5a3d28", align: "center" } },
-        { id: "signoff", type: "text", x: 60, y: 1180, width: 960 * scale, height: 60, rotation: 0, z: 4, text: "All welcome. Bring a friend.", style: { fontSize: 32 * scale, color: "#6a4a30", align: "center" } },
-      ],
-    });
-    const filled = scoreOf(task, flyer(1));
-    const sparse = scoreOf(task, flyer(0.55));
+    const solution = SOLUTIONS["compose.event-flyer"]!();
+    // Everything at 55% of its size, from the same top-left corner.
+    const sparse: Doc = {
+      ...solution,
+      elements: solution.elements.map((el) => ({
+        ...el,
+        x: 60 + (el.x - 60) * 0.55,
+        y: 60 + (el.y - 60) * 0.55,
+        width: el.width * 0.55,
+        height: el.height * 0.55,
+        style: el.style.fontSize ? { ...el.style, fontSize: el.style.fontSize * 0.55 } : el.style,
+      })),
+    };
+    const filled = scoreOf(task, solution);
     expect(filled).toBeCloseTo(1, 6);
-    expect(sparse).toBeLessThan(filled - 0.1);
-    const results = runChecks(flyer(0.55), [...universalChecks(), ...task.checks]).results;
+    expect(scoreOf(task, sparse)).toBeLessThan(filled - 0.1);
+    const results = runChecks(sparse, [...universalChecks(), ...task.checks]).results;
     expect(results.find((r) => r.id === "coverage")!.score).toBeLessThan(0.5);
     expect(results.find((r) => r.id === "dominant_type_size")!.score).toBeLessThan(0.5);
   });

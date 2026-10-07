@@ -267,7 +267,7 @@ a refusal.
 | Structured feedback that reports overlaps is doing relational work for the agent | `structured_plain` / `both_plain` supply the same description with derived layout notes removed. The headline feedback comparison is re-run against them. |
 | Surfaces differ in prose quality, not capability | The base system prompt is byte-identical; only the briefing differs. A test asserts the opening user message is identical across surfaces. |
 | Surfaces differ in error message quality | All errors are produced by one shared formatter with shared wording. |
-| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents — for position, size, style, paint order **and rotation**. Rotation was the hole: `create` took an angle everywhere, but rotating an element that already existed was a `move` on the coordinate surface and unreachable on the relational one, where `place` took no angle and `set_style` is appearance, text and order. Relational now has `rotate`, `place` takes an angle, and the equivalence test covers it. |
+| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents — for position, size, style, paint order, rotation **and the canvas background**. Rotation was the hole: `create` took an angle everywhere, but rotating an element that already existed was a `move` on the coordinate surface and unreachable on the relational one, where `place` took no angle and `set_style` is appearance, text and order. Relational now has `rotate`, `place` takes an angle, and the equivalence test covers it. The canvas background was the second hole, found only after the 2026-10-07 pilots (§13): it belongs to the document rather than an element, so only document-as-code could change it. Every incremental surface now has `set_background`. |
 | Document-as-code sees the JSON and others do not | Every surface gets the exact starting JSON *and* the geometry description in the opening message. |
 | Tool-call arity differs (relational has more tools) | Cost and token counts are reported per surface; quality-per-dollar is a pre-registered secondary outcome. |
 | Strict tool schemas would hide malformed calls | Schema-enforced tool calling is deliberately not used. Rejected calls are a measured outcome. |
@@ -378,6 +378,386 @@ the real risk, and the pilot in §10 is where it would first show up.
 
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
+
+**2026-10-07 (second entry) — task set v2, and how its difficulty is
+calibrated.** Written before any run against the new tasks.
+
+The pilots of 2026-09-19 and of this morning say the same thing three times
+over: the task set does not have the headroom to separate anything. On Opus 5,
+88% of runs closed every check; the weaker models were not far behind. The
+2026-09-19 entry named the remedy — "a harder task set in a new
+pre-registration, not a re-cut of this one" — and this is it. The question,
+the hypotheses, the primary outcome, the analysis plan and the decision rules
+are carried over unchanged. What changes is the tasks, and so every baseline
+and every number in `docs/TASKS.md`.
+
+**What makes a task harder, and what may not.** Difficulty may come only from
+three places, each a thing a designer would actually ask for, and each stated
+in the brief that is scored against it:
+
+1. *Precision*: stated gaps, sizes, edges and grids, graded with tight
+   tolerances.
+2. *Measurement*: constraints that depend on font metrics or rotated geometry
+   the agent cannot read off the document — type set as large as it will go on
+   a stated number of lines, boxes that hug their text, columns that end level,
+   a tilted shape that reaches a stated distance from the edges.
+3. *Breadth*: more elements and more simultaneous constraints, so that one
+   miss fails the run.
+
+Not allowed: constraints left out of the brief, constraints that cannot all be
+met at once, and wording that hides what is wanted. Every task keeps a
+reference solution that scores full marks (`solvable.test.ts`), every
+starting document stays below 90%, and every cheap path that is found gets a
+loophole test, as before.
+
+**The target.** About 30% of runs on Opus 5 should *pass* — close every check,
+which the report already calls a pass at 99.9% of the constraint score. That
+puts the confirmatory model where differences can show instead of at the
+ceiling. Weaker models will sit lower, which is the point of the ladder.
+
+**How it is calibrated, fixed now.**
+
+- Calibration runs are pilots in the sense of §10 and are kept out of every
+  grid. They use Opus 5, effort `high`, no judge, one repeat, the three
+  confirmatory surfaces, and feedback `none` and `both` — the two ends of the
+  feedback axis, so the pass rate is not tuned to one condition.
+- **The only numbers read during calibration are pooled**: pass rate and mean
+  improvement per task and overall, pooled across surface and feedback. A
+  script produces them and nothing else, and no per-surface or per-feedback
+  figure is computed, printed or looked at until the confirmatory grid is run.
+  Tasks are being tuned to a difficulty, and tuning them while watching which
+  surface wins would be the forking path this document exists to close.
+- A round is accepted when the pooled pass rate is between 20% and 40% and no
+  task passes more than 70% or less than 5% of its runs. A task outside that
+  band is adjusted — made harder by adding a constraint from the three kinds
+  above, or easier by loosening a stated number — and the next round re-runs
+  only the tasks that changed, plus the pooled total.
+- Adjustments are recorded here in a following entry, task by task, with the
+  pooled numbers that prompted them.
+
+**2026-10-07 (third entry) — the relational surface could not resize, or set
+one coordinate.** Written before any run against the new tasks, while building
+them.
+
+Writing reference solutions for v2 meant asking, for every new constraint,
+whether each surface could reach it. Two holes in the relational surface
+turned up, both older than v2:
+
+1. *It could not change the size of an element that already existed.*
+   `create` takes a width and a height, but `place` only positions,
+   `fit_within` only scales down, and `fit_text`'s `grow_box` only grows. The
+   only way left to reach a different box was to delete the element and
+   create it again — which is what relational agents did in this morning's
+   pilots (0.29 deletes a run against 0.01 on coordinate), and what the
+   preservation checks scored as a loss. The first entry of today read that as
+   behaviour. Part of it, at least, was the surface. Relational now has
+   `set_size`, which sets width and/or height about the top-left corner or the
+   centre. Sizes were always numbers on this surface; positions still are not.
+2. *It could not set one coordinate without moving the other.* Every
+   `canvas_*` relation applies its margin on both axes, so "the left edge 140
+   in from the canvas's left edge, y unchanged" had no relational expression.
+   `align` now takes a `margin`: an inset from the reference's edge, so
+   `align(edge: left, to: canvas, margin: 140)` says exactly that sentence.
+
+And one addition that is not a hole but a vocabulary gap the v2 briefs would
+otherwise open: `fit_text` gains a `fit_box` mode that sets a text box to
+exactly the height its text needs, shrinking as well as growing. "Every box
+hugs its text" is now a stated constraint on most tasks; a relational surface
+whose text tools can only grow a box would be measured on a power it lacks,
+which is the confound §8 exists to rule out. Coordinate and document-as-code
+reach the same states by working out the height themselves, which is the
+measurement difficulty v2 is built on, not a gap in power.
+
+`surfaces.test.ts` now reaches the same resized, single-axis-positioned and
+hugged documents through all three surfaces. The relational briefing gains one
+sentence ("Sizes are numbers you give, as in create and set_size; positions
+never are"). Hybrid inherits all three. Nothing in the hypotheses, the
+outcomes or the analysis plan changes.
+
+**2026-10-07 (fourth entry) — calibration round 1, and round 2's changes.**
+
+Round 1 ran all 23 v2 tasks under the protocol above: 138 runs on Opus 5,
+pooled. One more change came before it, and is recorded because it is a
+change to what every agent is told: the base prompt now states how a text
+box's height follows from its lines ("each line takes fontSize x lineHeight
+units; lineHeight is 1.25 unless set"). It is a document-model rule like
+wrapping, not a font metric, and v2 asks for boxes that hug their text.
+
+Pooled pass rate **84.1%**, mean improvement 98.4%. By family: arrange 100%,
+repair 95%, fit 87%, restyle 75%, compose 64%. Fifteen tasks passed above 70%.
+Precision on its own — stated gaps, edges, grids, insets, even the trigonometry
+of the tilted card — was almost never missed: a strong model computes exact
+arithmetic exactly. What failed, pooled across every cell, was measurement:
+type that did not quite fill its measure, a wrong line count, clipping, a
+column that did not quite fill its space.
+
+So round 2 moves weight onto measurement, and only of the kinds already
+allowed:
+
+1. "As large as it will go" tightens from within 5% to within 2%, in every
+   brief that says it.
+2. Measurement reaches every family. Arrange: the ragged column is set at the
+   largest single size the space allows; each caption and each grid name is
+   set as large as it goes on one line in its card. Repair: the overlapping
+   stack's body fills the box beside the badge; the off-canvas caption, the
+   crowded footer and the z-order title fill one line; the buried note fills
+   five lines; the tilted notice's title and the mixed opener's lead fill two.
+   Restyle: dark-mode text must sit *between* 7:1 and 9:1 on whatever is behind
+   it (a different grey on each surface), and the "text is light" floor it was
+   already scored on is stated in the brief as a number, 0.3, which the band
+   makes the binding one; palette-swap gains three chips whose label colours
+   follow the highest-contrast rule.
+3. Stated widths are weighted at least as heavily as the fill checks beside
+   them, because narrowing a box lowers the size it has to reach — a test
+   caught the ragged column scoring higher with every row at half width.
+4. Relational `fit_text` takes `lines`: "the largest size at which this breaks
+   into at most N lines at its width". "As large as it goes on two lines" is a
+   statement the surface's text tool could not otherwise make, and v2 states it
+   in most briefs — the same reasoning as `fit_box` above.
+
+No per-surface or per-feedback figure was computed. Round 2 re-runs all 23.
+
+*Round 2, cut short.* The Anthropic key ran out of credit 86 runs in; the other
+52 ended in `api_error` and are excluded as harness failures (§5). The 86 that
+ran cover 15 tasks — every compose and repair task and two fit tasks — and
+pass **76.7%** pooled (compose 64%, repair 83%). Tightening the fills to 2%
+did not move compose at all. The round is incomplete and no adjustment is
+made on it; it resumes into the same directory when there is credit, which
+re-runs exactly the 52 missing cells.
+
+**2026-10-07 (fifth entry) — prototyping a different kind of task.** Not a
+change to the v2 set: an exploration of whether harder tasks exist that are
+not contrived, recorded because its runs are pilots like any other.
+
+Rects gained shapes (ellipse, regular polygon, star, each stretched to fill
+its box) and linear-gradient fills, measured as drawn by every check; the
+base prompt describes them on every surface alike, and relational gained an
+`around` relation (a centre at a distance and angle from a target's) so radial
+layouts need no trigonometry on that surface. Four prototype tasks, outside
+the registered set: a sunburst badge, a clock at ten past ten, a Bauhaus study
+built from tangencies, and a justified photo gallery whose photo sequence
+admits exactly one valid row partition.
+
+Pooled across three surfaces and two feedback conditions, one repeat: GPT-5.6
+Luna passed 75% of 24 runs ($0.24 across two passes), GPT-5.6 Terra 75% of 24
+($0.87). Fully specified geometry — twelve rays every 30 degrees, hands at
+305 and 60 degrees, a square on its corner touching a frame line, an exact
+partition search — was solved by both, the cheapest model included. Nine of
+the twelve misses were one constraint: a title set as large as it goes on one
+line. The prototypes are kept for the record and stay out of every grid.
+
+A second prototype followed from that: a magazine contents page whose
+headlines auto-fit — each set as large as it goes on exactly two lines of its
+column — with every teaser box hugging its text. Six entries in two columns
+and nine in three; pooled over three surfaces and two feedback conditions,
+one repeat, six runs a cell. GPT-5.6 Luna passed 50% and 33%, at 47 and 68
+tool calls and 1.5 and 2.3 cents a run; GPT-5.6 Terra passed 50% and 50%, at
+44 and 63 tool calls and 10 and 12 cents a run. Every miss was a measurement:
+a headline a few per cent short of its largest size, or one that broke onto a
+third line. Six runs a cell is a direction, not a number.
+
+**2026-10-07 (sixth entry) — the measurement family, first pass across five
+models.** Five tasks built on that finding, each a recognisable page with six
+to twelve measured pieces of text: the contents page in two sizes, a menu with
+auto-fit dish names, a programme whose twelve session titles fill their cards,
+and a timeline whose spine runs exactly as far as its hugged entries. Kept out
+of `TASKS`; run as `--tasks measure`. One repeat, three surfaces, `none` and
+`both`, no judge: 150 runs, $34.65. Pooled by model only, as §13 requires
+during calibration:
+
+| Model | Pass | Tool calls/run | Cost/run | Cost per pass |
+|---|---|---|---|---|
+| Opus 5 | 80% | 43 | $0.57 | $0.71 |
+| GPT-5.6 Terra | 63% | 53 | $0.12 | $0.19 |
+| GPT-5.6 Luna | 53% | 61 | $0.02 | $0.04 |
+| Sonnet 5 | 33% | 31 | $0.25 | $0.76 |
+| Haiku 4.5 | 13% | 63 | $0.20 | $1.49 |
+
+Pooled pass rate 49%; the programme is the hardest task for every model
+(17–33%). One confound has to be read with this table: 17 of Sonnet 5's 30
+runs and 5 of Opus 5's ended at `max_tokens`. These tasks need many tool calls
+a turn, and §6 records that the two adaptive-thinking models run under a
+16,000-token ceiling with thinking inside it, against Haiku's 54,400. Sonnet's
+33% is therefore partly the ceiling, not the model. Raising `maxOutputTokens`
+for this family is the obvious next step, and would be recorded here before
+the run that uses it.
+
+**2026-10-07 (seventh entry) — newer models, a higher ceiling, per-task pass
+rates, and a harder family.** Written before any run of what it describes.
+
+- *Models.* Claude Opus 5.5 and Sonnet 5.5 were released; Opus 5.5 is now the
+  confirmatory model and Sonnet 5.5 the judge, both probed live. Haiku 4.5
+  leaves the ladder: a generation behind, it measured age as much as tier.
+- *Ceiling.* `maxOutputTokens` rises from 16,000 to 32,000 for every model, so
+  the sixth entry's `max_tokens` stops stop measuring the ceiling.
+- *Pass rates are reported task by task.* A pass rate pooled across tasks
+  averaged pages Opus 5 always finished (three at 100%) with one it rarely did
+  (33%), and read as 80% — a number that described none of them. The report
+  now leads with a model-by-task pass table, and gives each model's low,
+  median and high task pass rate instead of a pooled one. The calibration
+  target becomes per task: **Opus 5.5 near 30% on each**.
+- *The family, rebuilt so every task carries the programme's load* (twelve
+  independent measurements, the one task that held Opus 5 to 33%): a contents
+  page with sixteen auto-fit headlines in four columns (the six- and
+  nine-entry versions are retired); a menu of twelve dishes in two columns
+  whose names fill two lines below their cap; the programme unchanged; and a
+  timeline whose six notes now auto-fit to two lines as well as its six
+  headlines. Every task keeps a reference solution at full marks.
+
+*Result of the first run against it* (one repeat, three surfaces, `none` and
+`both`, no judge; 48 runs, $21.15): Opus 5.5 passed **every run of every task,
+24 of 24**, at 39 to 108 tool calls and $0.36 to $0.98 a run. Sonnet 5.5
+passed 50% to 83% per task at $0.21 to $0.33 a run. No run of either model
+ended at the ceiling. A dozen measurements per page — which held Opus 5 to
+33% on the programme — no longer separates anything on the newest Opus: it
+measures what it cannot see, by iterating on feedback or with `fit_text`, as
+reliably as it computes geometry. No adjustment is made on this result; what
+the study does next is a decision for its author, recorded in the next entry.
+
+**2026-10-07 (eighth entry) — cost to pass becomes the primary outcome.**
+Written before any confirmatory run, and fixing everything below in advance.
+It replaces §3's primary outcome and restates §2's hypotheses in its terms;
+everything not named here stands.
+
+*Why.* On the confirmatory model the constraint score saturates on every task
+set this project has built — the newest Opus passes every run of the
+hardest. A study whose primary outcome sits at the ceiling cannot separate
+anything, and §12 asked for the honest result rather than a re-cut. What does
+still vary on that model, and widely, is what a correct page *costs*: 39 to
+108 tool calls and $0.36 to $0.98 a run across the measurement family. For
+anyone building an editor, "which tools and which feedback get a capable
+model to a correct page for the least" is the question that matters once it
+can reach one at all.
+
+*The outcome.*
+
+- A **pass** is a run that satisfies every deterministic check (constraint
+  score ≥ 0.999), as the report already counts it.
+- **Cost per pass**, per task and condition, is the agent's total spend over
+  that cell's runs — failed runs included — divided by the number of runs that
+  passed: the expected cost of one correct page. The judge's call is excluded;
+  it costs the same whatever the condition. A cell with no pass divides by
+  0.5, so its cost per pass is twice its spend, and is counted wherever it
+  occurs.
+- **Calls per pass**, the same construction with tool calls, is co-primary:
+  dollars depend on a price list and on token counts, calls on neither.
+- Combined across tasks as a **geometric mean**, so a cheap task and a dear one
+  count alike.
+- Comparisons are **paired within task**: the log of each task's ratio between
+  two conditions, averaged, with a 95% percentile interval from resampling
+  tasks (2000 iterations, the seed in `report.ts`). Reported as a ratio, A over
+  B; below 1 means A is cheaper.
+- Pass rate, improvement and the judge score become secondary, reported
+  task by task.
+
+*Decision rules.* A difference is **resolved** if the interval of the ratio
+excludes 1, and **practically meaningful** if it is also at least 15% from 1.
+Resolved differences under 15% are reported as such.
+
+*Hypotheses, restated.*
+
+- **H1.** Relational costs less per pass than coordinate, by at least 15%, in
+  dollars and in calls.
+- **H2.** Feedback moves cost per pass more than the surface does: the spread
+  (most over least expensive) across feedback conditions exceeds the spread
+  across surfaces.
+- **H3.** Document-as-code needs the fewest calls per pass, and its dollar cost
+  per pass is within 15% of the cheapest incremental surface.
+- **H4.** Relational's saving is largest in `fit`, `arrange` and `measure`, and
+  smallest in `restyle`.
+- **H5.** On the two rotation tasks, `screenshot` is cheaper per pass relative
+  to `structured_plain` than it is on the other twenty-five.
+
+*The grid.* Model `anthropic:claude-opus-5-5` at effort `high` (sent as
+`output_config.effort: high` with adaptive thinking, captured from a live
+request), `maxOutputTokens` 32,000. All 27 registered tasks — the v2 set and
+the measurement family. Surfaces `coordinate`, `relational`, `document`.
+Feedback `none`, `structured`, `screenshot`, `both`, and the confound controls
+`structured_plain` and `both_plain`. Three repeats: 27 × 3 × 6 × 3 = **1,458
+runs**, judged by `anthropic:claude-sonnet-5-5`. If its priced estimate is
+more than the author will spend, repeats fall to two for every cell — decided
+before the first confirmatory run and recorded here — and nothing else
+changes.
+
+*Blinding.* Until the grid has run, no per-surface or per-feedback figure on
+any outcome is computed or read; the report's cost-to-pass section is built
+and tested on synthetic data.
+
+**2026-10-07 — the canvas background, which two surfaces could not reach.**
+Written *after* runs against a real model, and found by reading them, which
+is the order this entry has to be read in.
+
+On this date 833 runs were made: the confirmatory grid at one repeat of its
+three (276 cells on Opus 5, plus five extra repeats from eight runs started
+by accident when `run --help` launched the default sweep instead of printing
+help — that is fixed too), and a cross-model block of four models × three surfaces ×
+`none`/`both` × 23 tasks at one repeat (552 runs). The report put the
+`restyle` family at 70.8% improvement on coordinate and relational against
+98.6% on document-as-code, and a single check, `surface_luminance`, at 0% on
+both incremental surfaces and 100% on the third.
+
+That was not a finding. The canvas background is a property of the document,
+not of any element. Document-as-code could change it by writing a new
+`background`; coordinate and relational had no tool that touched it —
+`set_style` takes an element id, and nothing else reaches the document.
+`restyle.dark-mode` scores the canvas in `surfacesNoLighterThan`, and
+`restyle.palette-swap` scores it in `palette` and `colorRoles`, so both briefs
+were unsatisfiable on two of the three surfaces. The agents said so in their
+own reasoning ("there's no tool to set the canvas background directly") and
+covered the canvas with a dark rect, which the checks rightly do not accept as
+the canvas. §8 claimed the three surfaces reach the same document states; the
+equivalence tests covered elements and never the document itself. It is the
+rotation hole of the 2026-09-18 entry again, one level up.
+
+The fix is a `set_background` tool, shared and identical, on every surface
+that edits incrementally (coordinate, relational and hybrid), worded as
+`write_document` already words the same change. `surfaces.test.ts` now reaches
+the same document through all three surfaces. Re-scoring the sixteen affected
+Opus 5 documents with only the background changed takes every one of them to
+100% — the background was the entire gap — and re-running those sixteen cells
+with the tool in place, Opus 5 called `set_background` in all sixteen and the
+`restyle` family went from 70.8% to 98.6% on coordinate and 95.7% on
+relational, against 98.6% for document-as-code in the earlier runs. What it
+still misses is text lightness and the tag's fill, which are the agent's to
+get right.
+
+What this does to the runs above, decided before any of them is re-analysed:
+
+1. **All 833 are pilots, not confirmatory runs.** Adding a tool changes the
+   tool list, and so the request, on every coordinate and relational cell of
+   every task — not only on the two that score the background. They are kept
+   out of every grid like the pilots of 2026-09-19, and the confirmatory grid
+   is run from scratch after this entry, as the 2026-09-18 (third) entry
+   requires.
+2. No check, weight, threshold, task or brief changes. The checks were right
+   to score the canvas; the surfaces were wrong not to reach it.
+3. Nothing in the question, the hypotheses, the primary outcome, the analysis
+   plan or the decision rules changes.
+
+What the pilots showed is recorded, because §12 asks for it and because the
+next grid will be read against it. With the two restyle tasks set aside, on
+Opus 5: 88% of runs closed all of their headroom; improvement was 99.9%
+(coordinate), 99.7% (document) and 96.2% (relational), relational resolved
+below both by about 3.5 points, chiefly by deleting elements and recreating
+them under new ids (0.29 deletes a run against 0.01 on coordinate), which the
+"existing elements are kept" checks score as lost; relational used 2.2× the
+turns and 3.2× the tokens; and no feedback contrast reached two points. In
+the cross-model block, `both` over `none` was resolved on three of four
+models and grew as the model got weaker: +1.3 points on GPT-5.6 Terra, +2.5
+on GPT-5.6 Luna, +6.0 on Haiku 4.5. These are pilot numbers, at one repeat,
+on a surface set now known to have been unequal, and are not results.
+
+One more thing the pilots surfaced, recorded rather than acted on. Most checks
+find an element by id, so a rebuilt headline fails not only the preservation
+check but every check that looks for the headline: one recreate scored
+`fit.long-headline` at 5% on relational, against 100% on coordinate, for two
+pages that look alike. §8 says every scored constraint is stated in the brief, and most briefs
+that score preservation say so outright ("keep all four elements");
+`fit.caption-under-image` does not, and `fit.long-headline` says only
+"keeping the headline box roughly where it is". Part of the relational gap may
+therefore be those two briefs rather than the surface. No brief is changed by
+this entry; whether to change them is a decision for the next one, made before
+the grid runs.
 
 **2026-09-18 (second entry) — rotation.** Written before any run against a
 real model.

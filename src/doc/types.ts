@@ -20,6 +20,9 @@ export const V_ALIGNS = ["top", "middle", "bottom"] as const;
 export type VAlign = (typeof V_ALIGNS)[number];
 
 export const OBJECT_FITS = ["cover", "contain"] as const;
+/** What a `rect` element draws inside its box. */
+export const SHAPES = ["rect", "ellipse", "polygon", "star"] as const;
+export type Shape = (typeof SHAPES)[number];
 export type ObjectFit = (typeof OBJECT_FITS)[number];
 
 /**
@@ -53,6 +56,20 @@ export interface Style {
   padding?: number;
   /** How an image fills its box when aspect ratios disagree. */
   objectFit?: ObjectFit;
+  /**
+   * `rect` only: what is drawn inside the box. An ellipse, a regular polygon
+   * or a star, stretched to fill the box, with its first point straight up
+   * before rotation. Default `rect`.
+   */
+  shape?: Shape;
+  /** Sides of a `polygon` (default 6) or points of a `star` (default 5). */
+  sides?: number;
+  /** A star's inner radius as a share of its outer one. Default 0.5. */
+  innerRatio?: number;
+  /** Second colour of a linear gradient running from `fill` to this. */
+  fillTo?: string;
+  /** Direction of the gradient in degrees: 0 runs left to right, 90 top to bottom. Default 90. */
+  gradientAngle?: number;
 }
 
 export interface Element {

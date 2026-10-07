@@ -276,6 +276,134 @@ describe("equivalence: the same intent reaches the same document", () => {
   });
 });
 
+describe("the canvas background", () => {
+  // It belongs to the document rather than to any element, so it was reachable
+  // only by rewriting the whole document — and two restyle tasks score it.
+  it("reaches the same document on all three surfaces", () => {
+    const start = docWith(el("a"));
+    const coord = session(start);
+    const rel = session(start);
+    const asCode = session(start);
+    expect(executeToolCall(coord, coordinateSurface, "set_background", { color: "#12121f" }).ok).toBe(true);
+    expect(executeToolCall(rel, relationalSurface, "set_background", { color: "#12121f" }).ok).toBe(true);
+    expect(
+      executeToolCall(asCode, documentSurface, "write_document", { document: { ...start, background: "#12121f" } }).ok,
+    ).toBe(true);
+
+    expect(coord.doc).toEqual(asCode.doc);
+    expect(rel.doc).toEqual(asCode.doc);
+    expect(coord.doc.background).toBe("#12121f");
+  });
+
+  it("is on every surface that edits incrementally, hybrid included", () => {
+    for (const surface of Object.values(SURFACES)) {
+      if (surface.id === "document") continue;
+      expect(surface.tools.map((t) => t.name)).toContain("set_background");
+    }
+  });
+
+  it("refuses a colour it cannot parse, and leaves the document alone", () => {
+    const s = session(docWith(el("a")));
+    const before = JSON.stringify(s.doc);
+    const r = executeToolCall(s, coordinateSurface, "set_background", { color: "dark blue" });
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(s.doc)).toBe(before);
+  });
+});
+
+describe("sizes and single-axis positions, on every surface", () => {
+  // Task set v2 states exact sizes and edges. The relational surface could
+  // reach neither for an element that already existed, short of deleting it
+  // and creating it again — `docs/PREREGISTRATION.md` §13, 2026-10-07.
+  it("resizes an existing element identically on all three surfaces", () => {
+    const start = docWith(el("a", { x: 100, y: 120, width: 300, height: 80 }));
+    const coord = session(start);
+    const rel = session(start);
+    const asCode = session(start);
+    executeToolCall(coord, coordinateSurface, "resize", { id: "a", width: 222, height: 300 });
+    expect(executeToolCall(rel, relationalSurface, "set_size", { id: "a", width: 222, height: 300 }).ok).toBe(true);
+    executeToolCall(asCode, documentSurface, "write_document", {
+      document: { ...start, elements: [{ ...start.elements[0]!, width: 222, height: 300 }] },
+    });
+    expect(rel.doc).toEqual(coord.doc);
+    expect(asCode.doc).toEqual(coord.doc);
+  });
+
+  it("resizes about the centre when asked, so a tilted card shrinks in place", () => {
+    const start = docWith(el("a", { x: 100, y: 100, width: 400, height: 200, rotation: -12 }));
+    const coord = session(start);
+    const rel = session(start);
+    executeToolCall(coord, coordinateSurface, "resize", { id: "a", width: 300, height: 150 });
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 150, y: 125 });
+    executeToolCall(rel, relationalSurface, "set_size", { id: "a", width: 300, height: 150, anchor: "center" });
+    expect(rel.doc).toEqual(coord.doc);
+  });
+
+  it("sets one coordinate from a canvas edge without moving the other", () => {
+    const start = docWith(el("a", { x: 37, y: 480, width: 160, height: 300 }));
+    const coord = session(start);
+    const rel = session(start);
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 140, y: 480 });
+    executeToolCall(rel, relationalSurface, "align", { ids: ["a"], edge: "left", to: "canvas", margin: 140 });
+    expect(rel.doc).toEqual(coord.doc);
+
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 140, y: 1000 - 40 - 300 });
+    executeToolCall(rel, relationalSurface, "align", { ids: ["a"], edge: "bottom", to: "canvas", margin: 40 });
+    expect(rel.doc).toEqual(coord.doc);
+  });
+
+  it("sets the largest size that keeps text on a stated number of lines", () => {
+    const head = { type: "text" as const, text: "Ridgeline Festival", width: 920, height: 100, style: { fontSize: 40, fontWeight: "bold" as const } };
+    const s = session(docWith(el("t", head)));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "grow_to_fit", lines: 2 });
+    expect(r.ok).toBe(true);
+    const t = find(s.doc, "t");
+    expect(layoutTextElement(t).lines.length).toBe(2);
+    // One size up, it either takes a third line or a word no longer fits the width.
+    const bigger = layoutTextElement({ ...t, height: 10_000, style: { ...t.style, fontSize: t.style.fontSize! + 1 } });
+    expect(bigger.lines.length > 2 || bigger.overflowX > 0.01).toBe(true);
+  });
+
+  it("rejects a line count with a box-height mode instead of ignoring it", () => {
+    const head = { type: "text" as const, text: "Ridgeline Festival", width: 920, height: 100, style: { fontSize: 40 } };
+    const s = session(docWith(el("t", head)));
+    const before = s.doc;
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "fit_box", lines: 2 });
+    expect(r.ok).toBe(false);
+    expect(s.doc).toEqual(before);
+  });
+
+  it("places an element radially, as a sine and a cosine would", () => {
+    // A ray 40 by 160, its centre 384 from the badge's centre at 30 degrees.
+    const start = docWith(el("badge", { x: 260, y: 320, width: 560, height: 560 }), el("ray", { x: 0, y: 0, width: 40, height: 160 }));
+    const coord = session(start);
+    const rel = session(start);
+    const a = (30 * Math.PI) / 180;
+    executeToolCall(coord, coordinateSurface, "move", {
+      id: "ray",
+      x: 540 + 384 * Math.sin(a) - 20,
+      y: 600 - 384 * Math.cos(a) - 80,
+      rotation: 30,
+    });
+    const r = executeToolCall(rel, relationalSurface, "place", { id: "ray", relation: "around", target: "badge", gap: 384, angle: 30, rotation: 30 });
+    expect(r.ok).toBe(true);
+    const c = find(coord.doc, "ray");
+    const p = find(rel.doc, "ray");
+    expect(p.x).toBeCloseTo(c.x, 6);
+    expect(p.y).toBeCloseTo(c.y, 6);
+    expect(p.rotation).toBe(30);
+  });
+
+  it("sizes a text box to exactly its text, shrinking as well as growing", () => {
+    const tall = { type: "text" as const, text: "Short", width: 400, height: 300, style: { fontSize: 40 } };
+    const s = session(docWith(el("t", tall)));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "fit_box" });
+    expect(r.ok).toBe(true);
+    expect(find(s.doc, "t").height).toBeCloseTo(50, 6);
+    expect(find(s.doc, "t").y).toBe(0);
+  });
+});
+
 describe("coordinate surface", () => {
   it("moves to absolute coordinates", () => {
     const s = session(docWith(el("a", { x: 10, y: 10 })));

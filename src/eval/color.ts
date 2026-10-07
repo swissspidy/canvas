@@ -10,7 +10,7 @@
  */
 
 import type { Doc, Element } from "../doc/types.js";
-import { center, corners, polygonContainsPoint } from "../doc/geometry.js";
+import { center, degToRad, shapeContainsPoint } from "../doc/geometry.js";
 import { getAsset } from "../doc/assets.js";
 
 export interface Rgba {
@@ -96,7 +96,7 @@ function assetAverageColor(el: Element): string | null {
 const WHITE: Rgba = { r: 255, g: 255, b: 255, a: 1 };
 
 /** The flat color an element paints behind whatever sits on top of it. */
-function layerColor(el: Element): Rgba | null {
+function layerColor(el: Element, at?: { x: number; y: number }): Rgba | null {
   if (el.type === "image") {
     const avg = assetAverageColor(el);
     return avg ? parseColor(avg) : null;
@@ -104,7 +104,35 @@ function layerColor(el: Element): Rgba | null {
   // A rect with no declared fill still paints: the renderer defaults it to
   // #cccccc, so the scorer has to see the same grey the reader does.
   const fill = el.type === "rect" ? (el.style.fill ?? "#cccccc") : el.style.fill;
-  return fill ? parseColor(fill) : null;
+  if (!fill) return null;
+  const from = parseColor(fill);
+  const to = el.style.fillTo ? parseColor(el.style.fillTo) : null;
+  if (!from || !to || !at) return from;
+  return mix(from, to, gradientPosition(el, at));
+}
+
+/**
+ * Where a point falls along an element's gradient, 0 at the `fill` end and 1
+ * at the `fillTo` end — the same mapping the renderer draws: across the
+ * element's box, in its own (rotated) frame, along `gradientAngle`.
+ */
+export function gradientPosition(el: Element, p: { x: number; y: number }): number {
+  const c = center(el);
+  const back = degToRad(-(el.rotation ?? 0));
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  const lx = dx * Math.cos(back) - dy * Math.sin(back);
+  const ly = dx * Math.sin(back) + dy * Math.cos(back);
+  const a = degToRad(el.style.gradientAngle ?? 90);
+  // In the box's own units, from (0.5 - cos/2, 0.5 - sin/2) to (0.5 + cos/2,
+  // 0.5 + sin/2): exactly the vector the renderer gives SVG in
+  // objectBoundingBox units, padded at both ends.
+  const t = 0.5 + (lx / el.width) * Math.cos(a) + (ly / el.height) * Math.sin(a);
+  return Math.min(1, Math.max(0, t));
+}
+
+function mix(a: Rgba, b: Rgba, t: number): Rgba {
+  return { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t, a: a.a + (b.a - a.a) * t };
 }
 
 function withOpacity(c: Rgba, opacity: number | undefined): Rgba {
@@ -172,8 +200,8 @@ export function effectiveBackdrop(doc: Doc, el: Element): string {
   const index = doc.elements.findIndex((e) => e.id === el.id);
   for (let i = (index === -1 ? doc.elements.length : index) - 1; i >= 0; i--) {
     const other = doc.elements[i]!;
-    if (!polygonContainsPoint(corners(other), point)) continue;
-    const layer = layerColor(other);
+    if (!shapeContainsPoint(other, point)) continue;
+    const layer = layerColor(other, point);
     if (!layer || layer.a <= 0) continue;
     const withAlpha = withOpacity(layer, other.style.opacity);
     if (withAlpha.a <= 0) continue;

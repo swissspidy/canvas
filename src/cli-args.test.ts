@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { bool, list, num, parseArgs, positiveInt, str } from "./cli-args.js";
 
 describe("parseArgs", () => {
+  it("reads --help after any command as a request for help, not a run", () => {
+    expect(parseArgs(["run", "--help"]).command).toBe("help");
+    expect(parseArgs(["run", "--models", "all", "-h"]).command).toBe("help");
+    expect(parseArgs(["--help"]).command).toBe("help");
+  });
+
   it("reads flags as --key value, --key=value and bare switches", () => {
     const args = parseArgs(["run", "--repeats", "3", "--out=runs/x", "--force"]);
     expect(args.command).toBe("run");

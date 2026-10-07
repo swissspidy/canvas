@@ -9,7 +9,8 @@
  */
 
 import { z } from "zod";
-import { ELEMENT_TYPES, FONT_WEIGHTS, H_ALIGNS, OBJECT_FITS, V_ALIGNS } from "./types.js";
+import { ELEMENT_TYPES, FONT_WEIGHTS, H_ALIGNS, OBJECT_FITS,
+  SHAPES, V_ALIGNS } from "./types.js";
 import type { Doc, Element } from "./types.js";
 import { ASSET_KEYS } from "./assets.js";
 import { round } from "./geometry.js";
@@ -103,6 +104,21 @@ export const zStyle = z
     strokeWidth: z.number().min(0).max(200).optional(),
     padding: z.number().min(0).max(500).optional().describe("Inset between the element box and its text. Default 0."),
     objectFit: z.enum(OBJECT_FITS).optional().describe("How an image fills its box. Default 'cover'."),
+    shape: z
+      .enum(SHAPES)
+      .optional()
+      .describe(
+        "Rect elements only: draw an ellipse, a regular polygon or a star stretched to fill the box, first point straight up. Default 'rect'.",
+      ),
+    sides: z.number().int().min(3).max(24).optional().describe("Sides of a polygon (default 6) or points of a star (default 5)."),
+    innerRatio: z.number().min(0.1).max(0.95).optional().describe("A star's inner radius as a share of its outer radius. Default 0.5."),
+    fillTo: zColor.optional().describe("Makes the fill a linear gradient from 'fill' to this colour."),
+    gradientAngle: z
+      .number()
+      .min(-360)
+      .max(360)
+      .optional()
+      .describe("Gradient direction in degrees: 0 runs left to right, 90 top to bottom (the default)."),
   })
   .describe("Visual style. Every key is optional; omitted keys keep their defaults.");
 
