@@ -65,21 +65,30 @@ function openGroup(el: Element): string {
   return `<g ${parts.join(" ")}>`;
 }
 
-function renderRect(el: Element): string {
-  let defs = "";
-  let fill = el.style.fill ?? "#cccccc";
-  if (el.style.fillTo) {
-    // objectBoundingBox units, so the gradient spans the element's own box and
-    // turns with it; `gradientPosition` in eval/color.ts reads the same vector.
-    const a = ((el.style.gradientAngle ?? 90) * Math.PI) / 180;
-    const id = `grad-${escapeXml(el.id)}`;
-    defs =
+/**
+ * The paint for an element's fill: the colour itself, or a reference to a
+ * linear gradient from it to `fillTo` along with the `<defs>` that declare it.
+ * Rects and text block fills both go through here, so the two draw the same
+ * gradient that `layerColor` in eval/color.ts scores.
+ */
+function fillPaint(el: Element, fill: string): { defs: string; fill: string } {
+  if (!el.style.fillTo) return { defs: "", fill };
+  // objectBoundingBox units, so the gradient spans the element's own box and
+  // turns with it; `gradientPosition` in eval/color.ts reads the same vector.
+  const a = ((el.style.gradientAngle ?? 90) * Math.PI) / 180;
+  const id = `grad-${escapeXml(el.id)}`;
+  return {
+    defs:
       `<defs><linearGradient id="${id}" x1="${n(0.5 - Math.cos(a) / 2)}" y1="${n(0.5 - Math.sin(a) / 2)}" ` +
       `x2="${n(0.5 + Math.cos(a) / 2)}" y2="${n(0.5 + Math.sin(a) / 2)}">` +
       `<stop offset="0" stop-color="${escapeXml(fill)}" /><stop offset="1" stop-color="${escapeXml(el.style.fillTo)}" />` +
-      `</linearGradient></defs>`;
-    fill = `url(#${id})`;
-  }
+      `</linearGradient></defs>`,
+    fill: `url(#${id})`,
+  };
+}
+
+function renderRect(el: Element): string {
+  const { defs, fill } = fillPaint(el, el.style.fill ?? "#cccccc");
   const paint = {
     fill,
     stroke: el.style.strokeColor,
@@ -232,8 +241,11 @@ function renderText(el: Element, defs: string[], idx: number, clip: boolean): st
   const layout = layoutTextElement(el);
   const parts: string[] = [];
 
-  if (el.style.fill && el.style.fill !== "transparent") {
+  // A transparent fill still paints when it fades into a fillTo.
+  if (el.style.fill && (el.style.fill !== "transparent" || el.style.fillTo)) {
+    const paint = fillPaint(el, el.style.fill);
     parts.push(
+      paint.defs +
       `<rect ${styleAttrs({
         x: el.x,
         y: el.y,
@@ -241,7 +253,7 @@ function renderText(el: Element, defs: string[], idx: number, clip: boolean): st
         height: el.height,
         rx: el.style.radius,
         ry: el.style.radius,
-        fill: el.style.fill,
+        fill: paint.fill,
       })} />`,
     );
   }

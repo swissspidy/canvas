@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getFont } from "./fonts.js";
-import { largestFittingFontSize, layoutTextElement, measureText, wrapText } from "./layout.js";
+import { largestFittingFontSize, largestFontSizeForLines, layoutTextElement, measureText, wrapText } from "./layout.js";
 import type { Element } from "../doc/types.js";
 
 const font = getFont("regular");
@@ -240,5 +240,17 @@ describe("line ink", () => {
     const right = layoutTextElement(textEl({ text: "Hi", style: { fontSize: 40, align: "right" } }));
     expect(right.lines[0]!.ink!.x).toBeGreaterThan(left.lines[0]!.ink!.x);
     expect(right.lines[0]!.ink!.width).toBeCloseTo(left.lines[0]!.ink!.width, 6);
+  });
+});
+
+describe("font size search bounds", () => {
+  // Sizes are whole numbers, so fractional bounds keep only the whole sizes
+  // between them; flooring the lower one used to return a size below it.
+  it("never returns a size outside fractional bounds", () => {
+    const el = textEl({ text: "Hi", width: 1000, height: 1000 });
+    expect(largestFittingFontSize(el, 24.5, 24.5)).toBeNull();
+    expect(largestFontSizeForLines(el, 1, 24.5, 24.5)).toBeNull();
+    expect(largestFittingFontSize(el, 24.5, 30.5)).toBe(30);
+    expect(largestFontSizeForLines(el, 1, 24.5, 30.5)).toBe(30);
   });
 });

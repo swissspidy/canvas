@@ -128,7 +128,7 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <p>Pilots exist to break the harness before it costs a real result. Two findings changed the tools every surface gets, and both are logged as deviations.</p>
 
 <h3>No way to set the background</h3>
-<p>The coordinate and relational surfaces had no tool for the canvas background, and the dark-mode check reads it. The agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. Identical page, 56% instead of 100%. All three surfaces now have <code>set_background</code>.</p>
+<p>The coordinate and relational surfaces had no tool for the canvas background, and the dark-mode check reads it. The agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. Identical page, 56% instead of 100%. Coordinate and relational now have <code>set_background</code>; document-as-code always could set it by rewriting the document.</p>
 <div class="grid g4">
   <figure><img src="img/dark-start.png" alt="Light-themed starting page" loading="lazy"><figcaption><b>Starting page</b>light theme</figcaption></figure>
   <figure><img src="img/dark-coordinate-before-fix.png" alt="Dark page made with a full-canvas rectangle" loading="lazy"><figcaption><b>Coordinate, before</b>56%</figcaption></figure>
@@ -192,7 +192,7 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <h2 id="next">5 · What's next: cost to pass</h2>
 <p>Chasing a 30% pass rate on the newest frontier model means writing tasks to defeat the model rather than tasks people actually do. So the question changes. When every surface eventually gets the page right, the difference that matters is <strong>what it costs to get there</strong>.</p>
-<p>The primary outcome is now <strong>cost to pass</strong>: a cell's total agent spend over its passes (a zero-pass cell divides by 0.5), combined across tasks by geometric mean. Surfaces and feedback conditions are compared as paired ratios within task, with a task-clustered bootstrap. A difference counts as resolved when its interval excludes 1, and as meaningful at 15% or more. The confirmatory grid of 1,458 runs on Opus 5.5 is fixed in advance and waiting to run.</p>
+<p>The primary outcome is now <strong>cost to pass</strong>: a cell's total agent spend, failed runs included, over its passes (a zero-pass cell divides by 0.5), combined across tasks by geometric mean. Surfaces and feedback conditions are compared as paired ratios within task, with a task-clustered bootstrap. A difference counts as resolved when its interval excludes 1, and as meaningful at 15% or more. The confirmatory grid of 1,458 runs on Opus 5.5 is fixed in advance and waiting to run.</p>
 <p class="note">The relational surface's pilot profile already hints at why this matters: on the v1 tasks it took more turns and more tokens per run than the other two surfaces for similar quality. Whether that holds on the current tasks is exactly what the grid is blinded to until it runs.</p>
 
 <footer>

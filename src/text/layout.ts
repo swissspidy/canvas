@@ -275,8 +275,9 @@ export function layoutTextElement(el: Element, fontOverride?: FontMetrics): Text
  * renderer does this arithmetic so the agent does not have to.
  */
 export function largestFittingFontSize(el: Element, min = 8, max = 400): number | null {
-  let lo = min;
-  let hi = max;
+  // Integer sizes inside the bounds: 24.5 to 24.5 holds none, not 24.
+  let lo = Math.ceil(min);
+  let hi = Math.floor(max);
   let best: number | null = null;
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
@@ -307,8 +308,9 @@ export function requiredHeight(el: Element): number {
  * large as possible. This one asks the question a designer means.
  */
 export function largestFontSizeForLines(el: Element, lines: number, min = 8, max = 400): number | null {
-  let lo = min;
-  let hi = max;
+  // Integer sizes inside the bounds: 24.5 to 24.5 holds none, not 24.
+  let lo = Math.ceil(min);
+  let hi = Math.floor(max);
   let best: number | null = null;
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);

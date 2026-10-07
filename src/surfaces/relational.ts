@@ -592,6 +592,12 @@ const fitTextTool: ToolDef<z.infer<typeof zFitTextInput>> = {
     const el = requireElement(ctx.doc, input.id);
     if (el.type !== "text") throw new ToolError(`${input.id} is a ${el.type} element, not text.`);
 
+    // Checked before any mode runs, so an argument a mode ignores fails
+    // instead of reporting success without having honoured it.
+    if (input.lines !== undefined && input.mode !== "grow_to_fit") {
+      throw new ToolError("'lines' only applies to mode 'grow_to_fit'.");
+    }
+
     const before = layoutTextElement(el);
     if (input.mode === "grow_box" || input.mode === "fit_box") {
       const needed = before.blockHeight + (el.style.padding ?? 0) * 2;
@@ -620,9 +626,6 @@ const fitTextTool: ToolDef<z.infer<typeof zFitTextInput>> = {
       // which a box-height fit cannot express: the box can always be the
       // height of whatever size the text happens to be. Task set v2 states
       // it in most briefs. `docs/PREREGISTRATION.md` §13, 2026-10-07.
-      if (input.mode !== "grow_to_fit") {
-        throw new ToolError("'lines' only applies to mode 'grow_to_fit'.");
-      }
       const size = largestFontSizeForLines(el, input.lines, min, max);
       if (size === null) {
         throw new ToolError(

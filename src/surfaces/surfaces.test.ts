@@ -364,6 +364,15 @@ describe("sizes and single-axis positions, on every surface", () => {
     expect(bigger.lines.length > 2 || bigger.overflowX > 0.01).toBe(true);
   });
 
+  it("rejects a line count with a box-height mode instead of ignoring it", () => {
+    const head = { type: "text" as const, text: "Ridgeline Festival", width: 920, height: 100, style: { fontSize: 40 } };
+    const s = session(docWith(el("t", head)));
+    const before = s.doc;
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "fit_box", lines: 2 });
+    expect(r.ok).toBe(false);
+    expect(s.doc).toEqual(before);
+  });
+
   it("places an element radially, as a sine and a cosine would", () => {
     // A ray 40 by 160, its centre 384 from the badge's centre at 30 degrees.
     const start = docWith(el("badge", { x: 260, y: 320, width: 560, height: 560 }), el("ray", { x: 0, y: 0, width: 40, height: 160 }));

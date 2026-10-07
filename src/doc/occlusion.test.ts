@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inkPolygons, occluderPolygons, occludersAbove, occlusionOf } from "./occlusion.js";
+import { inkPolygons, occluderPolygons, occludersAbove, occlusionOf, paintedPolygons } from "./occlusion.js";
 import { polygonArea } from "./geometry.js";
 import { nextElementId } from "./ops.js";
 import type { Doc, Element } from "./types.js";
@@ -23,6 +23,17 @@ describe("occluderPolygons", () => {
   it("ignores a rect whose fill is transparent", () => {
     expect(occluderPolygons(el({ id: "a", style: { fill: "transparent" } }))).toEqual([]);
     expect(occluderPolygons(el({ id: "a", style: { fill: "#00000000" } }))).toEqual([]);
+  });
+
+  // A scrim that fades to transparent hides nothing at its clear end, and one
+  // that fades in from transparent still paints.
+  it("reads a gradient fill by both of its stops", () => {
+    const fadeOut = el({ id: "a", style: { fill: "#000000", fillTo: "transparent" } });
+    const fadeIn = el({ id: "b", style: { fill: "transparent", fillTo: "#000000" } });
+    expect(occluderPolygons(fadeOut)).toEqual([]);
+    expect(occluderPolygons(fadeIn)).toEqual([]);
+    expect(paintedPolygons(fadeIn)).toHaveLength(1);
+    expect(occluderPolygons(el({ id: "c", style: { fill: "#000000", fillTo: "#ffffff" } }))).toHaveLength(1);
   });
 
   it("still covers a rect with no declared fill, which the renderer paints grey", () => {

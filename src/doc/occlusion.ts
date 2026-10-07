@@ -111,6 +111,18 @@ export function effectiveAlpha(color: string, el: Element): number {
 }
 
 /**
+ * The faintest and strongest alpha an element's fill reaches. A gradient runs
+ * from `fill` to `fillTo`, so a scrim fading from transparent to black paints,
+ * and one fading from black to transparent does not hide everything under it.
+ * Hiding asks for the faintest end, painting for the strongest.
+ */
+function fillAlphaRange(fill: string, el: Element): { min: number; max: number } {
+  const from = effectiveAlpha(fill, el);
+  const to = el.style.fillTo ? effectiveAlpha(el.style.fillTo, el) : from;
+  return { min: Math.min(from, to), max: Math.max(from, to) };
+}
+
+/**
  * The alpha below which an element is treated as painting nothing.
  *
  * `paintedPolygons` used to ask only whether opacity was above *zero*, which
@@ -152,12 +164,12 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
 
   if (el.type === "rect") {
     // A rect with no fill (or a transparent one) paints only its stroke.
-    return effectiveAlpha(el.style.fill ?? "#cccccc", el) >= minOpacity ? shapePolygons(el) : [];
+    return fillAlphaRange(el.style.fill ?? "#cccccc", el).min >= minOpacity ? shapePolygons(el) : [];
   }
 
   // A text block's fill covers the whole box, so it hides everything beneath.
   const fill = el.style.fill;
-  if (fill && effectiveAlpha(fill, el) >= minOpacity) return [corners(el)];
+  if (fill && fillAlphaRange(fill, el).min >= minOpacity) return [corners(el)];
   if (!el.text) return [];
   if (effectiveAlpha(el.style.color ?? "#111111", el) < minOpacity) return [];
   return inkPolygons(el);
@@ -188,7 +200,7 @@ export function paintedPolygons(el: Element): Polygon[] {
     el.style.strokeColor !== undefined &&
     effectiveAlpha(el.style.strokeColor, el) >= VISIBLE_ALPHA &&
     (el.style.strokeWidth ?? 1) > 0;
-  const filled = el.style.fill !== undefined && effectiveAlpha(el.style.fill, el) >= VISIBLE_ALPHA;
+  const filled = el.style.fill !== undefined && fillAlphaRange(el.style.fill, el).max >= VISIBLE_ALPHA;
 
   if (el.type === "image") return [corners(el)];
   // An undeclared fill is not no fill: the renderer paints a rect grey.
