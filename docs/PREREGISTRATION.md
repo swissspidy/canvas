@@ -556,6 +556,32 @@ tool calls and 1.5 and 2.3 cents a run; GPT-5.6 Terra passed 50% and 50%, at
 a headline a few per cent short of its largest size, or one that broke onto a
 third line. Six runs a cell is a direction, not a number.
 
+**2026-10-07 (sixth entry) — the measurement family, first pass across five
+models.** Five tasks built on that finding, each a recognisable page with six
+to twelve measured pieces of text: the contents page in two sizes, a menu with
+auto-fit dish names, a programme whose twelve session titles fill their cards,
+and a timeline whose spine runs exactly as far as its hugged entries. Kept out
+of `TASKS`; run as `--tasks measure`. One repeat, three surfaces, `none` and
+`both`, no judge: 150 runs, $34.65. Pooled by model only, as §13 requires
+during calibration:
+
+| Model | Pass | Tool calls/run | Cost/run | Cost per pass |
+|---|---|---|---|---|
+| Opus 5 | 80% | 43 | $0.57 | $0.71 |
+| GPT-5.6 Terra | 63% | 53 | $0.12 | $0.19 |
+| GPT-5.6 Luna | 53% | 61 | $0.02 | $0.04 |
+| Sonnet 5 | 33% | 31 | $0.25 | $0.76 |
+| Haiku 4.5 | 13% | 63 | $0.20 | $1.49 |
+
+Pooled pass rate 49%; the programme is the hardest task for every model
+(17–33%). One confound has to be read with this table: 17 of Sonnet 5's 30
+runs and 5 of Opus 5's ended at `max_tokens`. These tasks need many tool calls
+a turn, and §6 records that the two adaptive-thinking models run under a
+16,000-token ceiling with thinking inside it, against Haiku's 54,400. Sonnet's
+33% is therefore partly the ceiling, not the model. Raising `maxOutputTokens`
+for this family is the obvious next step, and would be recorded here before
+the run that uses it.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
