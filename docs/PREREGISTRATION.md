@@ -267,7 +267,7 @@ a refusal.
 | Structured feedback that reports overlaps is doing relational work for the agent | `structured_plain` / `both_plain` supply the same description with derived layout notes removed. The headline feedback comparison is re-run against them. |
 | Surfaces differ in prose quality, not capability | The base system prompt is byte-identical; only the briefing differs. A test asserts the opening user message is identical across surfaces. |
 | Surfaces differ in error message quality | All errors are produced by one shared formatter with shared wording. |
-| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents — for position, size, style, paint order **and rotation**. Rotation was the hole: `create` took an angle everywhere, but rotating an element that already existed was a `move` on the coordinate surface and unreachable on the relational one, where `place` took no angle and `set_style` is appearance, text and order. Relational now has `rotate`, `place` takes an angle, and the equivalence test covers it. |
+| Surfaces differ in raw power | Each surface can reach the same document states. Tested directly: the same intent through coordinate arithmetic, relational placement, and a whole-document write produces identical documents — for position, size, style, paint order, rotation **and the canvas background**. Rotation was the hole: `create` took an angle everywhere, but rotating an element that already existed was a `move` on the coordinate surface and unreachable on the relational one, where `place` took no angle and `set_style` is appearance, text and order. Relational now has `rotate`, `place` takes an angle, and the equivalence test covers it. The canvas background was the second hole, found only after the 2026-10-07 pilots (§13): it belongs to the document rather than an element, so only document-as-code could change it. Every incremental surface now has `set_background`. |
 | Document-as-code sees the JSON and others do not | Every surface gets the exact starting JSON *and* the geometry description in the opening message. |
 | Tool-call arity differs (relational has more tools) | Cost and token counts are reported per surface; quality-per-dollar is a pre-registered secondary outcome. |
 | Strict tool schemas would hide malformed calls | Schema-enforced tool calling is deliberately not used. Rejected calls are a measured outcome. |
@@ -378,6 +378,82 @@ the real risk, and the pilot in §10 is where it would first show up.
 
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
+
+**2026-10-07 — the canvas background, which two surfaces could not reach.**
+Written *after* runs against a real model, and found by reading them, which
+is the order this entry has to be read in.
+
+On this date 833 runs were made: the confirmatory grid at one repeat of its
+three (276 cells on Opus 5, plus five extra repeats from eight runs started
+by accident when `run --help` launched the default sweep instead of printing
+help — that is fixed too), and a cross-model block of four models × three surfaces ×
+`none`/`both` × 23 tasks at one repeat (552 runs). The report put the
+`restyle` family at 70.8% improvement on coordinate and relational against
+98.6% on document-as-code, and a single check, `surface_luminance`, at 0% on
+both incremental surfaces and 100% on the third.
+
+That was not a finding. The canvas background is a property of the document,
+not of any element. Document-as-code could change it by writing a new
+`background`; coordinate and relational had no tool that touched it —
+`set_style` takes an element id, and nothing else reaches the document.
+`restyle.dark-mode` scores the canvas in `surfacesNoLighterThan`, and
+`restyle.palette-swap` scores it in `palette` and `colorRoles`, so both briefs
+were unsatisfiable on two of the three surfaces. The agents said so in their
+own reasoning ("there's no tool to set the canvas background directly") and
+covered the canvas with a dark rect, which the checks rightly do not accept as
+the canvas. §8 claimed the three surfaces reach the same document states; the
+equivalence tests covered elements and never the document itself. It is the
+rotation hole of the 2026-09-18 entry again, one level up.
+
+The fix is a `set_background` tool, shared and identical, on every surface
+that edits incrementally (coordinate, relational and hybrid), worded as
+`write_document` already words the same change. `surfaces.test.ts` now reaches
+the same document through all three surfaces. Re-scoring the sixteen affected
+Opus 5 documents with only the background changed takes every one of them to
+100% — the background was the entire gap — and re-running those sixteen cells
+with the tool in place, Opus 5 called `set_background` in all sixteen and the
+`restyle` family went from 70.8% to 98.6% on coordinate and 95.7% on
+relational, against 98.6% for document-as-code in the earlier runs. What it
+still misses is text lightness and the tag's fill, which are the agent's to
+get right.
+
+What this does to the runs above, decided before any of them is re-analysed:
+
+1. **All 833 are pilots, not confirmatory runs.** Adding a tool changes the
+   tool list, and so the request, on every coordinate and relational cell of
+   every task — not only on the two that score the background. They are kept
+   out of every grid like the pilots of 2026-09-19, and the confirmatory grid
+   is run from scratch after this entry, as the 2026-09-18 (third) entry
+   requires.
+2. No check, weight, threshold, task or brief changes. The checks were right
+   to score the canvas; the surfaces were wrong not to reach it.
+3. Nothing in the question, the hypotheses, the primary outcome, the analysis
+   plan or the decision rules changes.
+
+What the pilots showed is recorded, because §12 asks for it and because the
+next grid will be read against it. With the two restyle tasks set aside, on
+Opus 5: 88% of runs closed all of their headroom; improvement was 99.9%
+(coordinate), 99.7% (document) and 96.2% (relational), relational resolved
+below both by about 3.5 points, chiefly by deleting elements and recreating
+them under new ids (0.29 deletes a run against 0.01 on coordinate), which the
+"existing elements are kept" checks score as lost; relational used 2.2× the
+turns and 3.2× the tokens; and no feedback contrast reached two points. In
+the cross-model block, `both` over `none` was resolved on three of four
+models and grew as the model got weaker: +1.3 points on GPT-5.6 Terra, +2.5
+on GPT-5.6 Luna, +6.0 on Haiku 4.5. These are pilot numbers, at one repeat,
+on a surface set now known to have been unequal, and are not results.
+
+One more thing the pilots surfaced, recorded rather than acted on. Most checks
+find an element by id, so a rebuilt headline fails not only the preservation
+check but every check that looks for the headline: one recreate scored
+`fit.long-headline` at 5% on relational, against 100% on coordinate, for two
+pages that look alike. §8 says every scored constraint is stated in the brief, and most briefs
+that score preservation say so outright ("keep all four elements");
+`fit.caption-under-image` does not, and `fit.long-headline` says only
+"keeping the headline box roughly where it is". Part of the relational gap may
+therefore be those two briefs rather than the surface. No brief is changed by
+this entry; whether to change them is a decision for the next one, made before
+the grid runs.
 
 **2026-09-18 (second entry) — rotation.** Written before any run against a
 real model.

@@ -11,8 +11,8 @@ Three tool surfaces over one shared document model:
 
 | Surface | The agent says | Tools |
 |---|---|---|
-| **Coordinate** | `move el_3 to x=340, y=1150` | `create`, `move`, `resize`, `set_style`, `delete` |
-| **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `rotate`, `align`, `distribute`, `fit_text`, `fit_within`, `avoid_overlap`, `set_style`, `delete` |
+| **Coordinate** | `move el_3 to x=340, y=1150` | `create`, `move`, `resize`, `set_style`, `set_background`, `delete` |
+| **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `rotate`, `align`, `distribute`, `fit_text`, `fit_within`, `avoid_overlap`, `set_style`, `set_background`, `delete` |
 | **Document-as-code** | here is the entire JSON, again | `read_document`, `write_document` |
 
 Crossed with what the agent sees after each action: **nothing**, a **structured

@@ -32,6 +32,7 @@ import {
   buildElement,
   commitNew,
   deleteTool,
+  setBackgroundTool,
   setStyleTool,
   zCreateContent,
   zElementId,
@@ -749,5 +750,5 @@ export const relationalSurface: ToolSurface = {
     "rotation is already accounted for, and rotating one turns it about its own center without moving it.",
     "Each tool reports the numbers it worked out, so you can see where things landed.",
   ].join(" "),
-  tools: [...relationalTools, setStyleTool, deleteTool],
+  tools: [...relationalTools, setStyleTool, setBackgroundTool, deleteTool],
 };

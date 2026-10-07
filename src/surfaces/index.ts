@@ -12,7 +12,7 @@
 import { coordinateSurface } from "./coordinate.js";
 import { relationalSurface, relationalTools } from "./relational.js";
 import { documentSurface } from "./document.js";
-import { deleteTool, setStyleTool } from "./common.js";
+import { deleteTool, setBackgroundTool, setStyleTool } from "./common.js";
 import type { SurfaceId, ToolSurface } from "./types.js";
 
 const hybridSurface: ToolSurface = {
@@ -53,5 +53,5 @@ export function getSurface(id: SurfaceId): ToolSurface {
   return SURFACES[id];
 }
 
-export { coordinateSurface, relationalSurface, documentSurface, hybridSurface, setStyleTool, deleteTool };
+export { coordinateSurface, relationalSurface, documentSurface, hybridSurface, setStyleTool, setBackgroundTool, deleteTool };
 export * from "./types.js";

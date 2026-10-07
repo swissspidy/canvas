@@ -1,7 +1,7 @@
 /**
  * Pieces shared between surfaces.
  *
- * `create`, `set_style` and `delete` are deliberately *identical* across every
+ * `create`, `set_style`, `set_background` and `delete` are deliberately *identical* across every
  * surface that has them — same schema, same wording, same confirmation text.
  * The surfaces are meant to differ in how elements get *arranged*, and nothing
  * else. Anything shared lives here so it cannot drift.
@@ -16,6 +16,7 @@ import {
   isBlankText,
   zStyle,
   zStylePatch,
+  zColor,
   zTextContent,
 } from "../doc/schema.js";
 import { ASSET_KEYS, getAsset } from "../doc/assets.js";
@@ -163,6 +164,32 @@ export const setStyleTool: ToolDef<z.infer<typeof zSetStyleInput>> = {
       doc: patchElement(ctx.doc, input.id, patch),
       message: `Updated ${input.id}: ${changed.join(", ")}.`,
       touched: [input.id],
+    };
+  },
+};
+
+// --- set_background --------------------------------------------------------
+
+export const zSetBackgroundInput = z.strictObject({
+  color: zColor.describe("New canvas background color."),
+});
+
+/**
+ * The canvas background is a property of the document, not of any element, so
+ * neither `set_style` nor any placement tool could reach it. Document-as-code
+ * could, by writing a new `background`, and two restyle tasks score it — which
+ * made a dark-mode or palette brief unsatisfiable on the incremental surfaces.
+ * The confirmation is worded as `write_document` words the same change.
+ */
+export const setBackgroundTool: ToolDef<z.infer<typeof zSetBackgroundInput>> = {
+  name: "set_background",
+  description: "Change the canvas background color. Elements are not affected.",
+  schema: zSetBackgroundInput,
+  run(ctx, input) {
+    return {
+      doc: { ...ctx.doc, background: input.color },
+      message: `Background is now ${input.color}.`,
+      touched: [],
     };
   },
 };

@@ -276,6 +276,41 @@ describe("equivalence: the same intent reaches the same document", () => {
   });
 });
 
+describe("the canvas background", () => {
+  // It belongs to the document rather than to any element, so it was reachable
+  // only by rewriting the whole document — and two restyle tasks score it.
+  it("reaches the same document on all three surfaces", () => {
+    const start = docWith(el("a"));
+    const coord = session(start);
+    const rel = session(start);
+    const asCode = session(start);
+    expect(executeToolCall(coord, coordinateSurface, "set_background", { color: "#12121f" }).ok).toBe(true);
+    expect(executeToolCall(rel, relationalSurface, "set_background", { color: "#12121f" }).ok).toBe(true);
+    expect(
+      executeToolCall(asCode, documentSurface, "write_document", { document: { ...start, background: "#12121f" } }).ok,
+    ).toBe(true);
+
+    expect(coord.doc).toEqual(asCode.doc);
+    expect(rel.doc).toEqual(asCode.doc);
+    expect(coord.doc.background).toBe("#12121f");
+  });
+
+  it("is on every surface that edits incrementally, hybrid included", () => {
+    for (const surface of Object.values(SURFACES)) {
+      if (surface.id === "document") continue;
+      expect(surface.tools.map((t) => t.name)).toContain("set_background");
+    }
+  });
+
+  it("refuses a colour it cannot parse, and leaves the document alone", () => {
+    const s = session(docWith(el("a")));
+    const before = JSON.stringify(s.doc);
+    const r = executeToolCall(s, coordinateSurface, "set_background", { color: "dark blue" });
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(s.doc)).toBe(before);
+  });
+});
+
 describe("coordinate surface", () => {
   it("moves to absolute coordinates", () => {
     const s = session(docWith(el("a", { x: 10, y: 10 })));
