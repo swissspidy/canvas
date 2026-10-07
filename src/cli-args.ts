@@ -20,6 +20,12 @@ export interface Args {
 }
 
 export function parseArgs(argv: string[]): Args {
+  // `--help` anywhere means help, whatever command it follows. Treated as a
+  // flag, `run --help` would start the default sweep — the full confirmatory
+  // grid, against a live API — which is the worst possible reading of it.
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) {
+    return { command: "help", flags: {}, positional: [] };
+  }
   const [command = "help", ...rest] = argv;
   const flags: Record<string, string | boolean> = {};
   const positional: string[] = [];
