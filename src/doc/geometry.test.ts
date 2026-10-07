@@ -8,6 +8,7 @@ import {
   polygonArea,
   polygonContainsPoint,
   rectToPolygon,
+  shapePolygons,
   visibleAreaAfterSubtracting,
 } from "./geometry.js";
 import type { Element } from "./types.js";
@@ -174,5 +175,56 @@ describe("polygonContainsPoint", () => {
     const square = corners(el({ x: 10, y: 10, width: 20, height: 20 }));
     expect(polygonContainsPoint(square, { x: 20, y: 20 })).toBe(true);
     expect(polygonContainsPoint(square, { x: 9, y: 20 })).toBe(false);
+  });
+});
+
+describe("shapes", () => {
+  const shaped = (style: Element["style"], over: Partial<Element> = {}): Element => ({
+    id: "s",
+    type: "rect",
+    x: 100,
+    y: 100,
+    width: 400,
+    height: 400,
+    rotation: 0,
+    z: 0,
+    style,
+    ...over,
+  });
+  const area = (el: Element) => shapePolygons(el).reduce((a, p) => a + polygonArea(p), 0);
+
+  it("draws an ellipse with the ellipse's area, not the box's", () => {
+    expect(area(shaped({ shape: "ellipse" }))).toBeCloseTo(Math.PI * 200 * 200, -3);
+  });
+
+  it("stretches a polygon or a star to fill its box exactly", () => {
+    for (const style of [{ shape: "polygon" as const, sides: 3 }, { shape: "star" as const }, { shape: "polygon" as const, sides: 5 }]) {
+      const pts = shapePolygons(shaped(style)).flat();
+      expect(Math.min(...pts.map((p) => p.x))).toBeCloseTo(100, 6);
+      expect(Math.max(...pts.map((p) => p.x))).toBeCloseTo(500, 6);
+      expect(Math.min(...pts.map((p) => p.y))).toBeCloseTo(100, 6);
+      expect(Math.max(...pts.map((p) => p.y))).toBeCloseTo(500, 6);
+    }
+  });
+
+  it("puts a polygon's first point straight up, and turns it with the element", () => {
+    const tri = shapePolygons(shaped({ shape: "polygon", sides: 3 }))[0]!;
+    expect(tri[0]).toMatchObject({ x: expect.closeTo(300, 6), y: expect.closeTo(100, 6) });
+    const turned = shapePolygons(shaped({ shape: "polygon", sides: 3 }, { rotation: 90 }))[0]!;
+    expect(turned[0]).toMatchObject({ x: expect.closeTo(500, 6), y: expect.closeTo(300, 6) });
+  });
+
+  it("measures overlap and overhang on what is drawn, not on the box", () => {
+    // Two circles whose boxes overlap at the corners but whose discs do not.
+    const a = shaped({ shape: "ellipse" });
+    const b = shaped({ shape: "ellipse" }, { x: 440, y: 440 });
+    expect(overlapArea(a, b)).toBe(0);
+    // A circle whose box corner hangs off the canvas, and whose disc does not.
+    const nearCorner = shaped({ shape: "ellipse" }, { x: -50, y: -50 });
+    expect(outOfBoundsArea(nearCorner, { x: 0, y: 0, width: 1000, height: 1000 })).toBeGreaterThan(0);
+    const clear = shaped({ shape: "ellipse" }, { x: -30, y: -30 });
+    expect(outOfBoundsArea(clear, { x: 0, y: 0, width: 1000, height: 1000 })).toBeLessThan(
+      outOfBoundsArea({ ...clear, style: {} }, { x: 0, y: 0, width: 1000, height: 1000 }),
+    );
   });
 });

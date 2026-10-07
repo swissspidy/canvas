@@ -2031,6 +2031,120 @@ export function aspectOf(id: string, ratio: number, tolerance = 0.01, weight = 1
   });
 }
 
+// --- prototype: constructions from shapes ------------------------------------
+
+/** Every matched element draws a stated shape (and, for polygons and stars, a stated number of sides). */
+export function shapeIs(selector: Selector, shape: NonNullable<Style["shape"]>, sides?: number, weight = 1, label?: string): Check {
+  return check("shape", label ?? `Drawn as ${shape === "rect" ? "a box" : `a ${shape}`}${sides ? ` with ${sides}` : ""}`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    const wrong = els.filter((el) => {
+      const s = el.style.shape ?? "rect";
+      const n = el.style.sides ?? (s === "star" ? 5 : 6);
+      return el.type !== "rect" || s !== shape || (sides !== undefined && n !== sides);
+    });
+    return {
+      score: (els.length - wrong.length) / els.length,
+      detail: wrong.length ? `Wrong shape: ${wrong.map((e) => e.id).join(", ")}` : "Right shape.",
+    };
+  });
+}
+
+/** A linear gradient from one stated colour to another, at a stated angle. */
+export function gradientIs(selector: Selector, from: string, to: string, angle: number, weight = 1, label?: string): Check {
+  return check("gradient", label ?? `A gradient from ${from} to ${to} at ${angle} degrees`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    if (els.length === 0) return { score: 0, detail: "No matching element." };
+    const ok = els.filter(
+      (el) =>
+        el.style.fill?.toLowerCase() === from.toLowerCase() &&
+        el.style.fillTo?.toLowerCase() === to.toLowerCase() &&
+        Math.abs(normalizeAngle((el.style.gradientAngle ?? 90) - angle)) < 1,
+    );
+    return {
+      score: ok.length / els.length,
+      detail: ok.length === els.length ? "Right gradient." : `Gradient is ${els[0]!.style.fill} to ${els[0]!.style.fillTo ?? "(none)"} at ${els[0]!.style.gradientAngle ?? 90}.`,
+    };
+  });
+}
+
+/**
+ * Elements arranged in a ring: one centred at each of `count` angles, every
+ * `step` degrees from `start` (clockwise from straight up), `radius` from a
+ * centre point, and — with `facing` — turned to point along their own angle.
+ *
+ * Matched to slots by angle rather than by id, because the agent names them.
+ * Each slot takes its nearest unclaimed element; an empty slot or a spare
+ * element is a miss. A ray points both ways, so `facing` accepts the angle
+ * or its opposite.
+ */
+export function ring(
+  selector: Selector,
+  spec: {
+    cx: number;
+    cy: number;
+    radius: number;
+    count: number;
+    start?: number;
+    step: number;
+    facing?: boolean;
+    tolerance?: number;
+    /** The copy each slot must carry, in slot order — a clock's numerals. */
+    texts?: string[];
+  },
+  weight = 1,
+  label?: string,
+): Check {
+  const tol = spec.tolerance ?? 3;
+  return check("ring", label ?? `${spec.count} elements in a ring`, weight, (doc) => {
+    const els = visible(select(doc, selector));
+    const unclaimed = new Set(els);
+    let worst = 0;
+    const misses: string[] = [];
+    for (let i = 0; i < spec.count; i++) {
+      const deg = (spec.start ?? 0) + i * spec.step;
+      const a = (deg * Math.PI) / 180;
+      const want = { x: spec.cx + Math.sin(a) * spec.radius, y: spec.cy - Math.cos(a) * spec.radius };
+      let best: Element | undefined;
+      let bestD = Infinity;
+      for (const el of unclaimed) {
+        const c = center(el);
+        const d = Math.hypot(c.x - want.x, c.y - want.y);
+        if (d < bestD) {
+          bestD = d;
+          best = el;
+        }
+      }
+      if (!best) {
+        worst = Math.max(worst, tol + 24);
+        misses.push(`nothing at ${round(deg)} degrees`);
+        continue;
+      }
+      unclaimed.delete(best);
+      let off = bestD;
+      if (spec.facing) {
+        const turn = Math.abs(normalizeAngle(best.rotation - deg));
+        const facingOff = Math.min(turn, Math.abs(180 - turn));
+        // A degree of turn counts as much as eight units of displacement: on
+        // a 150-unit ray that is about where a reader sees it as crooked.
+        off = Math.max(off, facingOff * 8);
+      }
+      const wantText = spec.texts?.[i];
+      if (wantText !== undefined && normalizeCopy(best.text ?? "") !== normalizeCopy(wantText)) {
+        off = tol + 24;
+        misses.push(`${best.id} at ${round(deg)} degrees reads "${best.text ?? ""}", wanted "${wantText}"`);
+      }
+      worst = Math.max(worst, off);
+      if (off > tol) misses.push(`${best.id} at ${round(deg)} degrees is ${round(off)} off`);
+    }
+    if (unclaimed.size > 0) {
+      worst = Math.max(worst, tol + 24);
+      misses.push(`spare: ${[...unclaimed].map((e) => e.id).join(", ")}`);
+    }
+    return { score: gradeDefect(worst, tol, tol + 24), detail: misses.length ? misses.join("; ") : "Every slot filled." };
+  });
+}
+
 /** The centre of the matched group sits at a stated point. */
 export function centerAt(selector: Selector, x: number, y: number, tolerance = 2, weight = 1, label?: string): Check {
   return check("center_at", label ?? `Centred at (${x}, ${y})`, weight, (doc) => {

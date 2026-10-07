@@ -182,9 +182,64 @@ function lineIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | n
   return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
 }
 
-/** Exact area of the intersection of two elements' (possibly rotated) boxes. */
+/**
+ * The outline an element actually draws, as convex pieces in canvas
+ * coordinates. A plain box is one piece; an ellipse is a 64-gon inscribed in
+ * the box; a regular polygon is itself; a star is its inner polygon plus one
+ * triangle per point, because the clipping everything here rests on only
+ * handles convex shapes. Every shape is stretched to fill the element's box
+ * and turned with it, first point straight up before rotation.
+ */
+export function shapePolygons(el: Element): Polygon[] {
+  const shape = el.type === "rect" ? (el.style.shape ?? "rect") : "rect";
+  if (shape === "rect") return [corners(el)];
+  const c = center(el);
+  const theta = degToRad(el.rotation ?? 0);
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  // Unit-circle points at angle `a` (0 = straight up, clockwise), radius `k`.
+  const unit = (a: number, k = 1) => ({ x: Math.sin(a) * k, y: -Math.cos(a) * k });
+  const ring = (n: number, offset = 0, k = 1) => Array.from({ length: n }, (_, i) => unit(offset + (i * 2 * Math.PI) / n, k));
+  let pieces: { x: number; y: number }[][];
+  if (shape === "ellipse") {
+    pieces = [ring(64)];
+  } else {
+    const sides = Math.max(3, Math.round(el.style.sides ?? (shape === "star" ? 5 : 6)));
+    if (shape === "polygon") {
+      pieces = [ring(sides)];
+    } else {
+      const inner = ring(sides, Math.PI / sides, el.style.innerRatio ?? 0.5);
+      const tips = ring(sides);
+      // Tip i sits between inner points i-1 and i.
+      pieces = [inner, ...tips.map((tip, i) => [inner[(i + sides - 1) % sides]!, tip, inner[i]!])];
+    }
+  }
+  // Stretch the shape so its own bounds fill the box exactly — a triangle's
+  // base on the box's bottom edge, a star's tips on its sides — the way a
+  // shape fills its frame in a design tool. Then turn it with the element.
+  const all = pieces.flat();
+  const minX = Math.min(...all.map((p) => p.x));
+  const maxX = Math.max(...all.map((p) => p.x));
+  const minY = Math.min(...all.map((p) => p.y));
+  const maxY = Math.max(...all.map((p) => p.y));
+  const place = (p: { x: number; y: number }): Point => {
+    const lx = ((p.x - minX) / (maxX - minX) - 0.5) * el.width;
+    const ly = ((p.y - minY) / (maxY - minY) - 0.5) * el.height;
+    return { x: c.x + lx * cos - ly * sin, y: c.y + lx * sin + ly * cos };
+  };
+  return pieces.map((poly) => poly.map(place));
+}
+
+/** Exact area of the intersection of what two elements draw. */
 export function overlapArea(a: Element, b: Element): number {
-  return polygonArea(convexClip(corners(a), corners(b)));
+  let area = 0;
+  for (const pa of shapePolygons(a)) for (const pb of shapePolygons(b)) area += polygonArea(convexClip(pa, pb));
+  return area;
+}
+
+/** True when the point lies inside what the element draws. */
+export function shapeContainsPoint(el: Element, p: Point): boolean {
+  return shapePolygons(el).some((poly) => polygonContainsPoint(poly, p));
 }
 
 /** Axis-aligned bounding box of an element's rotated box. */
@@ -208,9 +263,12 @@ export function rectToPolygon(r: Rect): Polygon {
 
 /** Area of the element that falls outside `bounds`. Zero when fully inside. */
 export function outOfBoundsArea(el: Element, bounds: Rect): number {
-  const poly = corners(el);
-  const inside = polygonArea(convexClip(poly, rectToPolygon(bounds)));
-  return Math.max(0, polygonArea(poly) - inside);
+  let out = 0;
+  for (const poly of shapePolygons(el)) {
+    const inside = polygonArea(convexClip(poly, rectToPolygon(bounds)));
+    out += Math.max(0, polygonArea(poly) - inside);
+  }
+  return out;
 }
 
 export function rectsIntersect(a: Rect, b: Rect): boolean {

@@ -50,6 +50,11 @@ function styleSummary(el: Element): string {
   if (s.opacity !== undefined && s.opacity < 1) bits.push(`opacity=${s.opacity}`);
   if (s.strokeColor) bits.push(`stroke=${s.strokeColor}/${fmt(s.strokeWidth ?? 1)}`);
   if (s.objectFit) bits.push(`objectFit=${s.objectFit}`);
+  if (s.shape && s.shape !== "rect") {
+    bits.push(`shape=${s.shape}` + (s.shape !== "ellipse" ? ` sides=${s.sides ?? (s.shape === "star" ? 5 : 6)}` : ""));
+    if (s.shape === "star") bits.push(`innerRatio=${s.innerRatio ?? 0.5}`);
+  }
+  if (s.fillTo) bits.push(`gradient to ${s.fillTo} at ${fmt(s.gradientAngle ?? 90)}deg`);
   return bits.length ? bits.join(" ") : "(no style set)";
 }
 

@@ -26,7 +26,7 @@
  */
 
 import type { Doc, Element, Point, Polygon, Rect } from "./types.js";
-import { corners, degToRad, EPS, polygonArea, visibleAreaAfterSubtracting, convexClip } from "./geometry.js";
+import { corners, degToRad, EPS, polygonArea, shapePolygons, visibleAreaAfterSubtracting, convexClip } from "./geometry.js";
 import { layoutTextElement } from "../text/layout.js";
 import { rectToPolygon, center } from "./geometry.js";
 
@@ -59,7 +59,7 @@ export function inkPolygons(el: Element): Polygon[] {
   const c = center(el);
 
   if (el.type !== "text") {
-    return [corners(el)];
+    return shapePolygons(el);
   }
 
   const layout = layoutTextElement(el);
@@ -152,7 +152,7 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
 
   if (el.type === "rect") {
     // A rect with no fill (or a transparent one) paints only its stroke.
-    return effectiveAlpha(el.style.fill ?? "#cccccc", el) >= minOpacity ? [corners(el)] : [];
+    return effectiveAlpha(el.style.fill ?? "#cccccc", el) >= minOpacity ? shapePolygons(el) : [];
   }
 
   // A text block's fill covers the whole box, so it hides everything beneath.
@@ -193,7 +193,7 @@ export function paintedPolygons(el: Element): Polygon[] {
   if (el.type === "image") return [corners(el)];
   // An undeclared fill is not no fill: the renderer paints a rect grey.
   if (el.type === "rect") {
-    return el.style.fill === undefined || filled || stroked ? [corners(el)] : [];
+    return el.style.fill === undefined || filled || stroked ? shapePolygons(el) : [];
   }
   // A text block's fill and its stroke are both painted on the element box,
   // which already contains every glyph — they are clipped to it.

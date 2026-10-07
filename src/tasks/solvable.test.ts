@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { TASKS, getTask } from "./index.js";
+import { PROTOTYPE_TASKS, TASKS, getTask } from "./index.js";
 import { normalizeDoc } from "../doc/schema.js";
 import { runChecks, universalChecks } from "../eval/checks.js";
 import type { Doc } from "../doc/types.js";
-import { SOLUTIONS } from "./solutions.js";
+import { PROTOTYPE_SOLUTIONS, SOLUTIONS } from "./solutions.js";
 
 /**
  * The other half of the eval's own eval.
@@ -54,6 +54,25 @@ describe("every task can be finished", () => {
     for (const task of TASKS) {
       const baseline = runChecks(task.initial(), [...universalChecks(), ...task.checks]).score;
       expect(scoreOf(task.id, SOLUTIONS[task.id]!()), task.id).toBeGreaterThan(baseline);
+    }
+  });
+});
+
+describe("every prototype can be finished", () => {
+  it("has a reference solution for every prototype", () => {
+    expect(Object.keys(PROTOTYPE_SOLUTIONS).sort()).toEqual(PROTOTYPE_TASKS.map((t) => t.id).sort());
+  });
+
+  it.each(PROTOTYPE_TASKS.map((t) => t.id))("%s scores full marks on a competent construction", async (id) => {
+    const solution = PROTOTYPE_SOLUTIONS[id]!();
+    if (process.env.CANVAS_DUMP) (await import("node:fs")).writeFileSync(`${process.env.CANVAS_DUMP}/${id}.json`, JSON.stringify(solution));
+    const score = scoreOf(id, solution);
+    expect(score, `${id} scored ${(score * 100).toFixed(1)}%`).toBeGreaterThanOrEqual(FULL_MARKS);
+  });
+
+  it("starts every prototype well below full marks", () => {
+    for (const task of PROTOTYPE_TASKS) {
+      expect(runChecks(task.initial(), [...universalChecks(), ...task.checks]).score, task.id).toBeLessThan(0.9);
     }
   });
 });

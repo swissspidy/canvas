@@ -415,3 +415,89 @@ export const SOLUTIONS: Record<string, () => Doc> = {
   },
 };
 
+
+// --- prototypes ---------------------------------------------------------------
+
+const shape = (id: string, box: { x: number; y: number; w: number; h: number }, style: Element["style"], rotation = 0, z = 0): Element => ({
+  id,
+  type: "rect",
+  x: box.x,
+  y: box.y,
+  width: box.w,
+  height: box.h,
+  rotation,
+  z,
+  style,
+});
+
+/** A rect `w` by `h` whose centre sits `r` from (cx, cy) at `deg` clockwise from up, turned to point along it. */
+function radial(id: string, cx: number, cy: number, r: number, deg: number, w: number, h: number, style: Element["style"], z: number): Element {
+  const a = (deg * Math.PI) / 180;
+  return shape(id, { x: cx + Math.sin(a) * r - w / 2, y: cy - Math.cos(a) * r - h / 2, w, h }, style, deg, z);
+}
+
+export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
+  "proto.sunburst": () => {
+    const rays = Array.from({ length: 12 }, (_, i) => radial(`ray_${i}`, 540, 480, 240 + 24 + 75, i * 30, 36, 150, { fill: "#ffd166" }, 1));
+    // The ray at 180 degrees reaches 480 + 264 + 150 = 894.
+    const title = hug(onOneLine(text("title", "MIDSUMMER", { x: 100, y: 894 + 40, w: 880, h: 0, z: 4 }, { fontWeight: "bold", color: "#fff3d6", align: "center" })));
+    const date = hug(text("date", "June 21, Ridgeline Meadow", { x: 100, y: bottom(title) + 12, w: 880, h: 0, z: 5 }, { fontSize: 40, color: "#ffd166", align: "center" }));
+    return {
+      width: W,
+      height: H,
+      background: "#1b1b3a",
+      elements: [
+        ...rays,
+        shape("disc", { x: 300, y: 240, w: 480, h: 480 }, { shape: "ellipse", fill: "#ffb347", fillTo: "#ff5e62" }, 0, 2),
+        shape("star", { x: 410, y: 350, w: 260, h: 260 }, { shape: "star", fill: "#fff3d6" }, 0, 3),
+        title,
+        date,
+      ],
+    };
+  },
+
+  // Ten past ten: the hour hand at 300 + 5 = 305 degrees, the minute hand at
+  // 60, each centred half its length out from the clock's centre.
+  "proto.clock": () => {
+    const ticks = Array.from({ length: 12 }, (_, i) => radial(`tick_${i}`, 540, 560, 336, i * 30, 12, 48, { fill: "#1d1d2b" }, 1));
+    const numerals = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"].map((n, i) => {
+      const a = (i * 30 * Math.PI) / 180;
+      const t = hug(text(`n_${n}`, n, { x: 0, y: 0, w: 120, h: 0, z: 2 }, { fontSize: 64, fontWeight: "bold", color: "#1d1d2b", align: "center" }));
+      return { ...t, x: 540 + Math.sin(a) * 260 - 60, y: 560 - Math.cos(a) * 260 - t.height / 2 };
+    });
+    const title = hug(onOneLine(text("title", "Ridgeline Clockworks", { x: 100, y: 940 + 48, w: 880, h: 0, z: 6 }, { fontWeight: "bold", color: "#1d1d2b", align: "center" })));
+    return {
+      width: W,
+      height: H,
+      background: "#f4f1ea",
+      elements: [
+        shape("face", { x: 160, y: 180, w: 760, h: 760 }, { shape: "ellipse", fill: "#ffffff", strokeColor: "#1d1d2b", strokeWidth: 12 }, 0, 0),
+        ...ticks,
+        ...numerals,
+        radial("hour", 540, 560, 80, 305, 24, 160, { fill: "#2b3a67" }, 3),
+        radial("minute", 540, 560, 110, 60, 16, 220, { fill: "#457b9d" }, 4),
+        shape("cap", { x: 520, y: 540, w: 40, h: 40 }, { shape: "ellipse", fill: "#d62828" }, 0, 5),
+        title,
+      ],
+    };
+  },
+
+  // The square's half-diagonal is 150 * sqrt(2) = 212.1, so its centre sits
+  // at 1000 - 212.1 and its bottom corner at 300 + 212.1.
+  "proto.bauhaus": () => {
+    const half = 150 * Math.SQRT2;
+    const title = endAt(hug(onOneLine(text("title", "WEIMAR 1919", { x: 600, y: 0, w: 400, h: 0, z: 5 }, { fontWeight: "bold", color: "#111111", align: "right" }))), 1270);
+    return {
+      width: W,
+      height: H,
+      background: "#f2ede4",
+      elements: [
+        shape("bar", { x: 80, y: 300 + half, w: 920, h: 24 }, { fill: "#111111" }, 0, 0),
+        shape("circle", { x: 80, y: 80, w: 440, h: 440 }, { shape: "ellipse", fill: "#d62828" }, 0, 1),
+        shape("triangle", { x: 80, y: 520, w: 440, h: 750 }, { shape: "polygon", sides: 3, fill: "#f6bd60" }, 0, 2),
+        shape("square", { x: 1000 - half - 150, y: 150, w: 300, h: 300 }, { fill: "#1d3557" }, 45, 3),
+        title,
+      ],
+    };
+  },
+};

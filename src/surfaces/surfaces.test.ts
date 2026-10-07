@@ -364,6 +364,27 @@ describe("sizes and single-axis positions, on every surface", () => {
     expect(bigger.lines.length > 2 || bigger.overflowX > 0.01).toBe(true);
   });
 
+  it("places an element radially, as a sine and a cosine would", () => {
+    // A ray 40 by 160, its centre 384 from the badge's centre at 30 degrees.
+    const start = docWith(el("badge", { x: 260, y: 320, width: 560, height: 560 }), el("ray", { x: 0, y: 0, width: 40, height: 160 }));
+    const coord = session(start);
+    const rel = session(start);
+    const a = (30 * Math.PI) / 180;
+    executeToolCall(coord, coordinateSurface, "move", {
+      id: "ray",
+      x: 540 + 384 * Math.sin(a) - 20,
+      y: 600 - 384 * Math.cos(a) - 80,
+      rotation: 30,
+    });
+    const r = executeToolCall(rel, relationalSurface, "place", { id: "ray", relation: "around", target: "badge", gap: 384, angle: 30, rotation: 30 });
+    expect(r.ok).toBe(true);
+    const c = find(coord.doc, "ray");
+    const p = find(rel.doc, "ray");
+    expect(p.x).toBeCloseTo(c.x, 6);
+    expect(p.y).toBeCloseTo(c.y, 6);
+    expect(p.rotation).toBe(30);
+  });
+
   it("sizes a text box to exactly its text, shrinking as well as growing", () => {
     const tall = { type: "text" as const, text: "Short", width: 400, height: 300, style: { fontSize: 40 } };
     const s = session(docWith(el("t", tall)));

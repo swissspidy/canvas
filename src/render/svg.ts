@@ -16,7 +16,7 @@ import type { Doc, Element } from "../doc/types.js";
 import { getAsset } from "../doc/assets.js";
 import { layoutTextElement } from "../text/layout.js";
 import { FONT_FAMILY, getFontBytes } from "../text/font-registry.js";
-import { round } from "../doc/geometry.js";
+import { round, shapePolygons } from "../doc/geometry.js";
 import { toBase64 } from "./rasterizer.js";
 
 export interface RenderOptions {
@@ -66,17 +66,54 @@ function openGroup(el: Element): string {
 }
 
 function renderRect(el: Element): string {
-  return `<rect ${styleAttrs({
+  let defs = "";
+  let fill = el.style.fill ?? "#cccccc";
+  if (el.style.fillTo) {
+    // objectBoundingBox units, so the gradient spans the element's own box and
+    // turns with it; `gradientPosition` in eval/color.ts reads the same vector.
+    const a = ((el.style.gradientAngle ?? 90) * Math.PI) / 180;
+    const id = `grad-${escapeXml(el.id)}`;
+    defs =
+      `<defs><linearGradient id="${id}" x1="${n(0.5 - Math.cos(a) / 2)}" y1="${n(0.5 - Math.sin(a) / 2)}" ` +
+      `x2="${n(0.5 + Math.cos(a) / 2)}" y2="${n(0.5 + Math.sin(a) / 2)}">` +
+      `<stop offset="0" stop-color="${escapeXml(fill)}" /><stop offset="1" stop-color="${escapeXml(el.style.fillTo)}" />` +
+      `</linearGradient></defs>`;
+    fill = `url(#${id})`;
+  }
+  const paint = {
+    fill,
+    stroke: el.style.strokeColor,
+    "stroke-width": el.style.strokeColor ? (el.style.strokeWidth ?? 1) : undefined,
+  };
+  const shape = el.style.shape ?? "rect";
+  if (shape === "ellipse") {
+    return defs + `<ellipse ${styleAttrs({ cx: el.x + el.width / 2, cy: el.y + el.height / 2, rx: el.width / 2, ry: el.height / 2, ...paint })} />`;
+  }
+  if (shape === "polygon" || shape === "star") {
+    // The outline before rotation: the group transform turns it.
+    const outline = shapeOutline({ ...el, rotation: 0 });
+    return defs + `<polygon ${styleAttrs({ points: outline.map((p) => `${n(p.x)},${n(p.y)}`).join(" "), ...paint })} />`;
+  }
+  return defs + `<rect ${styleAttrs({
     x: el.x,
     y: el.y,
     width: el.width,
     height: el.height,
     rx: el.style.radius,
     ry: el.style.radius,
-    fill: el.style.fill ?? "#cccccc",
-    stroke: el.style.strokeColor,
-    "stroke-width": el.style.strokeColor ? (el.style.strokeWidth ?? 1) : undefined,
+    ...paint,
   })} />`;
+}
+
+/** A polygon's or a star's outline as one ring of points, for drawing. */
+function shapeOutline(el: Element): { x: number; y: number }[] {
+  const pieces = shapePolygons(el);
+  if ((el.style.shape ?? "rect") !== "star") return pieces[0]!;
+  // Interleave the tips with the inner ring: inner[i-1], tip[i], inner[i], ...
+  const inner = pieces[0]!;
+  const out: { x: number; y: number }[] = [];
+  for (let i = 1; i < pieces.length; i++) out.push(pieces[i]![1]!, inner[i - 1]!);
+  return out;
 }
 
 /**

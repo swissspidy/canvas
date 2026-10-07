@@ -83,7 +83,7 @@ function crossPosition(
 
 // --- place -----------------------------------------------------------------
 
-const TARGET_RELATIONS = ["below", "above", "left_of", "right_of", "centered_on", "cover"] as const;
+const TARGET_RELATIONS = ["below", "above", "left_of", "right_of", "centered_on", "cover", "around"] as const;
 const CANVAS_RELATIONS = [
   "canvas_center",
   "canvas_top",
@@ -121,11 +121,21 @@ function refuseRotation(relation: Relation, rotation: number | undefined): void 
 
 const zPlacement = {
   relation: z.enum(ALL_RELATIONS).describe(
-    "Where to put it. 'below', 'above', 'left_of', 'right_of', 'centered_on' and 'cover' need a target. " +
+    "Where to put it. 'below', 'above', 'left_of', 'right_of', 'centered_on', 'cover' and 'around' need a target. " +
       "The 'canvas_*' relations and 'fill_canvas' do not.",
   ),
   target: zElementId.optional().describe("The element to place relative to. Required for target relations."),
-  gap: z.number().min(0).optional().describe("Distance from the target, in canvas units. Default 0."),
+  gap: z
+    .number()
+    .min(0)
+    .optional()
+    .describe("Distance from the target, in canvas units. For 'around', from the target's centre to this element's centre. Default 0."),
+  angle: z
+    .number()
+    .min(-360)
+    .max(360)
+    .optional()
+    .describe("For 'around' only: direction from the target's centre, in degrees clockwise from straight up. Default 0."),
   margin: z.number().min(0).optional().describe("Distance from the canvas edge for canvas_* relations. Default 0."),
   align: zAlignAcross,
 } as const;
@@ -134,6 +144,7 @@ interface PlacementArgs {
   relation: Relation;
   target?: string;
   gap?: number;
+  angle?: number;
   margin?: number;
   align?: "start" | "center" | "end";
 }
@@ -199,6 +210,20 @@ function computePlacement(
         };
       case "cover":
         return { x: t.x, y: t.y, width: t.width, height: t.height, label: `covering ${args.target}` };
+      case "around": {
+        // Radial: the element's centre `gap` units from the target's centre,
+        // at `angle` clockwise from straight up. The relation a sunburst, a
+        // clock face or a ring of badges is made of, and one that would
+        // otherwise take a sine and a cosine per element.
+        const a = ((args.angle ?? 0) * Math.PI) / 180;
+        const cx = t.x + t.width / 2 + Math.sin(a) * gap;
+        const cy = t.y + t.height / 2 - Math.cos(a) * gap;
+        return {
+          x: cx - size.width / 2,
+          y: cy - size.height / 2,
+          label: `${round(gap, 1)} units from ${args.target}'s centre at ${round(args.angle ?? 0, 1)} degrees`,
+        };
+      }
     }
   }
 
