@@ -546,6 +546,16 @@ partition search — was solved by both, the cheapest model included. Nine of
 the twelve misses were one constraint: a title set as large as it goes on one
 line. The prototypes are kept for the record and stay out of every grid.
 
+A second prototype followed from that: a magazine contents page whose
+headlines auto-fit — each set as large as it goes on exactly two lines of its
+column — with every teaser box hugging its text. Six entries in two columns
+and nine in three; pooled over three surfaces and two feedback conditions,
+one repeat, six runs a cell. GPT-5.6 Luna passed 50% and 33%, at 47 and 68
+tool calls and 1.5 and 2.3 cents a run; GPT-5.6 Terra passed 50% and 50%, at
+44 and 63 tool calls and 10 and 12 cents a run. Every miss was a measurement:
+a headline a few per cent short of its largest size, or one that broke onto a
+third line. Six runs a cell is a direction, not a number.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
