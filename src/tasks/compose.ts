@@ -24,19 +24,29 @@
 import { defineTask } from "./types.js";
 import { blank, doc, image, POSTER_H, POSTER_W } from "./helpers.js";
 import {
+  alignedOn,
+  centeredOnCanvas,
   containsText,
   coverage,
   coversCanvas,
   dominantTypeAtLeast,
+  edgeAt,
   elementCount,
+  fillsMeasure,
   fontSizeAtLeast,
+  gapBetween,
   geometryUnchanged,
+  hugsText,
   inRegion,
+  lineCount,
   marginAtLeast,
   noOverlap,
   notCovered,
+  paintedReach,
   preservesElements,
   rotationWithin,
+  shapeUnder,
+  sizeIs,
   styleUnchanged,
   textOnFilledShape,
   textSizeOrder,
@@ -52,6 +62,19 @@ const titleCard = () =>
   doc([image({ id: "bg", x: 0, y: 0, w: POSTER_W, h: POSTER_H, src: "texture/gradient", z: 0 })], {
     background: "#ffffff",
   });
+
+/**
+ * Task set v2 (`docs/PREREGISTRATION.md` §13, 2026-10-07): every compose brief
+ * now also states a measure, the gaps between blocks, and how large the
+ * headline type goes — "as large as it will go on two lines across a 920-unit
+ * measure" — which is font metrics the agent cannot read off the document. The
+ * v1 constraints all stay. The pilots showed a strong model clearing every one
+ * of them nearly every time; these are what a typographer would specify next.
+ */
+const isRect = (el: { type: string }) => el.type === "rect";
+
+const buttonShape = shapeUnder("Add to basket");
+const ribbonShape = shapeUnder("HALF PRICE");
 
 export const composeTasks = [
   defineTask({
@@ -79,6 +102,15 @@ export const composeTasks = [
       "  - Keep everything at least 40 units clear of every canvas edge.",
       "  - Fill the page: the elements you add should between them cover at least 40% of",
       "    the canvas, not counting the background.",
+      "",
+      "Typography:",
+      "  - Every block of text sits in one flush-left column: each text box runs from x = 80 to x = 1000.",
+      "  - The title is set on exactly two lines, as large as it will go on two lines at that measure",
+      "    (within 5% of the largest size that still breaks into two lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The dates sit exactly 40 units below the title's box, and the venue exactly 12 units below",
+      "    the dates' box.",
+      "  - The ticket line's box ends exactly 80 units above the bottom edge of the canvas.",
     ].join("\n"),
     initial: () => blank({ background: "#101020" }),
     checks: [
@@ -111,6 +143,16 @@ export const composeTasks = [
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(40, 1),
       coverage(0.4, 0.98, 1),
+      // v2.
+      edgeAt(visibleText, "left", 80, 2, 1, "The text column starts at x = 80"),
+      alignedOn("left", visibleText, 2, 1),
+      sizeIs(visibleText, { width: 920 }, 2, 1, "Every text box is 920 wide"),
+      lineCount(withText("Ridgeline Festival"), 2, 2, "The title is set on two lines"),
+      fillsMeasure(withText("Ridgeline Festival"), 2, 0.95, 2, "The title is as large as it goes on two lines"),
+      hugsText(visibleText, 8, 2),
+      gapBetween(withText("Ridgeline Festival"), withText("September 12-14"), "vertical", 40, 2, 1, "The dates sit 40 below the title"),
+      gapBetween(withText("September 12-14"), withText("Alpine Meadow, Colorado"), "vertical", 12, 2, 1, "The venue sits 12 below the dates"),
+      edgeAt(withText("Tickets at ridgeline.fm"), "bottom", 1270, 2, 1, "The ticket line ends 80 above the bottom edge"),
     ],
     judgeCriteria: [
       "Does it read as a poster rather than a list of text boxes?",
@@ -118,7 +160,7 @@ export const composeTasks = [
       "Are the dates, venue and call to action grouped sensibly rather than scattered?",
       "Is the spacing deliberate — consistent gutters, nothing crowding an edge?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -143,6 +185,16 @@ export const composeTasks = [
       "  - No text smaller than 22 units, and no two blocks of text overlapping.",
       "  - Keep everything at least 32 units clear of every canvas edge.",
       "  - Fill the page: the elements should between them cover at least 45% of the canvas.",
+      "",
+      "Layout:",
+      "  - Everything sits in one column from x = 60 to x = 1020: the photo and every text box are 960 wide.",
+      "  - The headline is set on exactly two lines, as large as it will go on two lines at that measure",
+      "    (within 5% of the largest size that still breaks into two lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The photo is exactly 540 tall and sits exactly 32 units below the headline's box.",
+      '  - "Every Saturday, 9am to noon" sits exactly 32 units below the photo, and',
+      '    "Corner of Fifth and Pine" exactly 12 units below that.',
+      '  - The box of "All welcome. Bring a friend." ends exactly 60 units above the bottom edge.',
     ].join("\n"),
     initial: () => blank({ background: "#fdf6ec" }),
     checks: [
@@ -174,13 +226,25 @@ export const composeTasks = [
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(32, 1),
       coverage(0.45, 0.98, 1),
+      // v2.
+      edgeAt((el) => visibleText(el) || visibleImage(el), "left", 60, 2, 1, "The column starts at x = 60"),
+      alignedOn("left", (el) => visibleText(el) || visibleImage(el), 2, 1),
+      sizeIs((el) => visibleText(el) || visibleImage(el), { width: 960 }, 2, 1, "The photo and every text box are 960 wide"),
+      sizeIs(visibleImage, { height: 540 }, 2, 1, "The photo is 540 tall"),
+      lineCount(withText("Saturday Coffee Morning"), 2, 2, "The headline is set on two lines"),
+      fillsMeasure(withText("Saturday Coffee Morning"), 2, 0.95, 2, "The headline is as large as it goes on two lines"),
+      hugsText(visibleText, 8, 2),
+      gapBetween(withText("Saturday Coffee Morning"), visibleImage, "vertical", 32, 2, 1, "The photo sits 32 below the headline"),
+      gapBetween(visibleImage, withText("Every Saturday, 9am to noon"), "vertical", 32, 2, 1, "The time sits 32 below the photo"),
+      gapBetween(withText("Every Saturday, 9am to noon"), withText("Corner of Fifth and Pine"), "vertical", 12, 2, 1, "The place sits 12 below the time"),
+      edgeAt(withText("All welcome. Bring a friend."), "bottom", 1290, 2, 1, "The sign-off ends 60 above the bottom edge"),
     ],
     judgeCriteria: [
       "Is there a clear reading order from headline to details?",
       "Does the image support the layout rather than fight the text?",
       "Would this look deliberate if printed and pinned to a noticeboard?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -202,6 +266,16 @@ export const composeTasks = [
       "  - The quote sits in the middle of the card, clear of the top and bottom sixths.",
       "  - Nothing smaller than 26 units, and nothing overlapping anything else.",
       "  - Keep everything at least 64 units clear of every canvas edge.",
+      "",
+      "Typography:",
+      "  - The quote's box is 840 wide and starts at x = 120. The quote is set on exactly four lines,",
+      "    as large as it will go on four lines at that measure (within 5% of the largest size that",
+      "    still breaks into four lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The attribution starts at the same left edge and sits exactly 40 units below the quote's box.",
+      "  - The quote and the attribution together are centred vertically on the card.",
+      "  - The one decorative shape is a rule exactly 120 wide and 8 tall, starting at x = 120,",
+      "    and ending exactly 32 units above the quote's box.",
     ].join("\n"),
     initial: () => blank({ background: "#1b1b28" }),
     checks: [
@@ -222,13 +296,25 @@ export const composeTasks = [
       dominantTypeAtLeast("We shape our buildings; thereafter they shape us.", 72, 2),
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(64, 1),
+      // v2.
+      sizeIs(withText("We shape our buildings"), { width: 840 }, 2, 1, "The quote's box is 840 wide"),
+      edgeAt(visibleText, "left", 120, 2, 1, "The text starts at x = 120"),
+      alignedOn("left", visibleText, 2, 1),
+      lineCount(withText("We shape our buildings"), 4, 2, "The quote is set on four lines"),
+      fillsMeasure(withText("We shape our buildings"), 4, 0.95, 2, "The quote is as large as it goes on four lines"),
+      hugsText(visibleText, 8, 2),
+      gapBetween(withText("We shape our buildings"), withText("Winston Churchill, 1943"), "vertical", 40, 2, 1, "The attribution sits 40 below the quote"),
+      centeredOnCanvas(visibleText, "vertical", 3, 2, "The quote and attribution are centred vertically"),
+      sizeIs(isRect, { width: 120, height: 8 }, 1, 1, "The rule is 120 by 8"),
+      edgeAt(isRect, "left", 120, 2, 1, "The rule starts at x = 120"),
+      gapBetween(isRect, withText("We shape our buildings"), "vertical", 32, 2, 1, "The rule ends 32 above the quote"),
     ],
     judgeCriteria: [
       "Is the quote the visual centre of the card?",
       "Is the attribution clearly secondary without being an afterthought?",
       "Is the composition balanced — does the text sit deliberately rather than landing wherever it fell?",
     ],
-    maxTurns: 25,
+    maxTurns: 35,
   }),
 
   defineTask({
@@ -255,6 +341,20 @@ export const composeTasks = [
       "  - Keep everything at least 24 units clear of every canvas edge.",
       "  - Fill the card: the photo, copy and button should between them cover at least 45%",
       "    of the canvas.",
+      "",
+      "Layout:",
+      "  - The photo runs the full width of the card along the top edge (x = 0, y = 0), exactly 600 tall.",
+      "  - The product name and the price share a row that starts exactly 48 units below the photo:",
+      "    the two boxes share a top edge, the name's box starts at x = 64 and is 600 wide, and the",
+      "    price's box ends at x = 1016.",
+      "  - The name is set on one line, as large as it will go on one line at that 600 measure",
+      "    (within 5% of the largest size that still fits on one line).",
+      "  - The description's box starts at x = 64 and is 952 wide, sits exactly 24 units below the",
+      "    lower of the name and price boxes, and is set on exactly two lines, as large as it will go",
+      "    on two lines at that measure (within 5%).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The button's shape is exactly 400 by 104, starts at x = 64, sits exactly 48 units below the",
+      "    description's box, and its label is centred on it both ways.",
     ].join("\n"),
     initial: () => blank({ background: "#ffffff" }),
     checks: [
@@ -274,6 +374,28 @@ export const composeTasks = [
       noOverlap(visibleText, 1, "Blocks of text do not overlap"),
       marginAtLeast(24, 1),
       coverage(0.45, 0.98, 1),
+      // v2.
+      edgeAt(visibleImage, "left", 0, 1, 1, "The photo starts at the left edge"),
+      edgeAt(visibleImage, "top", 0, 1, 1, "The photo starts at the top edge"),
+      sizeIs(visibleImage, { width: 1080, height: 600 }, 2, 1, "The photo is 1080 by 600"),
+      alignedOn("top", (el) => withText("Ridge Roast")(el) || withText("$18.00")(el), 2, 1),
+      gapBetween(visibleImage, (el) => withText("Ridge Roast")(el) || withText("$18.00")(el), "vertical", 48, 2, 1, "The name and price row sits 48 below the photo"),
+      edgeAt(withText("Ridge Roast"), "left", 64, 2, 1, "The name starts at x = 64"),
+      sizeIs(withText("Ridge Roast"), { width: 600 }, 2, 1, "The name's box is 600 wide"),
+      edgeAt(withText("$18.00"), "right", 1016, 2, 1, "The price ends at x = 1016"),
+      lineCount(withText("Ridge Roast"), 1, 2, "The name is set on one line"),
+      fillsMeasure(withText("Ridge Roast"), 1, 0.95, 2, "The name is as large as it goes on one line"),
+      edgeAt(withText("A dark, cocoa-forward"), "left", 64, 2, 1, "The description starts at x = 64"),
+      sizeIs(withText("A dark, cocoa-forward"), { width: 952 }, 2, 1, "The description's box is 952 wide"),
+      gapBetween((el) => withText("Ridge Roast")(el) || withText("$18.00")(el), withText("A dark, cocoa-forward"), "vertical", 24, 2, 1, "The description sits 24 below the row"),
+      lineCount(withText("A dark, cocoa-forward"), 2, 2, "The description is set on two lines"),
+      fillsMeasure(withText("A dark, cocoa-forward"), 2, 0.95, 2, "The description is as large as it goes on two lines"),
+      hugsText(visibleText, 8, 2),
+      sizeIs(buttonShape, { width: 400, height: 104 }, 2, 1, "The button is 400 by 104"),
+      edgeAt(buttonShape, "left", 64, 2, 1, "The button starts at x = 64"),
+      gapBetween(withText("A dark, cocoa-forward"), buttonShape, "vertical", 48, 2, 1, "The button sits 48 below the description"),
+      alignedOn("hcenter", (el, d) => buttonShape(el, d) || withText("Add to basket")(el), 2, 1),
+      alignedOn("vcenter", (el, d) => buttonShape(el, d) || withText("Add to basket")(el), 2, 1),
     ],
     judgeCriteria: [
       "Does the photo occupy the top of the card with the text below, as asked?",
@@ -281,7 +403,7 @@ export const composeTasks = [
       "Is the price prominent enough to find at a glance?",
       "Is the description set at a size that is comfortable to read rather than shrunk to fit?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   /**
@@ -323,6 +445,18 @@ export const composeTasks = [
       "  - No text smaller than 24 units, and no two blocks of text overlapping.",
       "  - Nothing may come within 32 units of a canvas edge.",
       "  - Fill the card: the elements should between them cover at least 45% of the canvas.",
+      "",
+      "Layout:",
+      "  - The ribbon's shape is exactly 140 units tall (measured across the band, before the tilt),",
+      "    and it runs across the card: what it paints comes to between 32 and 48 units of the left",
+      "    edge, and to between 32 and 48 units of the right edge.",
+      '  - "HALF PRICE" is centred on the ribbon\'s shape.',
+      "  - The headline's box starts at x = 60 and is 960 wide. The headline is set on exactly two",
+      "    lines, as large as it will go on two lines at that measure (within 5% of the largest size",
+      "    that still breaks into two lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The shop name sits exactly 24 units below the headline's box, and the detail line exactly",
+      "    8 units below the shop name's box.",
     ].join("\n"),
     initial: () => blank({ background: "#f7f4ee" }),
     checks: [
@@ -356,6 +490,20 @@ export const composeTasks = [
       // paints rather than what it declared.
       marginAtLeast(32, 3),
       coverage(0.45, 0.98, 1),
+      // v2. The rotation hypothesis again: how far a tilted band reaches is
+      // its width times the cosine plus its height times the sine, and the
+      // brief states the reach, not the width.
+      sizeIs(ribbonShape, { height: 140 }, 2, 1, "The ribbon is 140 tall"),
+      paintedReach(ribbonShape, "horizontal", 32, 48, 3, "The ribbon reaches to 32–48 units of both side edges"),
+      alignedOn("hcenter", (el, d) => ribbonShape(el, d) || withText("HALF PRICE")(el), 3, 1),
+      alignedOn("vcenter", (el, d) => ribbonShape(el, d) || withText("HALF PRICE")(el), 3, 1),
+      edgeAt(withText("Everything Must Go"), "left", 60, 2, 1, "The headline starts at x = 60"),
+      sizeIs(withText("Everything Must Go"), { width: 960 }, 2, 1, "The headline's box is 960 wide"),
+      lineCount(withText("Everything Must Go"), 2, 2, "The headline is set on two lines"),
+      fillsMeasure(withText("Everything Must Go"), 2, 0.95, 2, "The headline is as large as it goes on two lines"),
+      hugsText(visibleText, 8, 2),
+      gapBetween(withText("Everything Must Go"), withText("Ridgeline Supply Co."), "vertical", 24, 2, 1, "The shop sits 24 below the headline"),
+      gapBetween(withText("Ridgeline Supply Co."), withText("Last day Sunday the 26th"), "vertical", 8, 2, 1, "The detail sits 8 below the shop"),
     ],
     judgeCriteria: [
       "Does the ribbon read as a ribbon — a banner tilted across the card with its words on it?",
@@ -363,7 +511,7 @@ export const composeTasks = [
       "Is the headline unmistakably the dominant piece of type?",
       "Does the card look composed, with the ribbon sitting deliberately rather than crossing the copy?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -387,6 +535,15 @@ export const composeTasks = [
       "  - The talk title is at least twice the size of the smallest type, and at 84 units",
       "    or larger.",
       "  - No two blocks of text overlapping, and everything at least 56 units clear of every edge.",
+      "",
+      "Layout:",
+      "  - All three text boxes start at x = 100, and the talk title's box is 880 wide.",
+      "  - The talk title is set on exactly two lines, as large as it will go on two lines at that",
+      "    measure (within 5% of the largest size that still breaks into two lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The speaker sits exactly 32 units below the title's box, and the event exactly 8 units",
+      "    below the speaker's box.",
+      "  - The three together are centred vertically on the card.",
     ].join("\n"),
     initial: titleCard,
     checks: [
@@ -409,12 +566,22 @@ export const composeTasks = [
       preservesElements(["bg"], 1),
       geometryUnchanged(titleCard(), ["bg"], 1),
       styleUnchanged(titleCard(), ["bg"], 1),
+      // v2.
+      edgeAt(visibleText, "left", 100, 2, 1, "The text starts at x = 100"),
+      alignedOn("left", visibleText, 2, 1),
+      sizeIs(withText("Interfaces That Explain Themselves"), { width: 880 }, 2, 1, "The title's box is 880 wide"),
+      lineCount(withText("Interfaces That Explain Themselves"), 2, 2, "The title is set on two lines"),
+      fillsMeasure(withText("Interfaces That Explain Themselves"), 2, 0.95, 2, "The title is as large as it goes on two lines"),
+      hugsText(visibleText, 8, 2),
+      gapBetween(withText("Interfaces That Explain Themselves"), withText("Dana Okonkwo"), "vertical", 32, 2, 1, "The speaker sits 32 below the title"),
+      gapBetween(withText("Dana Okonkwo"), withText("Layout Conf 2026"), "vertical", 8, 2, 1, "The event sits 8 below the speaker"),
+      centeredOnCanvas(visibleText, "vertical", 3, 2, "The three are centred vertically"),
     ],
     judgeCriteria: [
       "Is the talk title legible against the gradient at a glance?",
       "Are speaker and event distinguishable from the title and from each other?",
       "Does the card look composed for projection — generous margins, nothing fussy?",
     ],
-    maxTurns: 25,
+    maxTurns: 35,
   }),
 ];

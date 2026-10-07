@@ -311,6 +311,57 @@ describe("the canvas background", () => {
   });
 });
 
+describe("sizes and single-axis positions, on every surface", () => {
+  // Task set v2 states exact sizes and edges. The relational surface could
+  // reach neither for an element that already existed, short of deleting it
+  // and creating it again — `docs/PREREGISTRATION.md` §13, 2026-10-07.
+  it("resizes an existing element identically on all three surfaces", () => {
+    const start = docWith(el("a", { x: 100, y: 120, width: 300, height: 80 }));
+    const coord = session(start);
+    const rel = session(start);
+    const asCode = session(start);
+    executeToolCall(coord, coordinateSurface, "resize", { id: "a", width: 222, height: 300 });
+    expect(executeToolCall(rel, relationalSurface, "set_size", { id: "a", width: 222, height: 300 }).ok).toBe(true);
+    executeToolCall(asCode, documentSurface, "write_document", {
+      document: { ...start, elements: [{ ...start.elements[0]!, width: 222, height: 300 }] },
+    });
+    expect(rel.doc).toEqual(coord.doc);
+    expect(asCode.doc).toEqual(coord.doc);
+  });
+
+  it("resizes about the centre when asked, so a tilted card shrinks in place", () => {
+    const start = docWith(el("a", { x: 100, y: 100, width: 400, height: 200, rotation: -12 }));
+    const coord = session(start);
+    const rel = session(start);
+    executeToolCall(coord, coordinateSurface, "resize", { id: "a", width: 300, height: 150 });
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 150, y: 125 });
+    executeToolCall(rel, relationalSurface, "set_size", { id: "a", width: 300, height: 150, anchor: "center" });
+    expect(rel.doc).toEqual(coord.doc);
+  });
+
+  it("sets one coordinate from a canvas edge without moving the other", () => {
+    const start = docWith(el("a", { x: 37, y: 480, width: 160, height: 300 }));
+    const coord = session(start);
+    const rel = session(start);
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 140, y: 480 });
+    executeToolCall(rel, relationalSurface, "align", { ids: ["a"], edge: "left", to: "canvas", margin: 140 });
+    expect(rel.doc).toEqual(coord.doc);
+
+    executeToolCall(coord, coordinateSurface, "move", { id: "a", x: 140, y: 1000 - 40 - 300 });
+    executeToolCall(rel, relationalSurface, "align", { ids: ["a"], edge: "bottom", to: "canvas", margin: 40 });
+    expect(rel.doc).toEqual(coord.doc);
+  });
+
+  it("sizes a text box to exactly its text, shrinking as well as growing", () => {
+    const tall = { type: "text" as const, text: "Short", width: 400, height: 300, style: { fontSize: 40 } };
+    const s = session(docWith(el("t", tall)));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "fit_box" });
+    expect(r.ok).toBe(true);
+    expect(find(s.doc, "t").height).toBeCloseTo(50, 6);
+    expect(find(s.doc, "t").y).toBe(0);
+  });
+});
+
 describe("coordinate surface", () => {
   it("moves to absolute coordinates", () => {
     const s = session(docWith(el("a", { x: 10, y: 10 })));

@@ -22,7 +22,19 @@ import { defineTask } from "./types.js";
 import { doc, image, rect, text, POSTER_H, POSTER_W } from "./helpers.js";
 import {
   alignedOn,
+  aspectOf,
+  centerAt,
+  centeredOnCanvas,
   containsText,
+  edgeAt,
+  fillsMeasure,
+  gapBetween,
+  hugsText,
+  insetWithin,
+  insideShape,
+  lineCount,
+  paintedReach,
+  sizeIs,
   geometryUnchanged,
   inBounds,
   inRegion,
@@ -129,6 +141,18 @@ const buriedText = () =>
 
 const zOrder = () =>
   doc([
+    text({
+      id: "badge_label",
+      x: 760,
+      y: 80,
+      w: 240,
+      h: 60,
+      z: 10,
+      text: "NEW",
+      style: { fontSize: 32, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
+    }),
+    rect({ id: "badge", x: 760, y: 80, w: 240, h: 60, z: 11, style: { fill: "#a8352a", radius: 30 } }),
+    rect({ id: "rule", x: 100, y: 870, w: 160, h: 8, z: 7, style: { fill: "#e3a35b" } }),
     text({
       id: "hero_title",
       x: 100,
@@ -277,6 +301,15 @@ const tiltedStack = () =>
     rect({ id: "stamp", x: 700, y: 900, w: 240, h: 240, rot: 14, z: 3, style: { fill: "#d94f3d", radius: 24 } }),
   ], { background: "#efeae1" });
 
+/**
+ * Task set v2 (`docs/PREREGISTRATION.md` §13, 2026-10-07): each repair now
+ * also states where things end up — gaps, insets, edges — rather than only
+ * that the defect is gone. "Move it until it stops overlapping" was one
+ * answer among many and every one of them passed; a designer handing this
+ * back would have said where.
+ */
+const TEXT_KEYS = ["fontSize", "fontWeight", "lineHeight"] as const;
+
 export const repairTasks = [
   defineTask({
     id: "repair.overlapping-stack",
@@ -290,6 +323,15 @@ export const repairTasks = [
       "When you are done: no block of text may overlap another, the three blocks must still read",
       "headline, subhead, body from top to bottom, and nothing may be painted over any of them.",
       "Keep everything at least 40 units clear of every canvas edge.",
+      "",
+      "Precisely:",
+      "  - The panel does not move or resize.",
+      "  - The three text boxes start at x = 100, and the headline's box starts at y = 240.",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The subhead sits exactly 12 units below the headline's box, and the body exactly 28 below the subhead's.",
+      "  - The badge keeps its 300 by 300 size and sits in the panel's bottom-right corner, exactly 40 units",
+      "    in from the panel's right and bottom edges, and no text box overlaps it. You may narrow a text box,",
+      "    but do not change any type size, weight or line height.",
     ].join("\n"),
     initial: overlappingStack,
     checks: [
@@ -307,6 +349,19 @@ export const repairTasks = [
       noOverlap(["headline", "subhead", "body"], 2, "The three blocks of text do not overlap"),
       verticalOrder(["headline", "subhead", "body"], 2),
       marginAtLeast(40, 1),
+      // v2.
+      geometryUnchanged(overlappingStack(), ["panel"], 1),
+      edgeAt(["headline", "subhead", "body"], "left", 100, 2, 1, "The text starts at x = 100"),
+      alignedOn("left", ["headline", "subhead", "body"], 2, 1),
+      edgeAt(["headline"], "top", 240, 2, 1, "The headline starts at y = 240"),
+      hugsText(["headline", "subhead", "body"], 8, 2),
+      gapBetween(["headline"], ["subhead"], "vertical", 12, 2, 1, "The subhead sits 12 below the headline"),
+      gapBetween(["subhead"], ["body"], "vertical", 28, 2, 1, "The body sits 28 below the subhead"),
+      sizeIs(["badge"], { width: 300, height: 300 }, 1, 1, "The badge stays 300 by 300"),
+      edgeAt(["badge"], "right", 980, 2, 1, "The badge sits 40 in from the panel's right edge"),
+      edgeAt(["badge"], "bottom", 860, 2, 1, "The badge sits 40 in from the panel's bottom edge"),
+      noOverlap(["headline", "subhead", "body", "badge"], 2, "No text box overlaps the badge"),
+      styleUnchanged(overlappingStack(), ["headline", "subhead", "body"], 1, { keys: [...TEXT_KEYS] }),
     ],
     judgeCriteria: [
       "Is every piece of text now fully readable?",
@@ -314,7 +369,7 @@ export const repairTasks = [
       "Is the reading order — headline, subhead, body — still obvious?",
       "Does the badge sit somewhere deliberate rather than wherever it ended up?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -329,6 +384,14 @@ export const repairTasks = [
       "",
       "Keep all five elements. Do not resize the photo — it already fits, it is simply in the wrong place —",
       "and leave at least 24 units between anything and a canvas edge.",
+      "",
+      "Precisely:",
+      "  - The photo is centred horizontally, with its top edge at y = 40.",
+      "  - The caption and the credit boxes start at the photo's left edge and are as wide as the photo.",
+      "    The caption sits exactly 24 units below the photo and the credit exactly 8 below the caption.",
+      "  - Every text box is no taller than its text needs, plus at most 8 units. Do not change any type size.",
+      "  - The tags keep their size, sit side by side with exactly 24 units between them, share a top edge,",
+      "    and end exactly 80 units above the bottom of the canvas; the pair is centred horizontally.",
     ].join("\n"),
     initial: offCanvas,
     checks: [
@@ -343,13 +406,27 @@ export const repairTasks = [
       inRegion(["tag_a", "tag_b"], { x0: 0, y0: 0.6, x1: 1, y1: 1 }, 1, "The tags stay near the bottom"),
       alignedOn("vcenter", ["tag_a", "tag_b"], 2, 1),
       marginAtLeast(24, 1),
+      // v2.
+      edgeAt(["photo"], "top", 40, 2, 1, "The photo's top edge is at y = 40"),
+      centeredOnCanvas(["photo"], "horizontal", 2, 1, "The photo is centred horizontally"),
+      alignedOn("left", ["photo", "caption", "credit"], 2, 1),
+      sizeIs(["caption", "credit"], { width: 1000 }, 2, 1, "The caption and credit are as wide as the photo"),
+      gapBetween(["photo"], ["caption"], "vertical", 24, 2, 1, "The caption sits 24 below the photo"),
+      gapBetween(["caption"], ["credit"], "vertical", 8, 2, 1, "The credit sits 8 below the caption"),
+      hugsText(["caption", "credit"], 8, 2),
+      styleUnchanged(offCanvas(), ["caption", "credit"], 1, { keys: [...TEXT_KEYS] }),
+      geometryUnchanged(offCanvas(), ["tag_a", "tag_b"], 1, { fields: ["width", "height"] }),
+      gapBetween(["tag_a"], ["tag_b"], "horizontal", 24, 2, 1, "24 between the tags"),
+      alignedOn("top", ["tag_a", "tag_b"], 2, 1),
+      edgeAt(["tag_a", "tag_b"], "bottom", 1270, 2, 1, "The tags end 80 above the bottom"),
+      centeredOnCanvas(["tag_a", "tag_b"], "horizontal", 2, 1, "The tags are centred as a pair"),
     ],
     judgeCriteria: [
       "Is every element fully visible, with nothing cropped by the canvas edge?",
       "Was the original arrangement preserved — photo above, caption beneath, tags at the bottom?",
       "Do the margins look intentional and roughly even?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -363,6 +440,12 @@ export const repairTasks = [
       "The shape keeps its 640 by 420 size and stays fully inside the card, and the card itself stays",
       "exactly where it is. Move the shape, restack it, or move the text around it — but the shape is",
       "part of the design, so it has to end up somewhere a designer would have put it.",
+      "",
+      "Precisely:",
+      "  - The shape is centred on the card, and painted behind both blocks of text (and in front of the card).",
+      "  - The title and the note keep x = 140 and their 800 width, and every type size, weight and line height.",
+      "  - Both text boxes are no taller than their text needs, plus at most 8 units.",
+      "  - The note sits exactly 24 units below the title, and the two together are centred on the card.",
     ].join("\n"),
     initial: buriedText,
     checks: [
@@ -385,13 +468,21 @@ export const repairTasks = [
         whole: true,
       }),
       marginAtLeast(24, 1),
+      // v2.
+      centerAt(["blot"], 540, 610, 2, 2, "The shape is centred on the card"),
+      paintOrder(["card", "blot", "title", "note"], 2),
+      geometryUnchanged(buriedText(), ["title", "note"], 1, { fields: ["x", "width"] }),
+      styleUnchanged(buriedText(), ["title", "note"], 1, { keys: [...TEXT_KEYS] }),
+      hugsText(["title", "note"], 8, 2),
+      gapBetween(["title"], ["note"], "vertical", 24, 2, 1, "The note sits 24 below the title"),
+      centerAt(["title", "note"], 540, 610, 2, 2, "The text is centred on the card"),
     ],
     judgeCriteria: [
       "Is all of the text readable?",
       "Does the shape still play a deliberate decorative role, rather than being hidden or shoved off to a corner?",
       "Does the card still read as one composed object?",
     ],
-    maxTurns: 25,
+    maxTurns: 35,
   }),
 
   defineTask({
@@ -401,32 +492,40 @@ export const repairTasks = [
     brief: [
       "The stacking order on this hero image is wrong: the background photo is painted over the text,",
       "and the scrim that should sit behind the text is on top of everything.",
-      "Fix the layering so the photo is at the back, the scrim sits over the photo, the title sits over",
-      "the scrim, and the subtitle over that.",
+      "The badge in the corner has its label painted underneath it, too.",
       "",
-      "Only the stacking needs to change: do not move anything, do not resize anything,",
-      "and do not restyle anything either — the same fills, colours and opacities come out the other side.",
+      "Fix the layering so that, from the back: the photo, then the scrim, then the accent rule, then the",
+      "title, then the subtitle, then the badge, and the badge's label on top of everything.",
+      "",
+      "Then fit the scrim to the text: it runs the full width of the canvas, from exactly 40 units above the",
+      "title's box down to the bottom edge of the canvas.",
+      "",
+      "Apart from the scrim's position and size, only the stacking changes: do not move or resize anything",
+      "else, and do not restyle anything — the same fills, colours and opacities come out the other side.",
     ].join("\n"),
     initial: zOrder,
     checks: [
-      preservesElements(["hero_title", "hero_sub", "scrim", "hero_photo"], 2),
+      preservesElements(["hero_title", "hero_sub", "scrim", "hero_photo", "rule", "badge", "badge_label"], 2),
       noTextOcclusion(3),
       // The occlusion check measures the symptom, and the symptom has a second
       // cure: fade the photograph to nothing and it covers nothing. This reads
       // the stacking the brief is actually about.
-      paintOrder(["hero_photo", "scrim", "hero_title", "hero_sub"], 4),
-      // "Do not move or resize anything — only the stacking needs to change."
-      // A loose region on one element was standing in for that.
-      geometryUnchanged(zOrder(), ["hero_title", "hero_sub", "scrim", "hero_photo"], 2),
-      styleUnchanged(zOrder(), ["hero_title", "hero_sub", "scrim", "hero_photo"], 2),
-      textUnchanged(zOrder(), ["hero_title", "hero_sub"], 1),
+      paintOrder(["hero_photo", "scrim", "rule", "hero_title", "hero_sub", "badge", "badge_label"], 4),
+      geometryUnchanged(zOrder(), ["hero_title", "hero_sub", "hero_photo", "rule", "badge", "badge_label"], 2),
+      styleUnchanged(zOrder(), ["hero_title", "hero_sub", "scrim", "hero_photo", "rule", "badge", "badge_label"], 2),
+      textUnchanged(zOrder(), ["hero_title", "hero_sub", "badge_label"], 1),
+      // v2: the one element that does move, to a stated place.
+      edgeAt(["scrim"], "left", 0, 1, 1, "The scrim starts at the left edge"),
+      sizeIs(["scrim"], { width: POSTER_W }, 1, 1, "The scrim runs the full width"),
+      edgeAt(["scrim"], "top", 860, 2, 2, "The scrim starts 40 above the title"),
+      edgeAt(["scrim"], "bottom", POSTER_H, 1, 1, "The scrim reaches the bottom edge"),
     ],
     judgeCriteria: [
       "Is the photo behind everything, with the text clearly on top?",
       "Does the scrim sit between them, so the text has something to read against?",
       "Were the positions and sizes left alone, as asked?",
     ],
-    maxTurns: 20,
+    maxTurns: 30,
   }),
 
   defineTask({
@@ -440,6 +539,15 @@ export const repairTasks = [
       "",
       "Line all four up on a single left edge, and keep all four elements.",
       "Nothing may overlap anything else when you are done.",
+      "",
+      "Precisely:",
+      "  - All four start at x = 60 and are 960 wide; the kicker's box starts at y = 60.",
+      "  - The title is set on exactly two lines, as large as it will go on two lines at that 960 measure",
+      "    (within 5% of the largest size that still breaks into two lines).",
+      "  - Every text box is no taller than its text needs, plus at most 8 units.",
+      "  - The title sits exactly 12 units below the kicker, the art exactly 40 below the title, and the",
+      "    footer exactly 40 below the art; the footer's box ends exactly 60 units above the bottom edge.",
+      "  - Keep the kicker's and the footer's type size and weight.",
     ].join("\n"),
     initial: crowdedMargins,
     checks: [
@@ -452,13 +560,25 @@ export const repairTasks = [
       verticalOrder(["kicker", "title", "art", "footer"], 2),
       alignedOn("left", ["kicker", "title", "art", "footer"], 2, 2),
       noOverlap(["kicker", "title", "art", "footer"], 1),
+      // v2.
+      edgeAt(["kicker", "title", "art", "footer"], "left", 60, 2, 1, "Everything starts at x = 60"),
+      sizeIs(["kicker", "title", "art", "footer"], { width: 960 }, 2, 1, "Everything is 960 wide"),
+      edgeAt(["kicker"], "top", 60, 2, 1, "The kicker starts at y = 60"),
+      lineCount(["title"], 2, 2, "The title is set on two lines"),
+      fillsMeasure(["title"], 2, 0.95, 2, "The title is as large as it goes on two lines"),
+      hugsText(["kicker", "title", "footer"], 8, 2),
+      gapBetween(["kicker"], ["title"], "vertical", 12, 2, 1, "The title sits 12 below the kicker"),
+      gapBetween(["title"], ["art"], "vertical", 40, 2, 1, "The art sits 40 below the title"),
+      gapBetween(["art"], ["footer"], "vertical", 40, 2, 1, "The footer sits 40 below the art"),
+      edgeAt(["footer"], "bottom", 1290, 2, 1, "The footer ends 60 above the bottom"),
+      styleUnchanged(crowdedMargins(), ["kicker", "footer"], 1, { keys: ["fontSize", "fontWeight"] }),
     ],
     judgeCriteria: [
       "Does every element now sit comfortably inside a consistent margin?",
       "Is the vertical order — kicker, title, art, footer — unchanged?",
       "Do the margins look like a deliberate grid rather than four different guesses?",
     ],
-    maxTurns: 30,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -469,29 +589,40 @@ export const repairTasks = [
       "Every element on this notice has been knocked askew, each by a different amount, and the card now hangs",
       "off both sides of the canvas because of it.",
       "",
-      "Put all four back upright — square to the canvas, at zero degrees.",
-      "Nothing needs to move or resize: every box is already where it belongs, and turning an element about its",
-      "own centre is enough. So do not change any element's position or size, do not delete anything,",
-      "and do not rewrite the copy.",
+      "The card's tilt is meant to stay: it is a notice pinned up at an angle. Everything on it is not.",
+      "",
+      "  - The card keeps its -12 degree tilt, its centre and its proportions (960 by 1040), but shrinks so that",
+      "    what it paints comes to between 36 and 44 units of the left edge and of the right edge of the canvas.",
+      "  - The title, the body and the stamp go back upright — square to the canvas, at zero degrees.",
+      "  - The title, the body and the stamp each sit entirely on the card.",
+      "  - The stamp keeps its 240 by 240 size. The title and the body keep every type size, weight and line",
+      "    height and every word of their copy; you may move them and change their boxes.",
+      "  - Nothing may overlap anything else, apart from everything sitting on the card.",
+      "",
+      "Do not delete anything.",
     ].join("\n"),
     initial: tiltedStack,
     checks: [
       preservesElements(["card", "title", "body", "stamp"], 2),
       // Budget 5, not the default 10: "square to the canvas" has no band of
       // acceptable tilt, and a reader sees three degrees.
-      rotationWithin(["card", "title", "body", "stamp"], 0, 8, {
+      rotationWithin(["title", "body", "stamp"], 0, 8, {
         budget: 5,
-        label: "Everything is square to the canvas",
+        label: "Everything on the card is square to the canvas",
       }),
-      // The boxes are already right, so straightening is the whole repair —
-      // and a run that "fixes" the overhang by shoving the card left has not
-      // done it.
-      geometryUnchanged(tiltedStack(), ["card", "title", "body", "stamp"], 2, {
-        fields: ["x", "y", "width", "height"],
-      }),
+      rotationWithin(["card"], -12, 2, { tolerance: 0.5, label: "The card keeps its -12 degree tilt" }),
       inBounds(2),
       textUnchanged(tiltedStack(), ["title", "body"], 1),
-      marginAtLeast(40, 1),
+      marginAtLeast(36, 1),
+      // v2. The card's painted width is w cos 12 + h sin 12 for a box of w by
+      // h, and the brief gives the painted width and the proportions, not w.
+      centerAt(["card"], 540, 680, 2, 1, "The card keeps its centre"),
+      aspectOf("card", 960 / 1040, 0.01, 1),
+      paintedReach(["card"], "horizontal", 36, 44, 3, "The card reaches to 36–44 units of both side edges"),
+      insideShape(["title", "body", "stamp"], "card", 4, "The title, body and stamp sit entirely on the card"),
+      sizeIs(["stamp"], { width: 240, height: 240 }, 1, 1, "The stamp stays 240 by 240"),
+      styleUnchanged(tiltedStack(), ["title", "body"], 1, { keys: [...TEXT_KEYS] }),
+      noOverlap(["title", "body", "stamp"], 2),
     ],
     judgeCriteria: [
       "Is everything square to the canvas?",
@@ -499,7 +630,7 @@ export const repairTasks = [
       "Are the title and the body clear of each other and comfortable to read?",
       "Does the notice look like it was never knocked about, rather than patched up?",
     ],
-    maxTurns: 25,
+    maxTurns: 40,
   }),
 
   defineTask({
@@ -518,6 +649,16 @@ export const repairTasks = [
       "  - The order down the page is photo, lead, standfirst, byline, and nothing overlaps the byline.",
       "  - Keep all five elements and every word of the copy exactly as it is.",
       "  - Do not resize the photo.",
+      "",
+      "Precisely:",
+      "  - The photo is centred horizontally, with its top edge at y = 40.",
+      "  - The plate is as wide as the photo and starts at its left edge, exactly 24 units below it.",
+      "  - The lead and the standfirst sit on the plate, 40 units in from its left, top and right edges;",
+      "    the standfirst sits exactly 16 units below the lead, and the plate ends exactly 40 units below",
+      "    the standfirst.",
+      "  - The byline starts at the plate's left edge, exactly 24 units below the plate.",
+      "  - Every text box is no taller than its text needs, plus at most 8 units, and no type size,",
+      "    weight or line height changes.",
     ].join("\n"),
     initial: mixedDefects,
     checks: [
@@ -531,6 +672,17 @@ export const repairTasks = [
       notCovered(["cover"], 1, "Nothing is painted over the photo"),
       verticalOrder(["cover", "lead", "standfirst", "byline"], 2),
       noOverlap(["lead", "standfirst", "byline"], 2),
+      // v2.
+      edgeAt(["cover"], "top", 40, 2, 1, "The photo's top edge is at y = 40"),
+      centeredOnCanvas(["cover"], "horizontal", 2, 1, "The photo is centred horizontally"),
+      alignedOn("left", ["cover", "plate", "byline"], 2, 1),
+      sizeIs(["plate"], { width: 1000 }, 2, 1, "The plate is as wide as the photo"),
+      gapBetween(["cover"], ["plate"], "vertical", 24, 2, 1, "The plate sits 24 below the photo"),
+      insetWithin(["lead", "standfirst"], "plate", { left: 40, top: 40, right: 40, bottom: 40 }, 2, 2, "The copy sits 40 in on the plate"),
+      gapBetween(["lead"], ["standfirst"], "vertical", 16, 2, 1, "The standfirst sits 16 below the lead"),
+      gapBetween(["plate"], ["byline"], "vertical", 24, 2, 1, "The byline sits 24 below the plate"),
+      hugsText(["lead", "standfirst", "byline"], 8, 2),
+      styleUnchanged(mixedDefects(), ["lead", "standfirst", "byline"], 1, { keys: [...TEXT_KEYS] }),
     ],
     judgeCriteria: [
       "Are all three defects fixed, rather than one of them traded for another?",
@@ -538,6 +690,6 @@ export const repairTasks = [
       "Is the white plate doing its job, sitting behind the copy rather than over it?",
       "Do the margins and the gaps look deliberate?",
     ],
-    maxTurns: 35,
+    maxTurns: 45,
   }),
 ];

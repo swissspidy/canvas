@@ -435,6 +435,45 @@ ceiling. Weaker models will sit lower, which is the point of the ladder.
 - Adjustments are recorded here in a following entry, task by task, with the
   pooled numbers that prompted them.
 
+**2026-10-07 (third entry) — the relational surface could not resize, or set
+one coordinate.** Written before any run against the new tasks, while building
+them.
+
+Writing reference solutions for v2 meant asking, for every new constraint,
+whether each surface could reach it. Two holes in the relational surface
+turned up, both older than v2:
+
+1. *It could not change the size of an element that already existed.*
+   `create` takes a width and a height, but `place` only positions,
+   `fit_within` only scales down, and `fit_text`'s `grow_box` only grows. The
+   only way left to reach a different box was to delete the element and
+   create it again — which is what relational agents did in this morning's
+   pilots (0.29 deletes a run against 0.01 on coordinate), and what the
+   preservation checks scored as a loss. The first entry of today read that as
+   behaviour. Part of it, at least, was the surface. Relational now has
+   `set_size`, which sets width and/or height about the top-left corner or the
+   centre. Sizes were always numbers on this surface; positions still are not.
+2. *It could not set one coordinate without moving the other.* Every
+   `canvas_*` relation applies its margin on both axes, so "the left edge 140
+   in from the canvas's left edge, y unchanged" had no relational expression.
+   `align` now takes a `margin`: an inset from the reference's edge, so
+   `align(edge: left, to: canvas, margin: 140)` says exactly that sentence.
+
+And one addition that is not a hole but a vocabulary gap the v2 briefs would
+otherwise open: `fit_text` gains a `fit_box` mode that sets a text box to
+exactly the height its text needs, shrinking as well as growing. "Every box
+hugs its text" is now a stated constraint on most tasks; a relational surface
+whose text tools can only grow a box would be measured on a power it lacks,
+which is the confound §8 exists to rule out. Coordinate and document-as-code
+reach the same states by working out the height themselves, which is the
+measurement difficulty v2 is built on, not a gap in power.
+
+`surfaces.test.ts` now reaches the same resized, single-axis-positioned and
+hugged documents through all three surfaces. The relational briefing gains one
+sentence ("Sizes are numbers you give, as in create and set_size; positions
+never are"). Hybrid inherits all three. Nothing in the hypotheses, the
+outcomes or the analysis plan changes.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
