@@ -517,6 +517,14 @@ allowed:
 
 No per-surface or per-feedback figure was computed. Round 2 re-runs all 23.
 
+*Round 2, cut short.* The Anthropic key ran out of credit 86 runs in; the other
+52 ended in `api_error` and are excluded as harness failures (§5). The 86 that
+ran cover 15 tasks — every compose and repair task and two fit tasks — and
+pass **76.7%** pooled (compose 64%, repair 83%). Tightening the fills to 2%
+did not move compose at all. The round is incomplete and no adjustment is
+made on it; it resumes into the same directory when there is credit, which
+re-runs exactly the 52 missing cells.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
