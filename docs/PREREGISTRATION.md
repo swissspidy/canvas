@@ -379,6 +379,62 @@ the real risk, and the pilot in §10 is where it would first show up.
 Any departure from this document gets appended here, dated, with a reason,
 *before* the affected analysis is run.
 
+**2026-10-07 (second entry) — task set v2, and how its difficulty is
+calibrated.** Written before any run against the new tasks.
+
+The pilots of 2026-09-19 and of this morning say the same thing three times
+over: the task set does not have the headroom to separate anything. On Opus 5,
+88% of runs closed every check; the weaker models were not far behind. The
+2026-09-19 entry named the remedy — "a harder task set in a new
+pre-registration, not a re-cut of this one" — and this is it. The question,
+the hypotheses, the primary outcome, the analysis plan and the decision rules
+are carried over unchanged. What changes is the tasks, and so every baseline
+and every number in `docs/TASKS.md`.
+
+**What makes a task harder, and what may not.** Difficulty may come only from
+three places, each a thing a designer would actually ask for, and each stated
+in the brief that is scored against it:
+
+1. *Precision*: stated gaps, sizes, edges and grids, graded with tight
+   tolerances.
+2. *Measurement*: constraints that depend on font metrics or rotated geometry
+   the agent cannot read off the document — type set as large as it will go on
+   a stated number of lines, boxes that hug their text, columns that end level,
+   a tilted shape that reaches a stated distance from the edges.
+3. *Breadth*: more elements and more simultaneous constraints, so that one
+   miss fails the run.
+
+Not allowed: constraints left out of the brief, constraints that cannot all be
+met at once, and wording that hides what is wanted. Every task keeps a
+reference solution that scores full marks (`solvable.test.ts`), every
+starting document stays below 90%, and every cheap path that is found gets a
+loophole test, as before.
+
+**The target.** About 30% of runs on Opus 5 should *pass* — close every check,
+which the report already calls a pass at 99.9% of the constraint score. That
+puts the confirmatory model where differences can show instead of at the
+ceiling. Weaker models will sit lower, which is the point of the ladder.
+
+**How it is calibrated, fixed now.**
+
+- Calibration runs are pilots in the sense of §10 and are kept out of every
+  grid. They use Opus 5, effort `high`, no judge, one repeat, the three
+  confirmatory surfaces, and feedback `none` and `both` — the two ends of the
+  feedback axis, so the pass rate is not tuned to one condition.
+- **The only numbers read during calibration are pooled**: pass rate and mean
+  improvement per task and overall, pooled across surface and feedback. A
+  script produces them and nothing else, and no per-surface or per-feedback
+  figure is computed, printed or looked at until the confirmatory grid is run.
+  Tasks are being tuned to a difficulty, and tuning them while watching which
+  surface wins would be the forking path this document exists to close.
+- A round is accepted when the pooled pass rate is between 20% and 40% and no
+  task passes more than 70% or less than 5% of its runs. A task outside that
+  band is adjusted — made harder by adding a constraint from the three kinds
+  above, or easier by loosening a stated number — and the next round re-runs
+  only the tasks that changed, plus the pooled total.
+- Adjustments are recorded here in a following entry, task by task, with the
+  pooled numbers that prompted them.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
