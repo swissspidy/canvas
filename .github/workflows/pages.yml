@@ -10,11 +10,8 @@ on:
       - .github/workflows/pages.yml
   workflow_dispatch:
 
-# Reading the checkout, and the two grants deploy-pages needs. Nothing else.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# Nothing by default. The one job states what it needs.
+permissions: {}
 
 # One deployment at a time. An in-flight one is allowed to finish rather than
 # being cancelled half way through publishing.
@@ -26,6 +23,10 @@ jobs:
   deploy:
     name: Publish site/
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the repository
+      pages: write # publish the deployment
+      id-token: write # prove to Pages that the deployment came from this run
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
