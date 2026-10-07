@@ -582,6 +582,28 @@ a turn, and §6 records that the two adaptive-thinking models run under a
 for this family is the obvious next step, and would be recorded here before
 the run that uses it.
 
+**2026-10-07 (seventh entry) — newer models, a higher ceiling, per-task pass
+rates, and a harder family.** Written before any run of what it describes.
+
+- *Models.* Claude Opus 5.5 and Sonnet 5.5 were released; Opus 5.5 is now the
+  confirmatory model and Sonnet 5.5 the judge, both probed live. Haiku 4.5
+  leaves the ladder: a generation behind, it measured age as much as tier.
+- *Ceiling.* `maxOutputTokens` rises from 16,000 to 32,000 for every model, so
+  the sixth entry's `max_tokens` stops stop measuring the ceiling.
+- *Pass rates are reported task by task.* A pass rate pooled across tasks
+  averaged pages Opus 5 always finished (three at 100%) with one it rarely did
+  (33%), and read as 80% — a number that described none of them. The report
+  now leads with a model-by-task pass table, and gives each model's low,
+  median and high task pass rate instead of a pooled one. The calibration
+  target becomes per task: **Opus 5.5 near 30% on each**.
+- *The family, rebuilt so every task carries the programme's load* (twelve
+  independent measurements, the one task that held Opus 5 to 33%): a contents
+  page with sixteen auto-fit headlines in four columns (the six- and
+  nine-entry versions are retired); a menu of twelve dishes in two columns
+  whose names fill two lines below their cap; the programme unchanged; and a
+  timeline whose six notes now auto-fit to two lines as well as its six
+  headlines. Every task keeps a reference solution at full marks.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.

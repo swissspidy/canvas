@@ -522,30 +522,27 @@ export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
     return { ...doc, elements: out };
   },
 
-  "measure.contents": () => contentsSolution("measure.contents", [60, 570], 450, 3),
-  "measure.contents-wide": () => contentsSolution("measure.contents-wide", [60, 390, 720], 300, 3),
+  "measure.contents": () => contentsSolution("measure.contents", [60, 305, 550, 795], 225, 4),
 
   "measure.menu": () => {
     const doc = getTask("measure.menu").initial();
     const get = (eid: string) => doc.elements.find((e) => e.id === eid)!;
     const out: Element[] = [get("header")];
-    let y = 200;
-    let dish = 1;
-    for (const [s, count] of [[1, 3], [2, 4]] as const) {
-      const heading = hug({ ...get(`section${s}`), x: 60, y, width: 760 });
+    [60, 560].forEach((x, c) => {
+      const heading = hug({ ...get(`section${c + 1}`), x, y: 200, width: 460 });
       out.push(heading);
-      y = bottom(heading) + 16;
-      for (let k = 0; k < count; k++, dish++) {
-        const nameEl = get(`dish${dish}`);
-        const fit = largestFontSizeForLines({ ...nameEl, width: 760 }, 1)!;
-        const name = hug({ ...nameEl, x: 60, y, width: 760, style: { ...nameEl.style, fontSize: Math.min(44, fit) } });
-        const price = hug({ ...get(`price${dish}`), x: 840, y, width: 180 });
-        const desc = hug({ ...get(`desc${dish}`), x: 60, y: bottom(name) + 6, width: 760 });
+      let y = bottom(heading) + 16;
+      for (let k = 0; k < 6; k++) {
+        const i = c * 6 + k + 1;
+        const nameEl = { ...get(`dish${i}`), x, y, width: 360 };
+        const fit = largestFontSizeForLines(nameEl, 2)!;
+        const name = hug({ ...nameEl, style: { ...nameEl.style, fontSize: Math.min(40, fit) } });
+        const price = hug({ ...get(`price${i}`), x: x + 380, y, width: 80 });
+        const desc = hug({ ...get(`desc${i}`), x, y: bottom(name) + 6, width: 460 });
         out.push(name, price, desc);
         y = bottom(desc) + 28;
       }
-      y = y - 28 + 48;
-    }
+    });
     return { ...doc, elements: out };
   },
 
@@ -575,7 +572,9 @@ export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
       const fit = largestFontSizeForLines({ ...headEl, width: 760 }, 1)!;
       const head = hug({ ...headEl, x: 260, y, width: 760, style: { ...headEl.style, fontSize: Math.min(48, fit) } });
       const year = hug({ ...get(`year${i}`), x: 60, y, width: 150 });
-      const note = hug({ ...get(`note${i}`), x: 260, y: bottom(head) + 8, width: 760 });
+      const noteEl = { ...get(`note${i}`), x: 260, y: bottom(head) + 8, width: 760 };
+      const noteFit = largestFontSizeForLines(noteEl, 2)!;
+      const note = hug({ ...noteEl, style: { ...noteEl.style, fontSize: Math.min(30, noteFit) } });
       out.push(year, head, note);
       last = bottom(note);
       y = last + 40;

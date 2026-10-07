@@ -62,15 +62,22 @@ const header = (copy: string) =>
 // --- contents ---------------------------------------------------------------
 
 const ENTRY_COPY = [
-  { n: "04", title: "The Crossing We Moved Upstream", teaser: "Why we rebuilt on rock, and what it cost." },
-  { n: "12", title: "Nine Thousand Feet of Stage", teaser: "Hauling a festival above the treeline, one crate at a time." },
-  { n: "19", title: "What the Ford Taught Us", teaser: "Four days a year you do not cross. That turns out to be enough." },
-  { n: "23", title: "Winter Notes From the Valley Road", teaser: "What the snowplough saw, and what it did not." },
-  { n: "27", title: "Letters From the Eastern Bank", teaser: "Readers write in about the spring melt and the long way round." },
-  { n: "33", title: "A Bridge Is a Promise", teaser: "Four times the price, and there in April. Is that worth it?" },
-  { n: "41", title: "Notes on Patching, Honestly", teaser: "A season of quick fixes, totted up in one honest column." },
-  { n: "46", title: "The Long Way Round, Measured", teaser: "Seven extra miles a day, and why nobody minded." },
-  { n: "52", title: "Rebuilding the Footbridge in a Week", teaser: "Six volunteers, one borrowed winch, and a very long Saturday." },
+  { n: "04", title: "The Crossing We Moved Upstream", teaser: "Why we rebuilt on rock." },
+  { n: "09", title: "Nine Thousand Feet of Stage", teaser: "A festival above the treeline." },
+  { n: "12", title: "What the Ford Taught Us", teaser: "Four days a year, no crossing." },
+  { n: "16", title: "Winter Notes From the Valley Road", teaser: "What the snowplough saw." },
+  { n: "19", title: "Letters From the Eastern Bank", teaser: "Readers on the long way round." },
+  { n: "23", title: "A Bridge Is a Promise", teaser: "Four times the price. Worth it?" },
+  { n: "27", title: "Notes on Patching, Honestly", teaser: "A season of quick fixes, totted up." },
+  { n: "31", title: "The Long Way Round, Measured", teaser: "Seven extra miles a day." },
+  { n: "34", title: "Rebuilding the Footbridge in a Week", teaser: "One very long Saturday." },
+  { n: "38", title: "Six Volunteers and a Borrowed Winch", teaser: "How the winch came back." },
+  { n: "41", title: "The Map We Drew After the Melt", teaser: "Every bend, redrawn by hand." },
+  { n: "45", title: "Why the Old Signs Stayed Up", teaser: "Nobody had the heart." },
+  { n: "48", title: "A Year of Building Quietly", teaser: "Twelve months, no headlines." },
+  { n: "52", title: "The Ferryman Retires", teaser: "Forty years on the river." },
+  { n: "55", title: "Counting Trucks at Dawn", teaser: "A census before breakfast." },
+  { n: "58", title: "What Gravel Remembers", teaser: "Notes from the riverbed." },
 ];
 const NUM_STYLE = { fontSize: 30, fontWeight: "bold" as const, color: ACCENT };
 const TITLE_STYLE = { fontSize: 40, fontWeight: "bold" as const, color: INK };
@@ -137,7 +144,7 @@ export function contentsTask(spec: ContentsSpec): Task {
     hugsText([...NUM, ...TITLE, ...TEASER], 4, 4),
     endsBy([...NUM, ...TITLE, ...TEASER], 1290),
   ];
-  const columnWords = ["", "one column", "two columns", "three columns"][spec.columns.length];
+  const columnWords = ["", "one column", "two columns", "three columns", "four columns"][spec.columns.length];
   const ranges = spec.columns.map((_, c) => `${inColumn(c)[0]! + 1} to ${inColumn(c).at(-1)! + 1}`);
   return defineTask({
     id: spec.id,
@@ -171,22 +178,32 @@ export function contentsTask(spec: ContentsSpec): Task {
 
 // --- menu -------------------------------------------------------------------
 
+/**
+ * Twelve dishes in two columns. Every name is long enough that "as large as it
+ * goes on two lines, up to 40" lands below the cap, so every one of the twelve
+ * is a measurement rather than a number to copy.
+ */
 const MENU: { section: string; dishes: [string, string, string][] }[] = [
   {
     section: "Small plates",
     dishes: [
-      ["Charred leeks, hazelnut and brown butter", "11", "Leeks from the valley farm, blistered over the grill and finished with toasted hazelnuts."],
-      ["Smoked trout on rye", "9", "Cold-smoked in the back shed, with pickled shallot and a little horseradish cream."],
-      ["Beetroot, whipped feta and dill oil", "10", "Three colours of beetroot, roasted slowly, on a cloud of feta."],
+      ["Charred leeks with hazelnut crumb and brown butter", "11", "Leeks from the valley farm."],
+      ["Cold-smoked trout on dark rye with horseradish", "9", "Smoked in the back shed."],
+      ["Roast beetroot, whipped feta and bright dill oil", "10", "Three colours, roasted slowly."],
+      ["Grilled flatbread with wild garlic and sea salt", "7", "Straight from the wood oven."],
+      ["Crisp potato terrine with smoked onion cream", "9", "Forty layers, pressed overnight."],
+      ["Chicory, blood orange and toasted walnut salad", "10", "Bitter, sweet and crunchy."],
     ],
   },
   {
     section: "Mains",
     dishes: [
-      ["Slow-braised lamb shoulder with white beans", "26", "Seven hours in the oven with garlic, rosemary and stock."],
-      ["Wild mushroom risotto with aged parmesan", "21", "Whatever the woods gave us this week, stirred into carnaroli rice with plenty of butter."],
-      ["Pan-roasted hake, mussels and saffron broth", "24", "Line-caught hake, mussels and a broth that takes all afternoon."],
-      ["Ridgeline burger", "18", "Our own beef, our own pickles, a soft bun."],
+      ["Slow-braised lamb shoulder with garlic white beans", "26", "Seven hours in the oven."],
+      ["Wild mushroom risotto with aged mountain cheese", "21", "Whatever the woods gave us."],
+      ["Pan-roasted hake with mussels and saffron broth", "24", "Line-caught, every morning."],
+      ["Ridgeline beef burger with our own pickles and slaw", "18", "On a soft milk bun."],
+      ["Roast celeriac steak with green sauce and capers", "19", "The vegetable as the main event."],
+      ["Whole roast trout with brown shrimp and lemon butter", "25", "Served on the bone."],
     ],
   },
 ];
@@ -194,38 +211,44 @@ const MENU: { section: string; dishes: [string, string, string][] }[] = [
 const DISHES = MENU.flatMap((s) => s.dishes);
 const dishIds = DISHES.map((_, i) => ({ name: `dish${i + 1}`, price: `price${i + 1}`, desc: `desc${i + 1}` }));
 const sectionIds = MENU.map((_, i) => `section${i + 1}`);
+const MENU_COLUMNS = [60, 560];
 
 const menu = (): Doc => {
   const els: Element[] = [header("Ridgeline Kitchen")];
   MENU.forEach((s, si) => {
-    els.push(text({ id: sectionIds[si]!, x: 80, y: 240 + si * 520, w: 500, h: 70, z: els.length, text: s.section, style: { fontSize: 34, fontWeight: "bold", color: ACCENT } }));
+    els.push(text({ id: sectionIds[si]!, x: MENU_COLUMNS[si]! + 10, y: 230, w: 400, h: 70, z: els.length, text: s.section, style: { fontSize: 34, fontWeight: "bold", color: ACCENT } }));
   });
   DISHES.forEach(([name, price, desc], i) => {
-    const y = 330 + i * 140 + ((i * 37) % 40);
+    const col = Math.floor(i / 6);
+    const x = MENU_COLUMNS[col]! + ((i * 13) % 20);
+    const y = 320 + (i % 6) * 160 + ((i * 37) % 40);
     const ids = dishIds[i]!;
-    els.push(text({ id: ids.name, x: 70, y, w: 700, h: 70, z: els.length, text: name, style: { fontSize: 30, fontWeight: "bold", color: INK } }));
-    els.push(text({ id: ids.price, x: 860, y: y + 10, w: 120, h: 60, z: els.length, text: price, style: { fontSize: 32, fontWeight: "bold", color: INK, align: "right" } }));
-    els.push(text({ id: ids.desc, x: 70, y: y + 70, w: 800, h: 40, z: els.length, text: desc, style: { fontSize: 24, color: MUTED, lineHeight: 1.4 } }));
+    els.push(text({ id: ids.name, x, y, w: 340, h: 70, z: els.length, text: name, style: { fontSize: 30, fontWeight: "bold", color: INK } }));
+    els.push(text({ id: ids.price, x: x + 370, y: y + 10, w: 70, h: 60, z: els.length, text: price, style: { fontSize: 30, fontWeight: "bold", color: INK, align: "right" } }));
+    els.push(text({ id: ids.desc, x, y: y + 90, w: 420, h: 40, z: els.length, text: desc, style: { fontSize: 24, color: MUTED, lineHeight: 1.4 } }));
   });
   return doc(els, { background: PAPER });
 };
+
+const inMenuColumn = (c: number) => dishIds.slice(c * 6, c * 6 + 6);
 
 export const menuTask = defineTask({
   id: "measure.menu",
   title: "A menu with auto-fit dish names",
   family: "fit",
   brief: [
-    "Set this menu. The header stays exactly as it is. Two sections, in order — section1 with dishes 1 to 3,",
-    "then section2 with dishes 4 to 7 — each dish a name, a price and a description (dish1, price1, desc1 and so on).",
+    "Set this menu. The header stays exactly as it is. Two columns: section1 heads the left column with dishes",
+    "1 to 6 under it, section2 heads the right column with dishes 7 to 12, in order. Each dish is a name, a price",
+    "and a description (dish1, price1, desc1 and so on).",
     "",
-    "  - Section headings, names and descriptions start at x = 60 and are 760 wide; prices are 180 wide and end",
-    "    at x = 1020, right-aligned, sharing a top edge with their dish's name.",
-    "  - The first section heading starts at y = 200. Each section's first dish sits exactly 16 units below its",
-    "    heading; each description sits exactly 6 units below its name; each next dish sits exactly 28 units",
-    "    below the description above it; the second heading sits exactly 48 units below the last description",
-    "    of the first section.",
-    "  - Dish names auto-fit: each is set on one line, as large as it will go on one line at the 760 width but",
-    "    never larger than 44 (within 2% of whichever is smaller).",
+    "  - The columns start at x = 60 and x = 560. In each, the heading and the descriptions are 460 wide and the",
+    "    names 360 wide, starting at the column's left edge; each price is 80 wide, right-aligned, ends at the",
+    "    column's right edge (x = 520 or x = 1020), and shares a top edge with its dish's name.",
+    "  - Both headings start at y = 200. Each column's first dish sits exactly 16 units below its heading; each",
+    "    description sits exactly 6 units below its name; each next dish sits exactly 28 units below the",
+    "    description above it.",
+    "  - Dish names auto-fit: each is set on exactly two lines, as large as it will go on two lines at the 360",
+    "    width but never larger than 40 (within 2% of whichever is smaller).",
     "  - Every box is no taller than its text needs, plus at most 4 units, and nothing goes below y = 1290.",
     "",
     "Headings, prices and descriptions keep their type size, weight and line height; names keep their weight.",
@@ -236,28 +259,30 @@ export const menuTask = defineTask({
     geometryUnchanged(menu(), ["header"], 1),
     styleUnchanged(menu(), [...sectionIds, ...dishIds.flatMap((d) => [d.price, d.desc])], 2, { keys: ["fontSize", "fontWeight", "lineHeight"] }),
     styleUnchanged(menu(), dishIds.map((d) => d.name), 1, { keys: ["fontWeight"] }),
-    sizeIs([...sectionIds, ...dishIds.flatMap((d) => [d.name, d.desc])], { width: 760 }, 1.5, 3, "Headings, names and descriptions are 760 wide"),
-    edgeAt([...sectionIds, ...dishIds.flatMap((d) => [d.name, d.desc])], "left", 60, 1.5, 1, "The column starts at x = 60"),
-    alignedOn("left", [...sectionIds, ...dishIds.flatMap((d) => [d.name, d.desc])], 1.5, 1),
-    sizeIs(dishIds.map((d) => d.price), { width: 180 }, 1.5, 1, "Prices are 180 wide"),
-    alignedOn("right", dishIds.map((d) => d.price), 1.5, 1),
-    edgeAt(dishIds.map((d) => d.price), "right", 1020, 1.5, 1, "Prices end at x = 1020"),
-    ...dishIds.map((d, i) => alignedOn("top", [d.name, d.price], 1.5, 1)),
-    edgeAt([sectionIds[0]!], "top", 200, 1.5, 1, "The first heading starts at y = 200"),
-    gapBetween([sectionIds[0]!], [dishIds[0]!.name], "vertical", 16, 1.5, 1, "The first dish sits 16 below its heading"),
-    gapBetween([sectionIds[1]!], [dishIds[3]!.name], "vertical", 16, 1.5, 1, "The fourth dish sits 16 below its heading"),
-    gapBetween([dishIds[2]!.desc], [sectionIds[1]!], "vertical", 48, 1.5, 1, "The second heading sits 48 below the first section"),
+    sizeIs([...sectionIds, ...dishIds.map((d) => d.desc)], { width: 460 }, 1.5, 2, "Headings and descriptions are 460 wide"),
+    sizeIs(dishIds.map((d) => d.name), { width: 360 }, 1.5, 3, "Names are 360 wide"),
+    sizeIs(dishIds.map((d) => d.price), { width: 80 }, 1.5, 1, "Prices are 80 wide"),
+    ...[0, 1].flatMap((c) => {
+      const ids = inMenuColumn(c);
+      const x = MENU_COLUMNS[c]!;
+      return [
+        edgeAt([sectionIds[c]!, ...ids.flatMap((d) => [d.name, d.desc])], "left", x, 1.5, 1, `Column ${c + 1} starts at x = ${x}`),
+        alignedOn("left", [sectionIds[c]!, ...ids.flatMap((d) => [d.name, d.desc])], 1.5, 1),
+        edgeAt(ids.map((d) => d.price), "right", x + 460, 1.5, 1, `Column ${c + 1}'s prices end at x = ${x + 460}`),
+        alignedOn("right", ids.map((d) => d.price), 1.5, 1),
+        edgeAt([sectionIds[c]!], "top", 200, 1.5, 1, `Heading ${c + 1} starts at y = 200`),
+        gapBetween([sectionIds[c]!], [ids[0]!.name], "vertical", 16, 1.5, 1, `Column ${c + 1}'s first dish sits 16 below its heading`),
+        ...ids.slice(0, -1).map((d, k) => gapBetween([d.desc], [ids[k + 1]!.name], "vertical", 28, 1.5, 1, `Dish ${c * 6 + k + 2} sits 28 below dish ${c * 6 + k + 1}`)),
+      ];
+    }),
+    ...dishIds.map((d) => alignedOn("top", [d.name, d.price], 1.5, 1)),
     ...dishIds.map((d, i) => gapBetween([d.name], [d.desc], "vertical", 6, 1.5, 1, `Description ${i + 1} sits 6 below its name`)),
-    ...dishIds
-      .slice(0, -1)
-      .map((d, i) => (i === 2 ? null : gapBetween([d.desc], [dishIds[i + 1]!.name], "vertical", 28, 1.5, 1, `Dish ${i + 2} sits 28 below dish ${i + 1}`)))
-      .filter((c): c is Check => c !== null),
-    lineCount(dishIds.map((d) => d.name), 1, 3, "Every name is on one line"),
-    fillsMeasure(dishIds.map((d) => d.name), 1, 0.98, 6, "Every name is as large as it goes, up to 44", 44),
+    lineCount(dishIds.map((d) => d.name), 2, 3, "Every name is on two lines"),
+    fillsMeasure(dishIds.map((d) => d.name), 2, 0.98, 6, "Every name is as large as it goes on two lines, up to 40", 40),
     hugsText([...sectionIds, ...dishIds.flatMap((d) => [d.name, d.price, d.desc])], 4, 4),
     endsBy(dishIds.map((d) => d.desc), 1290),
   ],
-  judgeCriteria: ["Does it read as a menu — two sections of dishes with prices on the right?", "Do the dish names read as one family despite their different sizes?"],
+  judgeCriteria: ["Does it read as a menu — two columns of dishes with prices on the right?", "Do the dish names read as one family despite their different sizes?"],
   maxTurns: 60,
 });
 
@@ -338,12 +363,12 @@ export const programmeTask = defineTask({
 // --- timeline ---------------------------------------------------------------
 
 const EVENTS = [
-  ["1998", "The first ford across the eastern channel", "A gravel bed, a gentle bank on each side, and a sign that said not to try it in April."],
-  ["2004", "A winter nobody planned for, and three weeks closed", "Three weeks with the crossing closed, and the long way round through the pass every single day."],
-  ["2011", "The festival comes, and every crate crosses the water", "A stage at nine thousand feet, and every crate of it carried across the water."],
-  ["2019", "Patching becomes a habit we could not afford", "Seven repairs in five years, each one cheaper than the bridge and none of them holding."],
-  ["2025", "The spring melt takes the old ford forty metres east", "The river moved forty metres east and took the old ford with it."],
-  ["2026", "Rock, not gravel: the crossing that should outlast us", "The new crossing, upstream, on rock, and built to outlast everybody who argued about it."],
+  ["1998", "The first ford across the eastern channel", "A gravel bed, a gentle bank on each side, and a sign that said in large letters not to try it in April, which nobody read until the first spring."],
+  ["2004", "A winter nobody planned for, and three weeks closed", "Three weeks with the crossing shut and the long way round through the pass every single day, in snow chains, with the post a day behind."],
+  ["2011", "The festival comes, and every crate crosses the water", "A stage at nine thousand feet, and every crate, cable and speaker of it carried across the water by hand or by the one tractor that would start."],
+  ["2019", "Patching becomes a habit we could not afford", "Seven repairs in five years, each one cheaper than the bridge would have been and not one of them still holding by the end of the following spring."],
+  ["2025", "The spring melt takes the old ford forty metres east", "The river moved forty metres east in a single night in April and took the old ford, the sign and most of the eastern bank along with it."],
+  ["2026", "Rock, not gravel: the crossing that should outlast us", "The new crossing, upstream and on rock, finished in October and built to outlast everybody who spent ten years arguing about whether to build it."],
 ] as const;
 const EV = EVENTS.map((_, i) => ({ year: `year${i + 1}`, head: `event${i + 1}`, body: `note${i + 1}` }));
 
@@ -373,18 +398,24 @@ export const timelineTask = defineTask({
     "    sits exactly 8 units below its headline; each next headline sits exactly 40 units below the note above.",
     "  - Headlines auto-fit: each on one line, as large as it will go on one line at the 760 width but never larger",
     "    than 48 (within 2% of whichever is smaller).",
+    "  - Notes auto-fit too: each on exactly two lines, as large as it will go on two lines at the 760 width but",
+    "    never larger than 30 (within 2% of whichever is smaller).",
     "  - Every box is no taller than its text needs, plus at most 4 units, and nothing goes below y = 1290.",
     "  - The spine keeps its 4 width and x = 230, and runs exactly from the top of the first headline's box to the",
     "    bottom of the last note's box.",
     "",
-    "Years and notes keep their type size, weight and line height; headlines keep their weight.",
+    "Years keep their type size, weight and line height; headlines keep their weight; notes keep their weight and",
+    "line height.",
     "Keep every element and every word.",
   ].join("\n"),
   initial: timeline,
   checks: [
     geometryUnchanged(timeline(), ["header"], 1),
     geometryUnchanged(timeline(), ["spine"], 1, { fields: ["x", "width"] }),
-    styleUnchanged(timeline(), EV.flatMap((e) => [e.year, e.body]), 2, { keys: ["fontSize", "fontWeight", "lineHeight"] }),
+    styleUnchanged(timeline(), EV.map((e) => e.year), 2, { keys: ["fontSize", "fontWeight", "lineHeight"] }),
+    styleUnchanged(timeline(), EV.map((e) => e.body), 1, { keys: ["fontWeight", "lineHeight"] }),
+    lineCount(EV.map((e) => e.body), 2, 3, "Every note is on two lines"),
+    fillsMeasure(EV.map((e) => e.body), 2, 0.98, 6, "Every note is as large as it goes on two lines, up to 30", 30),
     styleUnchanged(timeline(), EV.map((e) => e.head), 1, { keys: ["fontWeight"] }),
     sizeIs(EV.map((e) => e.year), { width: 150 }, 1.5, 1, "Years are 150 wide"),
     edgeAt(EV.map((e) => e.year), "left", 60, 1.5, 1, "Years start at x = 60"),
@@ -410,8 +441,7 @@ export const timelineTask = defineTask({
 });
 
 export const measureTasks: Task[] = [
-  contentsTask({ id: "measure.contents", entries: 6, columns: [60, 570], width: 450 }),
-  contentsTask({ id: "measure.contents-wide", entries: 9, columns: [60, 390, 720], width: 300 }),
+  contentsTask({ id: "measure.contents", entries: 16, columns: [60, 305, 550, 795], width: 225 }),
   menuTask,
   programmeTask,
   timelineTask,
