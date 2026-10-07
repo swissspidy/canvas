@@ -13,7 +13,7 @@
 
 import { getTask } from "./index.js";
 import type { Doc, Element } from "../doc/types.js";
-import { largestFittingFontSize, requiredHeight } from "../text/layout.js";
+import { largestFittingFontSize, largestFontSizeForLines, requiredHeight } from "../text/layout.js";
 
 /** A solution built by editing the starting document, which is most of them. */
 function edit(taskId: string, fn: (el: Element) => Element, background?: string): Doc {
@@ -53,6 +53,13 @@ const bottom = (el: Element) => el.y + el.height;
 function fillTo(el: Element): Element {
   return { ...el, style: { ...el.style, fontSize: largestFittingFontSize(el)! } };
 }
+
+/** Set a text element as large as it goes on `lines` lines at its width. */
+function onLines(el: Element, lines: number): Element {
+  return { ...el, style: { ...el.style, fontSize: largestFontSizeForLines(el, lines)! } };
+}
+
+const onOneLine = (el: Element) => onLines(el, 1);
 
 /** Place an element so its box ends at `y`. */
 function endAt(el: Element, y: number): Element {
@@ -170,8 +177,10 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     const get = (id: string) => doc.elements.find((e) => e.id === id)!;
     const headline = hug({ ...get("headline"), x: 100, y: 240 });
     const subhead = hug({ ...get("subhead"), x: 100, y: bottom(headline) + 12 });
-    // Narrowed to clear the badge, which takes the panel's bottom-right corner.
-    const body = hug({ ...get("body"), x: 100, y: bottom(subhead) + 28, width: 560 });
+    // Beside the badge, which takes the panel's bottom-right corner: from
+    // x = 100 to 40 short of the badge at 680, and down to 40 above 900.
+    const bodyTop = bottom(subhead) + 28;
+    const body = fillTo({ ...get("body"), x: 100, y: bodyTop, width: 540, height: 860 - bodyTop });
     const badge = { ...get("badge"), x: 680, y: 560 };
     return { ...doc, elements: [get("panel"), headline, subhead, body, badge] };
   },
@@ -180,7 +189,7 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     const doc = getTask("repair.off-canvas").initial();
     const get = (id: string) => doc.elements.find((e) => e.id === id)!;
     const photo = { ...get("photo"), x: 40, y: 40 };
-    const caption = hug({ ...get("caption"), x: 40, y: bottom(photo) + 24, width: 1000 });
+    const caption = hug(onOneLine({ ...get("caption"), x: 40, y: bottom(photo) + 24, width: 1000 }));
     const credit = hug({ ...get("credit"), x: 40, y: bottom(caption) + 8, width: 1000 });
     const tagA = { ...get("tag_a"), x: (W - 624) / 2, y: 1270 - 90 };
     const tagB = { ...get("tag_b"), x: (W - 624) / 2 + 324, y: 1270 - 90 };
@@ -192,7 +201,7 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     const doc = getTask("repair.buried-text").initial();
     const get = (id: string) => doc.elements.find((e) => e.id === id)!;
     const title = hug({ ...get("title"), z: 2 });
-    const note = hug({ ...get("note"), z: 3 });
+    const note = hug(onLines({ ...get("note"), z: 3 }, 5));
     const top = 610 - (title.height + 24 + note.height) / 2;
     title.y = top;
     note.y = bottom(title) + 24;
@@ -200,19 +209,25 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     return { ...doc, elements: [{ ...get("card"), z: 0 }, blot, title, note] };
   },
 
-  "repair.z-order": () =>
-    edit("repair.z-order", (el) => {
-      const z: Record<string, number> = { hero_photo: 0, scrim: 1, rule: 2, hero_title: 3, hero_sub: 4, badge: 5, badge_label: 6 };
+  "repair.z-order": () => {
+    const doc = getTask("repair.z-order").initial();
+    const z: Record<string, number> = { hero_photo: 0, scrim: 1, rule: 2, hero_title: 3, hero_sub: 4, badge: 5, badge_label: 6 };
+    const title = hug(onOneLine({ ...doc.elements.find((e) => e.id === "hero_title")!, z: 3 }));
+    const elements = doc.elements.map((el) => {
       if (el.id === "scrim") return { ...el, z: 1, x: 0, y: 860, width: W, height: H - 860 };
+      if (el.id === "hero_title") return title;
+      if (el.id === "hero_sub") return { ...el, z: 4, y: bottom(title) + 16 };
       return { ...el, z: z[el.id]! };
-    }),
+    });
+    return { ...doc, elements };
+  },
 
   "repair.crowded-margins": () => {
     const doc = getTask("repair.crowded-margins").initial();
     const get = (id: string) => doc.elements.find((e) => e.id === id)!;
     const kicker = hug({ ...get("kicker"), x: 60, y: 60, width: 960 });
     const title = hug({ ...get("title"), x: 60, y: bottom(kicker) + 12, width: 960, style: { ...get("title").style, fontSize: 124 } });
-    const footer = endAt(hug({ ...get("footer"), x: 60, width: 960 }), 1290);
+    const footer = endAt(hug(onOneLine({ ...get("footer"), x: 60, width: 960 })), 1290);
     const artTop = bottom(title) + 40;
     const art = { ...get("art"), x: 60, y: artTop, width: 960, height: footer.y - 40 - artTop };
     return { ...doc, elements: [kicker, title, art, footer] };
@@ -228,9 +243,10 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     const w = 1000 / (Math.cos(rad) + (1040 / 960) * Math.sin(rad));
     const h = (w * 1040) / 960;
     const card = { ...get("card"), x: 540 - w / 2, y: 680 - h / 2, width: w, height: h, rotation: -12 };
-    const title = hug({ ...get("title"), x: 300, y: 330, width: 480, rotation: 0 });
-    const body = hug({ ...get("body"), x: 300, y: bottom(title) + 24, width: 480, rotation: 0 });
-    const stamp = { ...get("stamp"), x: 420, y: bottom(body) + 24, rotation: 0 };
+    const title = hug(onLines({ ...get("title"), x: 280, y: 300, width: 520, rotation: 0 }, 2));
+    const body = hug({ ...get("body"), x: 280, y: bottom(title) + 24, width: 520, rotation: 0 });
+    // Found by search: low on the card, which leans left as it goes down.
+    const stamp = { ...get("stamp"), x: 260, y: 890, rotation: 0 };
     return { ...doc, elements: [card, title, body, stamp] };
   },
 
@@ -239,7 +255,7 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     const get = (id: string) => doc.elements.find((e) => e.id === id)!;
     const cover = { ...get("cover"), x: 40, y: 40, z: 0 };
     const plateTop = bottom(cover) + 24;
-    const lead = hug({ ...get("lead"), x: 80, y: plateTop + 40, width: 920, z: 2 });
+    const lead = hug(onLines({ ...get("lead"), x: 80, y: plateTop + 40, width: 920, z: 2 }, 2));
     const standfirst = hug({ ...get("standfirst"), x: 80, y: bottom(lead) + 16, width: 920, z: 3 });
     const plate = { ...get("plate"), x: 40, y: plateTop, width: 1000, height: bottom(standfirst) + 40 - plateTop, z: 1 };
     const byline = hug({ ...get("byline"), x: 40, y: bottom(plate) + 24, z: 4 });
@@ -308,6 +324,12 @@ export const SOLUTIONS: Record<string, () => Doc> = {
           outline: ["strokeColor", "#e3655b"],
           outline_label: ["color", "#e3655b"],
           footnote: ["color", "#f4f1ea"],
+          chip_roast: ["fill", "#e3655b"],
+          chip_roast_label: ["color", "#12121f"],
+          chip_organic: ["fill", "#4a4a6a"],
+          chip_organic_label: ["color", "#f4f1ea"],
+          chip_limited: ["fill", "#a8a3c0"],
+          chip_limited_label: ["color", "#12121f"],
         };
         const [prop, value] = colour[el.id]!;
         return { ...el, style: { ...el.style, [prop]: value } };
@@ -316,22 +338,23 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     ),
 
   // Sheet #101018 is 0.0055 luminance; the callout is 1.36:1 on it, the chip
-  // 1.74:1, the divider 1.87:1 and the button 3.38:1, and the light text
-  // clears 7:1 on every one of them it sits on.
+  // 1.74:1, the divider 1.87:1 and the button 3.38:1.
   "restyle.dark-mode": () =>
     edit(
       "restyle.dark-mode",
       (el) => {
         const style = { ...el.style };
         if (el.id === "sheet") style.fill = "#101018";
-        if (el.id === "title") style.color = "#f4f1ea";
-        if (el.id === "standfirst") style.color = "#d8d4e6";
-        if (el.id === "byline") style.color = "#c4c0d6";
+        // 7-9:1 is a different grey on each surface: about 8.5:1 on the sheet,
+        // 7.9:1 on the chip, 7.7:1 on the callout.
+        if (el.id === "title") style.color = "#aeaeae";
+        if (el.id === "standfirst") style.color = "#aeaeae";
+        if (el.id === "byline") style.color = "#aeaeae";
         if (el.id === "tag") style.fill = "#3a3a5a";
-        if (el.id === "tag_label") style.color = "#f4f1ea";
+        if (el.id === "tag_label") style.color = "#dbdbdb";
         if (el.id === "divider") style.fill = "#3f3f5c";
         if (el.id === "callout") style.fill = "#2a2a40";
-        if (el.id === "callout_text") style.color = "#f4f1ea";
+        if (el.id === "callout_text") style.color = "#c0c0c0";
         if (el.id === "button") style.fill = "#6b5bb0";
         if (el.id === "button_label") style.color = "#f4f1ea";
         return { ...el, style };
@@ -341,11 +364,15 @@ export const SOLUTIONS: Record<string, () => Doc> = {
 
   // --- arrange: one gap, one edge ------------------------------------------
 
+  // One size for all five: the largest at which the hugged stack, with its
+  // four 36-unit gaps, still ends by 1230.
   "arrange.ragged-column": () => {
     const doc = getTask("arrange.ragged-column").initial();
-    const rows = doc.elements.map((el) => hug({ ...el, x: 140 }));
-    const total = rows.reduce((h, el) => h + el.height, 0) + 36 * (rows.length - 1);
-    let y = (H - total) / 2;
+    const at = (size: number) => doc.elements.map((el) => hug({ ...el, x: 140, style: { ...el.style, fontSize: size } }));
+    let size = 200;
+    while (at(size).reduce((h, el) => h + el.height, 0) + 36 * 4 > 1230 - 120) size--;
+    const rows = at(size);
+    let y = 120;
     for (const row of rows) {
       row.y = y;
       y = bottom(row) + 36;
@@ -365,8 +392,7 @@ export const SOLUTIONS: Record<string, () => Doc> = {
     }
     const captions = ["k1", "k2", "k3", "k4"].map((id, i) => {
       const card = cards[i]!;
-      const cap = hug({ ...doc.elements.find((e) => e.id === id)! });
-      return { ...cap, x: card.x + card.width / 2 - cap.width / 2, y: bottom(card) + 16 };
+      return hug(onOneLine({ ...doc.elements.find((e) => e.id === id)!, x: card.x, y: bottom(card) + 16, width: card.width }));
     });
     return { ...doc, elements: [...cards, ...captions] };
   },
@@ -382,7 +408,8 @@ export const SOLUTIONS: Record<string, () => Doc> = {
       const cx = 60 + (i % 4) * 246;
       const cy = top + Math.floor(i / 4) * 324;
       if (card) return { ...el, x: cx, y: cy, width: 222, height: 300 };
-      return { ...el, x: cx + 111 - el.width / 2, y: cy + 150 - el.height / 2 };
+      const sized = hug(onOneLine({ ...el, x: cx + 24, width: 174 }));
+      return { ...sized, y: cy + 150 - sized.height / 2 };
     });
     return { ...doc, elements };
   },

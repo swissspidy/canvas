@@ -30,6 +30,7 @@ import { defineTask } from "./types.js";
 import { doc, image, rect, text, POSTER_H, POSTER_W } from "./helpers.js";
 import {
   colorRoles,
+  contrastWithin,
   fillContrastBetween,
   fullyOpaque,
   geometryUnchanged,
@@ -122,6 +123,23 @@ const paletteSwap = () =>
       text: "Free delivery on orders over $40",
       style: { fontSize: 24, color: "#8a8aa0" },
     }),
+    ...[
+      { id: "chip_roast", x: 90, label: "Dark roast" },
+      { id: "chip_organic", x: 420, label: "Organic" },
+      { id: "chip_limited", x: 750, label: "Limited" },
+    ].flatMap((c, i) => [
+      rect({ id: c.id, x: c.x, y: 1110, w: 240, h: 64, z: 12 + 2 * i, style: { fill: "#e9e4f2", radius: 32 } }),
+      text({
+        id: `${c.id}_label`,
+        x: c.x,
+        y: 1110,
+        w: 240,
+        h: 64,
+        z: 13 + 2 * i,
+        text: c.label,
+        style: { fontSize: 26, fontWeight: "bold", color: "#4a3a6a", align: "center", valign: "middle" },
+      }),
+    ]),
   ], { background: "#f7f4ee" });
 
 const PALETTE_SWAP_IDS = [
@@ -137,6 +155,12 @@ const PALETTE_SWAP_IDS = [
   "tag",
   "tag_label",
   "footnote",
+  "chip_roast",
+  "chip_roast_label",
+  "chip_organic",
+  "chip_organic_label",
+  "chip_limited",
+  "chip_limited_label",
 ];
 
 const darkMode = () =>
@@ -254,6 +278,9 @@ export const restyleTasks = [
       "    accent if the accent reaches at least 4.5:1 against the panel fill, and in primary text if not.",
       "  - The footnote is set in secondary text if secondary text reaches at least 7:1 against the panel",
       "    fill, and in primary text if not.",
+      '  - The three chips below the panel are filled: "Dark roast" with the accent, "Organic" with the rule',
+      '    colour, and "Limited" with secondary text. Each of their labels takes whichever of the seven',
+      "    colours has the highest contrast against its own chip.",
       "",
       "Every piece of text must stay readable — at least 4.5:1 against what is behind it.",
     ].join("\n"),
@@ -279,6 +306,14 @@ export const restyleTasks = [
           { ids: ["outline"], prop: "strokeColor", color: "#e3655b", role: "accent outline" },
           { ids: ["outline_label"], prop: "color", color: "#e3655b", role: "the accent, which clears 4.5:1 on the panel" },
           { ids: ["footnote"], prop: "color", color: "#f4f1ea", role: "primary text, as secondary misses 7:1 on the panel" },
+          // Best on the accent: the background (5.6:1). On the rule colour:
+          // primary text (7.5:1). On secondary text: the background (7.7:1).
+          { ids: ["chip_roast"], prop: "fill", color: "#e3655b", role: "accent" },
+          { ids: ["chip_roast_label"], prop: "color", color: "#12121f", role: "the best contrast on the accent" },
+          { ids: ["chip_organic"], prop: "fill", color: "#4a4a6a", role: "rule colour" },
+          { ids: ["chip_organic_label"], prop: "color", color: "#f4f1ea", role: "the best contrast on the rule colour" },
+          { ids: ["chip_limited"], prop: "fill", color: "#a8a3c0", role: "secondary text" },
+          { ids: ["chip_limited_label"], prop: "color", color: "#12121f", role: "the best contrast on secondary text" },
         ],
         4,
         { background: "#12121f" },
@@ -289,7 +324,11 @@ export const restyleTasks = [
       // resets the type is not the restyle that was asked for, and the colour
       // checks cannot see it.
       styleUnchanged(paletteSwap(), PALETTE_SWAP_IDS, 2, { keys: [...TYPE_KEYS, "strokeWidth"] }),
-      textUnchanged(paletteSwap(), ["heading", "price", "description", "button_label", "outline_label", "tag_label", "footnote"], 1),
+      textUnchanged(
+        paletteSwap(),
+        ["heading", "price", "description", "button_label", "outline_label", "tag_label", "footnote", "chip_roast_label", "chip_organic_label", "chip_limited_label"],
+        1,
+      ),
       fullyOpaque(PALETTE_SWAP_IDS.filter((id) => id !== "outline"), 1),
     ],
     judgeCriteria: [
@@ -309,8 +348,9 @@ export const restyleTasks = [
       "Convert this light layout to a dark theme.",
       "",
       "  - The canvas and the sheet become genuinely dark: a relative luminance of 0.02 or less.",
-      "  - Every piece of text becomes light, and reaches a contrast ratio of at least 7:1 against",
-      "    whatever sits behind it — except the button's label, which needs at least 4.5:1 on the button.",
+      "  - Every piece of text becomes light — a relative luminance of at least 0.3 — and sits between 7:1",
+      "    and 9:1 against whatever is behind it: legible, but not glaring. The button's label is the one",
+      "    exception, and needs only at least 4.5:1 on the button.",
       "  - Each shape on the sheet sits a measured step away from the sheet's fill:",
       "      the callout box: between 1.2:1 and 1.5:1 against the sheet (one step lighter),",
       "      the tag's chip: between 1.6:1 and 2.4:1 against the sheet,",
@@ -324,12 +364,12 @@ export const restyleTasks = [
     initial: darkMode,
     checks: [
       preservesElements(DARK_MODE_IDS, 1),
-      minContrast(7, 3, DARK_TEXT),
+      contrastWithin(7, 9, 4, DARK_TEXT),
       minContrast(4.5, 1, ["button_label"]),
       // Contrast is invariant under inversion, so it cannot tell a dark theme
       // from a light one. These two can.
       surfacesNoLighterThan(0.02, 4),
-      textNoDarkerThan(0.4, 4, [...DARK_TEXT, "button_label"]),
+      textNoDarkerThan(0.3, 4, [...DARK_TEXT, "button_label"]),
       // "do not move or resize anything".
       geometryUnchanged(darkMode(), DARK_MODE_IDS, 2),
       // "The tag keeps its role: a filled chip with a legible label on it."

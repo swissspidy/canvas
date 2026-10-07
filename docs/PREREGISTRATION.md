@@ -474,6 +474,49 @@ sentence ("Sizes are numbers you give, as in create and set_size; positions
 never are"). Hybrid inherits all three. Nothing in the hypotheses, the
 outcomes or the analysis plan changes.
 
+**2026-10-07 (fourth entry) — calibration round 1, and round 2's changes.**
+
+Round 1 ran all 23 v2 tasks under the protocol above: 138 runs on Opus 5,
+pooled. One more change came before it, and is recorded because it is a
+change to what every agent is told: the base prompt now states how a text
+box's height follows from its lines ("each line takes fontSize x lineHeight
+units; lineHeight is 1.25 unless set"). It is a document-model rule like
+wrapping, not a font metric, and v2 asks for boxes that hug their text.
+
+Pooled pass rate **84.1%**, mean improvement 98.4%. By family: arrange 100%,
+repair 95%, fit 87%, restyle 75%, compose 64%. Fifteen tasks passed above 70%.
+Precision on its own — stated gaps, edges, grids, insets, even the trigonometry
+of the tilted card — was almost never missed: a strong model computes exact
+arithmetic exactly. What failed, pooled across every cell, was measurement:
+type that did not quite fill its measure, a wrong line count, clipping, a
+column that did not quite fill its space.
+
+So round 2 moves weight onto measurement, and only of the kinds already
+allowed:
+
+1. "As large as it will go" tightens from within 5% to within 2%, in every
+   brief that says it.
+2. Measurement reaches every family. Arrange: the ragged column is set at the
+   largest single size the space allows; each caption and each grid name is
+   set as large as it goes on one line in its card. Repair: the overlapping
+   stack's body fills the box beside the badge; the off-canvas caption, the
+   crowded footer and the z-order title fill one line; the buried note fills
+   five lines; the tilted notice's title and the mixed opener's lead fill two.
+   Restyle: dark-mode text must sit *between* 7:1 and 9:1 on whatever is behind
+   it (a different grey on each surface), and the "text is light" floor it was
+   already scored on is stated in the brief as a number, 0.3, which the band
+   makes the binding one; palette-swap gains three chips whose label colours
+   follow the highest-contrast rule.
+3. Stated widths are weighted at least as heavily as the fill checks beside
+   them, because narrowing a box lowers the size it has to reach — a test
+   caught the ragged column scoring higher with every row at half width.
+4. Relational `fit_text` takes `lines`: "the largest size at which this breaks
+   into at most N lines at its width". "As large as it goes on two lines" is a
+   statement the surface's text tool could not otherwise make, and v2 states it
+   in most briefs — the same reasoning as `fit_box` above.
+
+No per-surface or per-feedback figure was computed. Round 2 re-runs all 23.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.

@@ -352,6 +352,18 @@ describe("sizes and single-axis positions, on every surface", () => {
     expect(rel.doc).toEqual(coord.doc);
   });
 
+  it("sets the largest size that keeps text on a stated number of lines", () => {
+    const head = { type: "text" as const, text: "Ridgeline Festival", width: 920, height: 100, style: { fontSize: 40, fontWeight: "bold" as const } };
+    const s = session(docWith(el("t", head)));
+    const r = executeToolCall(s, relationalSurface, "fit_text", { id: "t", mode: "grow_to_fit", lines: 2 });
+    expect(r.ok).toBe(true);
+    const t = find(s.doc, "t");
+    expect(layoutTextElement(t).lines.length).toBe(2);
+    // One size up, it either takes a third line or a word no longer fits the width.
+    const bigger = layoutTextElement({ ...t, height: 10_000, style: { ...t.style, fontSize: t.style.fontSize! + 1 } });
+    expect(bigger.lines.length > 2 || bigger.overflowX > 0.01).toBe(true);
+  });
+
   it("sizes a text box to exactly its text, shrinking as well as growing", () => {
     const tall = { type: "text" as const, text: "Short", width: 400, height: 300, style: { fontSize: 40 } };
     const s = session(docWith(el("t", tall)));

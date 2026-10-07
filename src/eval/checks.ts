@@ -334,6 +334,33 @@ export function minContrast(ratio = 4.5, weight = 1, selector?: Selector): Check
   });
 }
 
+/**
+ * Text contrast inside a band — legible, and not glaring. A dark theme sets
+ * its text a measured distance from its surface, and the same grey that is
+ * 8:1 on the sheet is 6:1 on a lighter card on it: hitting the band on every
+ * backdrop is colour arithmetic, not a guess from a hex code.
+ */
+export function contrastWithin(min: number, max: number, weight = 1, selector?: Selector): Check {
+  return check("contrast_band", `Text contrast is between ${min}:1 and ${max}:1`, weight, (doc) => {
+    if (allNamedAreInvisible(doc, selector)) return { score: 0, detail: ALL_INVISIBLE };
+    const els = visible(selector ? select(doc, selector) : doc.elements).filter(isText);
+    if (els.length === 0) return { score: 1, detail: "No text elements." };
+    const offenders: string[] = [];
+    let worst = 0;
+    for (const el of els) {
+      const backdrop = effectiveBackdrop(doc, el);
+      const r = contrastRatio(effectiveTextColor(el), backdrop);
+      const off = r < min ? min - r : r > max ? r - max : 0;
+      worst = Math.max(worst, off);
+      if (off > 0) offenders.push(`${el.id} ${r.toFixed(2)}:1 on ${backdrop}`);
+    }
+    return {
+      score: gradeDefect(worst, 0, 2),
+      detail: offenders.length ? `Outside ${min}–${max}:1 — ${offenders.join(", ")}` : "Every text is inside the band.",
+    };
+  });
+}
+
 // --- composition checks ----------------------------------------------------
 
 /**

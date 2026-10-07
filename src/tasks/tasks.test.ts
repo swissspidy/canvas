@@ -666,10 +666,15 @@ describe("the constraints the briefs state are actually scored", () => {
   });
 
   it("penalises resizing elements on an arrange task that says not to", () => {
-    for (const id of ["arrange.ragged-column", "arrange.uneven-row"]) {
+    // v2's ragged column asks for every box to hug its text, so its heights
+    // are meant to change; its widths are what the brief holds.
+    const forbidden: Record<string, (el: Element) => Element> = {
+      "arrange.ragged-column": (el) => ({ ...el, width: el.width / 2 }),
+      "arrange.uneven-row": (el) => (el.type === "rect" ? { ...el, width: el.width / 2, height: el.height / 2 } : el),
+    };
+    for (const [id, squash] of Object.entries(forbidden)) {
       const task = getTask(id);
-      const squashed = edit(task, (el) => ({ ...el, width: el.width / 2, height: el.height / 2 }));
-      expect(scoreOf(task, squashed), id).toBeLessThan(scoreOf(task, task.initial()));
+      expect(scoreOf(task, edit(task, squash)), id).toBeLessThan(scoreOf(task, task.initial()));
     }
   });
 

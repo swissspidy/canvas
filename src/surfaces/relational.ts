@@ -26,7 +26,7 @@ import { aabb, round } from "../doc/geometry.js";
 import { normalizeAngle } from "../doc/schema.js";
 import { patchElement, requireElement, requireElements, ToolError } from "../doc/ops.js";
 import type { Doc, Element, Rect } from "../doc/types.js";
-import { largestFittingFontSize, layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
+import { largestFittingFontSize, largestFontSizeForLines, layoutTextElement, DEFAULT_FONT_SIZE } from "../text/layout.js";
 import type { ToolDef, ToolSurface } from "./types.js";
 import {
   buildElement,
@@ -546,6 +546,15 @@ const zFitTextInput = z.strictObject({
         "'fit_box' keeps the font size and sets the element's height to exactly what its text needs, " +
         "growing or shrinking it; the top edge stays put.",
     ),
+  lines: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      "With 'grow_to_fit': size the text to the largest font size at which it breaks into at most this many lines " +
+        "at the box's current width, ignoring the box's height. Follow with 'fit_box' if the box should match.",
+    ),
   min_font_size: z.number().min(4).max(400).optional().describe("Lower bound when changing font size. Default 8."),
   max_font_size: z.number().min(4).max(400).optional().describe("Upper bound when changing font size. Default 400."),
 });
@@ -581,6 +590,32 @@ const fitTextTool: ToolDef<z.infer<typeof zFitTextInput>> = {
 
     const min = input.min_font_size ?? 8;
     const max = input.max_font_size ?? 400;
+    if (input.lines !== undefined) {
+      // "As large as it goes on two lines" is a statement about the measure,
+      // which a box-height fit cannot express: the box can always be the
+      // height of whatever size the text happens to be. Task set v2 states
+      // it in most briefs. `docs/PREREGISTRATION.md` §13, 2026-10-07.
+      if (input.mode !== "grow_to_fit") {
+        throw new ToolError("'lines' only applies to mode 'grow_to_fit'.");
+      }
+      const size = largestFontSizeForLines(el, input.lines, min, max);
+      if (size === null) {
+        throw new ToolError(
+          `${input.id}'s text cannot fit on ${input.lines} line(s) at its ${round(el.width, 1)} width at any size from ${min} to ${max}.`,
+          "Widen the element, allow more lines, or lower min_font_size.",
+        );
+      }
+      const doc = patchElement(ctx.doc, input.id, { style: { fontSize: size } });
+      const after = layoutTextElement(requireElement(doc, input.id));
+      return {
+        doc,
+        message:
+          `Set ${input.id} to font size ${size} (was ${before.fontSize}), the largest at which it breaks into ` +
+          `${after.lines.length} line(s) at this width.` +
+          (after.clipped ? ` Its box is now too short: it needs ${round(after.blockHeight + (el.style.padding ?? 0) * 2, 1)} units.` : ""),
+        touched: [input.id],
+      };
+    }
     if (input.mode === "shrink_to_fit" && !before.clipped) {
       return { doc: ctx.doc, message: `${input.id} already fits its box; font size left at ${before.fontSize}.`, touched: [] };
     }
