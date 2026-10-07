@@ -604,6 +604,16 @@ rates, and a harder family.** Written before any run of what it describes.
   timeline whose six notes now auto-fit to two lines as well as its six
   headlines. Every task keeps a reference solution at full marks.
 
+*Result of the first run against it* (one repeat, three surfaces, `none` and
+`both`, no judge; 48 runs, $21.15): Opus 5.5 passed **every run of every task,
+24 of 24**, at 39 to 108 tool calls and $0.36 to $0.98 a run. Sonnet 5.5
+passed 50% to 83% per task at $0.21 to $0.33 a run. No run of either model
+ended at the ceiling. A dozen measurements per page — which held Opus 5 to
+33% on the programme — no longer separates anything on the newest Opus: it
+measures what it cannot see, by iterating on feedback or with `fit_text`, as
+reliably as it computes geometry. No adjustment is made on this result; what
+the study does next is a decision for its author, recorded in the next entry.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
