@@ -525,6 +525,27 @@ did not move compose at all. The round is incomplete and no adjustment is
 made on it; it resumes into the same directory when there is credit, which
 re-runs exactly the 52 missing cells.
 
+**2026-10-07 (fifth entry) — prototyping a different kind of task.** Not a
+change to the v2 set: an exploration of whether harder tasks exist that are
+not contrived, recorded because its runs are pilots like any other.
+
+Rects gained shapes (ellipse, regular polygon, star, each stretched to fill
+its box) and linear-gradient fills, measured as drawn by every check; the
+base prompt describes them on every surface alike, and relational gained an
+`around` relation (a centre at a distance and angle from a target's) so radial
+layouts need no trigonometry on that surface. Four prototype tasks, outside
+the registered set: a sunburst badge, a clock at ten past ten, a Bauhaus study
+built from tangencies, and a justified photo gallery whose photo sequence
+admits exactly one valid row partition.
+
+Pooled across three surfaces and two feedback conditions, one repeat: GPT-5.6
+Luna passed 75% of 24 runs ($0.24 across two passes), GPT-5.6 Terra 75% of 24
+($0.87). Fully specified geometry — twelve rays every 30 degrees, hands at
+305 and 60 degrees, a square on its corner touching a frame line, an exact
+partition search — was solved by both, the cheapest model included. Nine of
+the twelve misses were one constraint: a title set as large as it goes on one
+line. The prototypes are kept for the record and stay out of every grid.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
