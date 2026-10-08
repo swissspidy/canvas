@@ -732,6 +732,32 @@ and `both`, one repeat, judged by GPT-5.6 Sol, without a budget. A budgeted
 pilot follows, its budget set from the pooled turn counts of this one: a median of 6 (Terra) and 7.5 (Luna) turns, no run passing within 3, and none stopped by a turn cap. The budget is 5 turns. Only
 pooled and per-model figures are read.
 
+*Pilot results, pooled and per model only.* The measurement family, three
+surfaces, `none` and `both`, one repeat; 48 runs each.
+
+| | Luna, no budget | Terra, no budget | Luna, 5 turns | Terra, 5 turns |
+|---|---|---|---|---|
+| Pass | 9 / 24 | 8 / 24 | 2 / 24 | 3 / 24 |
+| Mean improvement | 89% | 91% | 69% | 76% |
+| Median turns · calls | 7.5 · 89 | 6 · 94.5 | 5 · 79 | 5 · 76.5 |
+| Cost / run | $0.025 | $0.167 | $0.018 | $0.123 |
+| Judge, mean criteria score | 0.83 | 0.90 | 0.69 | 0.80 |
+
+Without a budget no run hit a turn cap, and none passed within three turns:
+passing runs took 5 to 10 turns and 63 to 212 calls. With a stated budget of
+five turns, half of all runs spent it (13 Luna, 12 Terra) and the pass rate
+fell from 35% to 10%. That is on models the measurement family does not
+saturate; on Opus 5.5, which passed all 24 runs without a budget, it is the
+first condition likely to land near the 30% target, and it is the next pilot
+to run when there is an Anthropic key. The defect-first judge spread its
+scores from 0.33 to 1 where the old prompt gave most pages a 4 or a 5, and
+failed to return a parseable judgement once in 96. Head to head, on the
+unbudgeted runs (24 pairs, both orders), Terra's pages beat Luna's 12 to 7
+with 5 ties, a separation the end-of-run pass rates (8 and 9) did not show.
+Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
+$0.10 on four withdrawn call-budget runs. No per-surface or per-feedback
+figure was computed.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
