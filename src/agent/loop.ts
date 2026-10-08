@@ -59,7 +59,7 @@ import {
   type TokenUsage,
 } from "./models.js";
 import { noopSink, type EventSink, type StopReason } from "./events.js";
-import { initialUserBlocks, systemPrompt } from "./prompt.js";
+import { initialUserBlocks, remainingText, systemPrompt } from "./prompt.js";
 
 export interface RunConfig {
   runId: string;
@@ -82,6 +82,12 @@ export interface RunConfig {
   effort?: Effort;
   /** Overrides the task's own budget when set. */
   maxTurns?: number;
+  /**
+   * A stated budget of tool calls, failed ones included. The agent is told it
+   * in the opening message and after every call; calls past it are not run,
+   * and the run ends with `max_tool_calls`. Unset means no call budget.
+   */
+  maxToolCalls?: number;
   maxTokens?: number;
   /**
    * Run against this model instead of resolving `model` to a provider. A
@@ -302,7 +308,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     // how the run ended.
     messages.push({
       role: "user",
-      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback)),
+      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback, config.maxToolCalls)),
     });
 
     for (turn = 1; turn <= maxTurns; turn++) {
@@ -407,7 +413,13 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         message: string;
       }[] = [];
 
-      for (const call of result.toolCalls) {
+      // Calls past the budget are not run. The run ends after this turn, so
+      // nothing is sent back for them.
+      const budgetLeft =
+        config.maxToolCalls === undefined ? Infinity : config.maxToolCalls - session.actions.length;
+      const toRun = result.toolCalls.slice(0, Math.max(0, budgetLeft));
+
+      for (const call of toRun) {
         const input = (call as { input?: unknown }).input ?? {};
         emit({ type: "tool_call", turn, seq: session.actions.length + 1, tool: call.toolName, input });
         const outcome = executeToolCall(session, surface, call.toolName, input);
@@ -429,6 +441,12 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
           emit({ type: "doc_update", turn, seq: outcome.record.seq, doc: session.doc, svg: renderSvg(session.doc) });
         }
 
+        // The count rides on the message the model reads, the same way on
+        // every surface, and never on what the action log records.
+        const message =
+          config.maxToolCalls === undefined
+            ? outcome.message
+            : `${outcome.message}\n${remainingText(config.maxToolCalls - session.actions.length)}`;
         results.push({
           type: "tool-result",
           toolCallId: call.toolCallId,
@@ -436,10 +454,10 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
           // `error-text` is how this SDK marks a failed call, so a rejection
           // reads as a rejection rather than as a result that says "no".
           output: outcome.ok
-            ? { type: "content", value: [{ type: "text", text: outcome.message }] }
-            : { type: "error-text", value: outcome.message },
+            ? { type: "content", value: [{ type: "text", text: message }] }
+            : { type: "error-text", value: message },
           ok: outcome.ok,
-          message: outcome.message,
+          message,
         });
       }
 
@@ -475,8 +493,13 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         messages.push({ role: "user", content: toContentParts(feedbackBlocks) });
       }
 
-      record(result.toolCalls.length);
+      record(toRun.length);
       emit({ type: "turn_end", turn, usage: turnUsage, stopReason: result.finishReason });
+
+      if (config.maxToolCalls !== undefined && session.actions.length >= config.maxToolCalls) {
+        stopReason = "max_tool_calls";
+        break;
+      }
     }
   } catch (err) {
     stopReason = config.signal?.aborted ? "aborted" : "api_error";

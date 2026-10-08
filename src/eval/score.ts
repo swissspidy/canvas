@@ -14,7 +14,7 @@
 
 import type { Doc } from "../doc/types.js";
 import type { Task } from "../tasks/types.js";
-import { runChecks, universalChecks, type CheckResult } from "./checks.js";
+import { PASS_THRESHOLD, runChecks, universalChecks, type CheckResult } from "./checks.js";
 import type { JudgeResult } from "./judge.js";
 import type { RunResult } from "../agent/loop.js";
 
@@ -86,6 +86,19 @@ export interface RunScore {
    * the document worse than it found it, which is a finding, not an error.
    */
   normalizedScore: number;
+  /**
+   * The constraint score after each tool call, in order: entry `i` is the
+   * document as it stood after call `i + 1`. A failed call repeats the score
+   * before it. Absent on records written before it existed.
+   *
+   * It is what turns a saturated pass rate back into a measurement. Every
+   * condition may end at a pass; they do not get there equally fast, and
+   * `passWithinCalls` reads off where each run stood at any budget without
+   * re-running anything.
+   */
+  trajectory?: number[];
+  /** The first call after which the document passed, or null if it never did. */
+  firstPassCall?: number | null;
   efficiency: Efficiency;
   toolUsage: Record<string, { ok: number; failed: number }>;
 }
@@ -112,6 +125,40 @@ export function normalize(score: number, baseline: number): number {
 export function scoreDocument(doc: Doc, task: Task): { score: number; results: CheckResult[] } {
   const { results, score } = runChecks(doc, [...universalChecks(), ...task.checks]);
   return { score, results };
+}
+
+/**
+ * Score the document after every call. Rounded to four places: the report
+ * reads it against a pass threshold of 0.999, and a row of a hundred full-
+ * precision floats would make `scores.jsonl` mostly noise.
+ */
+export function scoreTrajectory(
+  actions: readonly { ok: boolean; doc: Doc }[],
+  task: Task,
+): { trajectory: number[]; firstPassCall: number | null } {
+  const trajectory: number[] = [];
+  let current = baselineFor(task);
+  let firstPassCall: number | null = null;
+  actions.forEach((action, i) => {
+    // A failed call leaves the document as it was, so its score is the last one.
+    if (action.ok) current = scoreDocument(action.doc, task).score;
+    trajectory.push(Math.round(current * 10_000) / 10_000);
+    if (firstPassCall === null && current >= PASS_THRESHOLD) firstPassCall = i + 1;
+  });
+  return { trajectory, firstPassCall };
+}
+
+/**
+ * Would this run have passed had it been stopped after `calls` calls?
+ *
+ * Read off the trajectory: the document as it stood then, not whether it
+ * passed at some earlier point and was then broken again. A run that ended
+ * before the budget stands as it ended. Null when the row has no trajectory.
+ */
+export function passedWithin(row: Pick<RunScore, "trajectory" | "baselineScore">, calls: number): boolean | null {
+  if (!row.trajectory) return null;
+  if (calls <= 0 || row.trajectory.length === 0) return row.baselineScore >= PASS_THRESHOLD;
+  return row.trajectory[Math.min(calls, row.trajectory.length) - 1]! >= PASS_THRESHOLD;
 }
 
 export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunScore {
@@ -148,6 +195,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     composite,
     baselineScore: baseline,
     normalizedScore: normalize(constraintScore, baseline),
+    ...scoreTrajectory(run.session.actions, task),
     efficiency: {
       turns: run.turns,
       toolCalls: run.toolCalls,

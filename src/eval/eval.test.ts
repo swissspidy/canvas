@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { baselineFor, normalize, scoreDocument, scoreRun, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
+import { baselineFor, normalize, passedWithin, scoreDocument, scoreRun, scoreTrajectory, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
+import { SOLUTIONS } from "../tasks/solutions.js";
 import { computeAgreement, pearson, sampleForRating, spearman } from "./human.js";
 import { alignCriteria, judgeRun, toUnit } from "./judge.js";
 import { bootstrapCI, mean, stdev } from "../runner/report.js";
@@ -1397,5 +1398,36 @@ describe("the coverage check", () => {
       page(background(), ...composed(), ghost, { ...ghost, id: "pad2" }),
     );
     expect(outcome.detail).toMatch(/excluding 1 full-canvas and 2 invisible elements/);
+  });
+});
+
+describe("per-call trajectory", () => {
+  const task = getTask("fit.long-headline");
+  const start = task.initial();
+  const solved = SOLUTIONS[task.id]!();
+
+  it("scores the document after each call, repeats the score over a failed call, and finds the first pass", () => {
+    const { trajectory, firstPassCall } = scoreTrajectory(
+      [
+        { ok: true, doc: start },
+        { ok: false, doc: solved }, // a failed call: its doc is ignored
+        { ok: true, doc: solved },
+        { ok: true, doc: start },
+      ],
+      task,
+    );
+    const base = Math.round(baselineFor(task) * 10_000) / 10_000;
+    expect(trajectory).toEqual([base, base, 1, base]);
+    expect(firstPassCall).toBe(3);
+  });
+
+  it("reads a budget off where the run stood then, not whether it ever passed", () => {
+    const row = { trajectory: [0.5, 1, 0.5], baselineScore: 0.5 };
+    expect(passedWithin(row, 1)).toBe(false);
+    expect(passedWithin(row, 2)).toBe(true);
+    expect(passedWithin(row, 3)).toBe(false);
+    // A run that ended sooner stands as it ended.
+    expect(passedWithin({ trajectory: [1], baselineScore: 0.5 }, 30)).toBe(true);
+    expect(passedWithin({ baselineScore: 0.5 }, 30)).toBeNull();
   });
 });

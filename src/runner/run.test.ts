@@ -6,6 +6,7 @@ import {
   DEFAULT_SWEEP,
   completedScores,
   expandMatrix,
+  fingerprintConflicts,
   loadExistingScores,
   runSweep,
   sweepPaths,
@@ -350,5 +351,14 @@ describe("the dry run", () => {
     const cells = expandMatrix(cfg);
     expect(read(cells[0]!.runId)).not.toContain("base64 chars elided");
     expect(read(cells[1]!.runId)).toContain("base64 chars elided");
+  });
+});
+
+describe("fingerprintConflicts", () => {
+  it("conflicts when only one side carries a call budget", () => {
+    const base = { effort: "high", maxTokens: null };
+    expect(fingerprintConflicts(base, { ...base, maxToolCalls: 30 })).toEqual(["maxToolCalls: was null, now 30"]);
+    expect(fingerprintConflicts({ ...base, maxToolCalls: 30 }, base)).toEqual(["maxToolCalls: was 30, now null"]);
+    expect(fingerprintConflicts(base, base)).toEqual([]);
   });
 });

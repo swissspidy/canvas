@@ -122,6 +122,59 @@ describe("agent loop", () => {
     expect(r.turns).toBe(trivialTask.maxTurns);
   });
 
+  describe("a stated tool-call budget", () => {
+    const rect = { name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } };
+    const budgeted = (maxToolCalls: number, script: ScriptedTurn[]) => {
+      const model = createScriptedModel(fixedScript(script));
+      return {
+        model,
+        result: runAgent({
+          runId: "test",
+          task: trivialTask,
+          surface: coordinateSurface,
+          feedback: createFeedbackChannel("none", { screenshotWidth: 200 }),
+          model: MODEL,
+          languageModel: model,
+          maxToolCalls,
+        }),
+      };
+    };
+
+    it("is stated up front, counted down after each call, and ends the run when spent", async () => {
+      const { model, result } = budgeted(3, [{ tools: [rect, rect] }, { tools: [rect] }, { text: "Never reached." }]);
+      const r = await result;
+      expect(r.stopReason).toBe("max_tool_calls");
+      expect(r.toolCalls).toBe(3);
+      expect(r.turns).toBe(2);
+      const calls = model.doGenerateCalls as Call[];
+      expect(calls).toHaveLength(2);
+      expect(promptText(calls[0]!)).toContain("You have 3 tool calls");
+      expect(promptText(calls[1]!)).toContain("[1 tool call left]");
+    });
+
+    it("does not run calls past the budget, even within one turn", async () => {
+      const { result } = budgeted(2, [{ tools: [rect, rect, rect, rect] }]);
+      const r = await result;
+      expect(r.stopReason).toBe("max_tool_calls");
+      expect(r.toolCalls).toBe(2);
+      expect(r.finalDoc.elements).toHaveLength(2);
+    });
+
+    it("counts failed calls against it", async () => {
+      const { result } = budgeted(2, [{ tools: [{ name: "move", input: { id: "nope", x: 0, y: 0 } }] }, { tools: [rect] }]);
+      const r = await result;
+      expect(r.stopReason).toBe("max_tool_calls");
+      expect(r.failedToolCalls).toBe(1);
+    });
+
+    it("says nothing about a budget when there is none", async () => {
+      const { model, result } = run("none", [{ tools: [rect] }, { text: "Done." }]);
+      await result;
+      const calls = model.doGenerateCalls as Call[];
+      expect(promptText(calls[1]!)).not.toMatch(/tool calls? left|# Budget/);
+    });
+  });
+
   it("ends the run on a refusal without running that turn's tools", async () => {
     const { result } = run("none", [
       {

@@ -146,6 +146,8 @@ Run options
   --effort <level>    low|medium|high|xhigh|max. Default: high
   --concurrency <n>   Default: ${DEFAULT_SWEEP.concurrency}
   --out <dir>         Output directory. Default: runs/<timestamp>
+  --max-calls <n>     A stated tool-call budget per run (e.g. 30). The agent is told it
+                      and sees what is left; the run ends when it is spent.
   --no-judge          Skip the LLM judge; deterministic checks only.
   --judge-model <id>  Default: ${DEFAULT_SWEEP.judgeModel}
   --dry-run           Expand and wire the matrix with a scripted model; no API calls, no cost.
@@ -334,6 +336,7 @@ function buildSweepConfig(args: Args): SweepConfig {
     // whole sweep on its first request.
     ...(typeof args.flags.effort === "string" ? { effort: parseEffort(args.flags.effort) } : {}),
     ...(args.flags["max-tokens"] ? { maxTokens: positiveInt(args.flags, "max-tokens", 16000) } : {}),
+    ...(args.flags["max-calls"] ? { maxToolCalls: positiveInt(args.flags, "max-calls", 30) } : {}),
   };
 }
 

@@ -47,6 +47,8 @@ export interface SweepConfig {
   /** Re-run cells that already have a result on disk. */
   force: boolean;
   maxTokens?: number;
+  /** A stated tool-call budget per run. See `RunConfig.maxToolCalls`. */
+  maxToolCalls?: number;
 }
 
 export interface Cell {
@@ -130,6 +132,8 @@ export function runFingerprint(config: SweepConfig): Record<string, unknown> {
     harness: (config as { runner?: string }).runner ?? "aisdk",
     effort: config.effort ?? null,
     maxTokens: config.maxTokens ?? null,
+    // Only when set, so sweeps made before the budget existed still resume.
+    ...(config.maxToolCalls !== undefined ? { maxToolCalls: config.maxToolCalls } : {}),
     judge: config.judge,
     judgeModel: config.judgeModel,
     dryRun: config.dryRun,
@@ -141,9 +145,11 @@ export function fingerprintConflicts(
   previous: Record<string, unknown>,
   current: Record<string, unknown>,
 ): string[] {
-  return Object.keys(current)
+  // Both sides' keys: a setting that is only recorded when set (the call
+  // budget) must conflict when one side has it and the other does not.
+  return [...new Set([...Object.keys(previous), ...Object.keys(current)])]
     .filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(current[key]))
-    .map((key) => `${key}: was ${JSON.stringify(previous[key] ?? null)}, now ${JSON.stringify(current[key])}`);
+    .map((key) => `${key}: was ${JSON.stringify(previous[key] ?? null)}, now ${JSON.stringify(current[key] ?? null)}`);
 }
 
 function previousFingerprint(paths: SweepPaths): Record<string, unknown> | null {
@@ -377,6 +383,7 @@ async function runCell(
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.maxTokens ? { maxTokens: config.maxTokens } : {}),
+    ...(config.maxToolCalls ? { maxToolCalls: config.maxToolCalls } : {}),
     // A dry run needs a model that never reaches the network — and one that
     // speaks this surface's vocabulary, or the wiring check never gets as far
     // as a tool call.

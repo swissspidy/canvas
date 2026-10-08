@@ -11,7 +11,7 @@
  * invites exactly the kind of re-rolling this study should not do.
  */
 
-import type { RunScore } from "../eval/score.js";
+import { passedWithin, type RunScore } from "../eval/score.js";
 import { PASS_THRESHOLD } from "../eval/checks.js";
 import { isHarnessFailure } from "../agent/events.js";
 import { feedbackLabel, type FeedbackMode } from "../feedback/index.js";
@@ -944,6 +944,7 @@ function effectivenessSection(scores: RunScore[], models: string[]): string {
   if (models.some((m) => !effectiveness(scores.filter((s) => s.model === m)).pricingKnown)) {
     lines.push("", "\\* No checked price for this model, so its cost reads as zero.");
   }
+  lines.push(budgetSection(scores, models));
   if (tasks.length > 1) {
     lines.push(
       "",
@@ -964,6 +965,84 @@ function effectivenessSection(scores: RunScore[], models: string[]): string {
     );
   }
   lines.push("");
+  return lines.join("\n");
+}
+
+/** The budgets the report reads trajectories at. */
+export const CALL_BUDGETS = [10, 20, 30, 50, 75, 100] as const;
+
+/** Pass rate at each budget in `CALL_BUDGETS`, over the runs that carry a trajectory; null when none do. */
+export function passRateWithinCalls(rows: RunScore[]): Record<string, number> | null {
+  const traced = rows.filter((r) => r.trajectory !== undefined);
+  if (traced.length === 0) return null;
+  return Object.fromEntries(
+    CALL_BUDGETS.map((n) => [String(n), traced.filter((r) => passedWithin(r, n)).length / traced.length]),
+  );
+}
+
+/** The middle value, or null for none. */
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * Pass rate at a call budget, read off each run's trajectory.
+ *
+ * Where a pass rate at the end of the run saturates, the same runs stopped
+ * earlier do not: two conditions that both finish at 100% can sit at 20% and
+ * 70% after thirty calls. Exploratory under §11 of the pre-registration, and
+ * pooled across conditions here like every other table in this section.
+ */
+function budgetSection(scores: RunScore[], models: string[]): string {
+  const traced = scores.filter((s) => s.trajectory !== undefined);
+  if (traced.length === 0) return "";
+  const tasks = [...new Set(traced.map((s) => s.taskId))].sort();
+  const rate = (rows: RunScore[], calls: number) =>
+    `${Math.round((rows.filter((r) => passedWithin(r, calls)).length / rows.length) * 100)}%`;
+  const firstPass = (rows: RunScore[]) => {
+    const m = medianOf(rows.flatMap((r) => (r.firstPassCall == null ? [] : [r.firstPassCall])));
+    return m === null ? "—" : String(Math.round(m));
+  };
+  const lines = [
+    "",
+    "### Pass within a call budget",
+    "",
+    "Whether each run would have passed had it been stopped after N tool calls — the document as it stood " +
+      "then, read off the score recorded after every call. A run that finished sooner stands as it finished. " +
+      "**First pass** is the median call at which a run first passed, over the runs that did.",
+    "",
+    table(
+      ["Model", "Runs", ...CALL_BUDGETS.map((n) => `≤${n}`), "At end", "First pass"],
+      models.flatMap((model) => {
+        const rows = traced.filter((s) => s.model === model);
+        if (!rows.length) return [];
+        return [[model, String(rows.length), ...CALL_BUDGETS.map((n) => rate(rows, n)), rate(rows, Infinity), firstPass(rows)]];
+      }),
+    ),
+  ];
+  if (tasks.length > 1) {
+    lines.push(
+      "",
+      "Median call of first pass, by task:",
+      "",
+      table(
+        ["Task", ...models],
+        tasks.map((task) => [
+          task,
+          ...models.map((model) => {
+            const rows = traced.filter((s) => s.model === model && s.taskId === task);
+            return rows.length ? `${firstPass(rows)} (${rows.filter((r) => r.firstPassCall != null).length}/${rows.length})` : "—";
+          }),
+        ]),
+      ),
+    );
+  }
+  if (traced.length < scores.length) {
+    lines.push("", `${scores.length - traced.length} run(s) predate per-call scoring and are left out of this table.`);
+  }
   return lines.join("\n");
 }
 
@@ -1414,7 +1493,7 @@ export function buildReportJson(allScores: RunScore[]): unknown {
     },
     effectiveness: {
       byModel: Object.fromEntries(
-        [...groupBy(scores, (s) => s.model)].map(([k, v]) => [k, { ...effectiveness(v), passRateByTask: Object.fromEntries([...groupBy(v, (r) => r.taskId)].map(([t, rs]) => [t, rs.filter(passed).length / rs.length])) }]),
+        [...groupBy(scores, (s) => s.model)].map(([k, v]) => [k, { ...effectiveness(v), passRateByTask: Object.fromEntries([...groupBy(v, (r) => r.taskId)].map(([t, rs]) => [t, rs.filter(passed).length / rs.length])), passRateWithinCalls: passRateWithinCalls(v) }]),
       ),
       byModelAndTask: Object.fromEntries([...groupBy(scores, (s) => `${s.model}|${s.taskId}`)].map(([k, v]) => [k, effectiveness(v)])),
     },

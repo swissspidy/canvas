@@ -68,6 +68,7 @@ export async function initialUserBlocks(
   task: Task,
   doc: Doc,
   feedback: FeedbackChannel,
+  maxToolCalls?: number,
 ): Promise<FeedbackBlock[]> {
   const blocks: FeedbackBlock[] = [
     {
@@ -86,6 +87,7 @@ export async function initialUserBlocks(
         "```json",
         documentJson(doc),
         "```",
+        ...(maxToolCalls === undefined ? [] : ["", budgetText(maxToolCalls)]),
       ].join("\n"),
     },
   ];
@@ -98,4 +100,24 @@ export async function initialUserBlocks(
     blocks.push({ type: "text", text: "The image above is the document as it currently renders." });
   }
   return blocks;
+}
+
+/**
+ * The tool-call budget, stated up front.
+ *
+ * A budget the agent is not told about is just a run cut short, and the
+ * report already reads that off every run's trajectory (`passWithinCalls`).
+ * Stated, it is a different task: plan the edit so it lands inside the
+ * budget. Identical on every surface and every feedback condition.
+ */
+export function budgetText(maxToolCalls: number): string {
+  return (
+    `# Budget\n\nYou have ${maxToolCalls} tool calls for this task, counting failed ones. ` +
+    `The run ends when they are spent, and the document is scored as it stands then. ` +
+    `Each tool result says how many are left.`
+  );
+}
+
+export function remainingText(left: number): string {
+  return `[${left} tool call${left === 1 ? "" : "s"} left]`;
 }
