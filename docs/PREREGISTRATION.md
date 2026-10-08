@@ -787,6 +787,17 @@ exactly, so they do not measure from the image; measurement was never the
 judge's job (§3). The prompt also says that what the brief requires is never
 a defect.
 
+*Narrowed in review, after the re-judge below.* "Every number the brief
+states" claimed more than the checks cover: positions and sizes in canvas
+units are measured, but a count, say, need not be, and that wording told the
+judge not to report one. The judges are now told only that positions and
+sizes are checked, and that everything else the brief asks for is theirs to
+judge. The stated scale also now uses the width the rasterizer delivers,
+which is narrower for a canvas tall enough to hit its pixel cap (none of
+these tasks is), and the pairwise judge states it beside each image. The
+re-judge figures below were made with the broader wording; no page in it is
+affected by a count or by the pixel cap.
+
 Re-judged with the same pages and the same model after both fixes: no
 judgement failed, the mean criteria score went from 0.58 to 0.68, and no
 defect cites a coordinate. What remains is design critique of pages that pass
