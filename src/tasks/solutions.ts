@@ -499,7 +499,30 @@ function radial(id: string, cx: number, cy: number, r: number, deg: number, w: n
   return shape(id, { x: cx + Math.sin(a) * r - w / 2, y: cy - Math.cos(a) * r - h / 2, w, h }, style, deg, z);
 }
 
+/** The task's own page, with these animations added. */
+function animated(id: string, animations: Record<string, Element["animation"]>): Doc {
+  const d = getTask(id).initial();
+  return { ...d, elements: d.elements.map((el) => (animations[el.id] ? { ...el, animation: animations[el.id] } : el)) };
+}
+
 export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
+  // The headline comes from the left and the button from the left. From the
+  // right the headline would pass under the badge, and from below it, like
+  // the button's label, would pass under the footer, which is there from the
+  // start and painted above everything; a button from the top would cross the
+  // headline and the feature lines. Distances are exactly what starts each
+  // one off the canvas: the headline's right edge is at 840, the button's at 540.
+  "anim.launch": () =>
+    animated("anim.launch", {
+      headline: { effect: "fly", from: "left", distance: 840, delay: 0, duration: 600 },
+      f1: { effect: "fade", delay: 600, duration: 300 },
+      f2: { effect: "fade", delay: 750, duration: 300 },
+      f3: { effect: "fade", delay: 900, duration: 300 },
+      f4: { effect: "fade", delay: 1050, duration: 300 },
+      cta: { effect: "fly", from: "left", distance: 540, delay: 1550, duration: 450 },
+      cta_label: { effect: "fly", from: "left", distance: 540, delay: 1550, duration: 450 },
+    }),
+
   "proto.sunburst": () => {
     const rays = Array.from({ length: 12 }, (_, i) => radial(`ray_${i}`, 540, 480, 240 + 24 + 75, i * 30, 36, 150, { fill: "#ffd166" }, 1));
     // The ray at 180 degrees reaches 480 + 264 + 150 = 894.

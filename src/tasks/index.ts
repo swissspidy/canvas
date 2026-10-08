@@ -15,6 +15,7 @@ import { restyleTasks } from "./restyle.js";
 import { arrangeTasks } from "./arrange.js";
 import { prototypeTasks } from "./prototype.js";
 import { measureTasks } from "./measure.js";
+import { animationTasks } from "./animation.js";
 
 export const TASKS: Task[] = [
   ...composeTasks,
@@ -29,7 +30,7 @@ export const TASKS: Task[] = [
  * Prototype tasks: resolvable by id, or all together as `proto`, and never
  * part of `TASKS` — so no default sweep, grid or registry test includes them.
  */
-export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks];
+export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks];
 
 export const TASKS_BY_ID: Map<string, Task> = new Map([...TASKS, ...PROTOTYPE_TASKS].map((t) => [t.id, t]));
 
@@ -59,7 +60,11 @@ export function resolveTasks(selector: string): Task[] {
   const out: Task[] = [];
   for (const part of parts) {
     if (part === "proto") {
-      out.push(...prototypeTasks);
+      out.push(...PROTOTYPE_TASKS);
+      continue;
+    }
+    if (part === "anim") {
+      out.push(...animationTasks);
       continue;
     }
     const family = tasksInFamily(part as TaskFamily);

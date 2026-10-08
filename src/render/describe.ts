@@ -16,7 +16,7 @@
  * variants as the confound control for the headline feedback comparison.
  */
 
-import type { Doc, Element } from "../doc/types.js";
+import type { Animation, Doc, Element } from "../doc/types.js";
 import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
 import { occlusions, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
@@ -58,6 +58,14 @@ function styleSummary(el: Element): string {
   return bits.length ? bits.join(" ") : "(no style set)";
 }
 
+/** One line per animated element: what it does and when, in the units the tools take. */
+function animationSummary(a: Animation): string {
+  const when = `delay=${fmt(a.delay)}ms duration=${fmt(a.duration)}ms (at rest from ${fmt(a.delay + a.duration)}ms)`;
+  return a.effect === "fly"
+    ? `animation fly from ${a.from} distance=${fmt(a.distance ?? 0)} ${when}`
+    : `animation fade ${when}`;
+}
+
 function elementBlock(el: Element, maxTextChars: number): string[] {
   const lines: string[] = [];
   const head = [`[${el.id}] ${el.type}`];
@@ -72,6 +80,7 @@ function elementBlock(el: Element, maxTextChars: number): string[] {
       ` rotation=${fmt(el.rotation)} z=${el.z}`,
   );
   lines.push(`  style ${styleSummary(el)}`);
+  if (el.animation) lines.push(`  ${animationSummary(el.animation)}`);
 
   if (el.type === "text") {
     const raw = el.text ?? "";

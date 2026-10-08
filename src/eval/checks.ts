@@ -217,15 +217,16 @@ function check(id: string, label: string, weight: number, run: (doc: Doc) => Che
  * lifted a genuine 17% occlusion from 0% to 72%, with the detail line still
  * naming the element that was covered.
  */
-export function noTextOcclusion(weight = 1): Check {
+export function noTextOcclusion(weight = 1, opts: { onCanvasOnly?: boolean } = {}): Check {
   return check("no_text_occlusion", "Text is not covered by anything above it", weight, (doc) => {
     const texts = visible(doc.elements).filter(isText);
     if (texts.length === 0) return { score: 1, detail: "No text elements." };
+    const canvas = opts.onCanvasOnly ? { x: 0, y: 0, width: doc.width, height: doc.height } : undefined;
     const worst: string[] = [];
     let totalHidden = 0;
     let totalInk = 0;
     for (const el of texts) {
-      const occ = occlusionOf(doc, el);
+      const occ = occlusionOf(doc, el, canvas);
       totalHidden += occ.hiddenArea;
       totalInk += occ.inkArea;
       if (occ.hiddenFraction > 0.01) {

@@ -72,6 +72,31 @@ export interface Style {
   gradientAngle?: number;
 }
 
+export const ANIMATION_EFFECTS = ["fade", "fly"] as const;
+export type AnimationEffect = (typeof ANIMATION_EFFECTS)[number];
+
+export const FLY_SIDES = ["left", "right", "top", "bottom"] as const;
+export type FlySide = (typeof FLY_SIDES)[number];
+
+/**
+ * One entrance animation, as on a Web Stories page: the element arrives once
+ * and then stays where the document puts it. Its x, y and style are always its
+ * resting state, so everything that scores a static page scores the last frame
+ * unchanged. Timing is linear, in milliseconds from the moment the page opens.
+ */
+export interface Animation {
+  /** `fade`: opacity rises from 0 to the element's own. `fly`: it travels in a straight line to its place. */
+  effect: AnimationEffect;
+  /** When it starts. Before then the element shows its starting state. */
+  delay: number;
+  /** How long it takes. */
+  duration: number;
+  /** `fly` only: the side it comes in from. */
+  from?: FlySide;
+  /** `fly` only: how far it travels, in canvas units. */
+  distance?: number;
+}
+
 export interface Element {
   id: string;
   type: ElementType;
@@ -92,6 +117,8 @@ export interface Element {
   /** `image` only. Description, used by the structured-feedback channel. */
   alt?: string;
   style: Style;
+  /** An entrance animation. Absent means the element is there from the start. */
+  animation?: Animation;
 }
 
 export interface Doc {

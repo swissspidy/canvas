@@ -239,8 +239,16 @@ export interface Occlusion {
   occludedBy: string[];
 }
 
-export function occlusionOf(doc: Doc, el: Element): Occlusion {
-  const ink = inkPolygons(el);
+/**
+ * `within` limits the measure to ink inside that rectangle. Frames of an
+ * animation pass `within` the canvas: text still flying in from off the page
+ * cannot be seen, so nothing can hide it there.
+ */
+export function occlusionOf(doc: Doc, el: Element, within?: Rect): Occlusion {
+  const all = inkPolygons(el);
+  const ink = within
+    ? all.map((p) => convexClip(p, rectToPolygon(within))).filter((p) => p.length >= 3 && polygonArea(p) > EPS)
+    : all;
   const inkArea = ink.reduce((s, p) => s + polygonArea(p), 0);
   const above = occludersAbove(doc, el).map((o) => ({ id: o.id, polygons: occluderPolygons(o) }));
   const clips = above.flatMap((o) => o.polygons);
