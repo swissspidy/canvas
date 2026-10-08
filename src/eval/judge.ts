@@ -56,7 +56,27 @@ const zCriterionScore = z.object({
   reason: z.string().max(400).describe("One sentence citing what in the image drove the score."),
 });
 
+const zDefect = z.object({
+  severity: z.enum(["major", "minor"]).describe("major: a reader would notice it or it breaks the brief. minor: a designer would fix it."),
+  what: z.string().max(300).describe("What is wrong and where, in one sentence."),
+});
+
+/*
+ * Defects come first, and the order is the point. A model asked for a 1-5
+ * rating straight away gives most competent pages a 4 or a 5, which is why the
+ * judge saturated alongside the checks: a page with an orphaned word and
+ * cramped margins scored 88% beside a polished one's 94%. Made to list what is
+ * wrong before it scores anything, it has to commit to the flaws it sees, and
+ * the count is a measurement in its own right — one that keeps separating
+ * pages long after both are "a 4".
+ */
 const zJudgement = z.object({
+  defects: z
+    .array(zDefect)
+    .describe(
+      "Every visible flaw a careful designer would fix before shipping, most serious first. " +
+        "Written before any score. An empty list claims the page should ship unchanged.",
+    ),
   criteria: z.array(zCriterionScore),
   overall: z.number().int().min(1).max(5).describe("Overall quality as a design, 1 to 5."),
   summary: z.string().max(600).describe("Two sentences at most."),
@@ -96,9 +116,20 @@ export const JUDGE_SYSTEM = [
   "Judge only what you can see. Do not speculate about how the document was produced, what tools were",
   "used, or how much effort it took — you have no information about any of that, and it is not relevant.",
   "",
+  "Start by listing the defects: every flaw a careful designer would fix before shipping — awkward line",
+  "breaks, an orphaned word, cramped or uneven spacing, weak hierarchy, poor contrast, misalignment, a",
+  "composition that leaves the canvas empty or crowded. Mark each major or minor. Look hard: a competent",
+  "page usually still has a few minor ones, and an empty list is a claim that nothing should change.",
+  "",
+  "Then score, consistently with the defects you listed:",
+  "  5 — you would ship it unchanged. No defects, or only the most marginal.",
+  "  4 — ready after one or two minor fixes.",
+  "  3 — several minor defects, or one major one.",
+  "  2 — needs rework: more than one major defect.",
+  "  1 — fails the criterion outright.",
+  "",
   "Be discriminating. A layout that satisfies the brief but looks careless is not a 5. A layout that",
-  "looks pleasant but ignores an explicit requirement is not a 5 either. Reserve 5 for work you would",
-  "be happy to ship, and do not round up out of politeness.",
+  "looks pleasant but ignores an explicit requirement is not a 5 either. Do not round up out of politeness.",
 ].join("\n");
 
 export interface JudgeRunInput {
@@ -147,7 +178,8 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
       `\n# Criteria\n\n${input.criteria.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n` +
         `Return exactly ${input.criteria.length} ${input.criteria.length === 1 ? "entry" : "entries"} in \`criteria\`: ` +
         `one for each numbered criterion above and none of your own, each copying its criterion verbatim. ` +
-        `The overall rating goes in the separate \`overall\` field — it is not one of the criteria.`,
+        `The overall rating goes in the separate \`overall\` field — it is not one of the criteria. ` +
+        `List the defects before scoring.`,
     ),
   );
 
@@ -199,7 +231,7 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
     return {
       criteriaScore: 0,
       overallScore: 0,
-      judgement: { criteria: [], overall: 1, summary: "" },
+      judgement: { defects: [], criteria: [], overall: 1, summary: "" },
       model,
       usage,
       costUsd: costUsd(usage, spec),

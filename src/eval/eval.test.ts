@@ -318,7 +318,7 @@ describe("scoring a run", () => {
     const judged = scoreRun(run, task, {
       criteriaScore: 1,
       overallScore: 1,
-      judgement: { criteria: [], overall: 5, summary: "" },
+      judgement: { defects: [], criteria: [], overall: 5, summary: "" },
       model: "judge",
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       costUsd: 0,
@@ -340,7 +340,7 @@ describe("scoring a run", () => {
       scoreRun(run, task, {
         criteriaScore: 0.8,
         overallScore: 0.8,
-        judgement: { criteria: [], overall: 4, summary: "" },
+        judgement: { defects: [], criteria: [], overall: 4, summary: "" },
         model: "judge",
         usage: { input: 2000, output: 300, cacheRead: 0, cacheWrite: 0 },
         costUsd: 0,
@@ -358,7 +358,7 @@ describe("scoring a run", () => {
     const score = scoreRun(run, task, {
       criteriaScore: 0,
       overallScore: 0,
-      judgement: { criteria: [], overall: 1, summary: "" },
+      judgement: { defects: [], criteria: [], overall: 1, summary: "" },
       model: "judge",
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       costUsd: 0,
@@ -589,6 +589,7 @@ function judgeModel(judgement: unknown): MockLanguageModelV4 {
 describe("the judge", () => {
   const task = getTask("arrange.ragged-column");
   const fullMarks = (score: number) => ({
+    defects: [],
     criteria: task.judgeCriteria.map((criterion) => ({ criterion, score, reason: "because" })),
     overall: score,
     summary: "A summary.",
@@ -630,6 +631,31 @@ describe("the judge", () => {
 
   });
 
+  it("lists defects before it scores, and the run's score counts them by severity", async () => {
+    const { result, model } = await judge({
+      ...fullMarks(4),
+      defects: [
+        { severity: "major", what: "The headline is cramped against the top edge." },
+        { severity: "minor", what: "One orphaned word." },
+        { severity: "minor", what: "Uneven gaps between the rows." },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    const call = model.doGenerateCalls[0]!;
+    expect(JSON.stringify(call.prompt)).toContain("List the defects before scoring.");
+    expect(JSON.stringify(call.prompt)).toContain("Start by listing the defects");
+
+    const run = await runAgent({
+      runId: "t",
+      task,
+      surface: coordinateSurface,
+      feedback: createFeedbackChannel("none"),
+      model: "anthropic:claude-opus-5",
+      languageModel: createScriptedModel(fixedScript([{ text: "Done." }])),
+    });
+    expect(scoreRun(run, task, result).judgeDefects).toEqual({ major: 1, minor: 2 });
+  });
+
   it("shows the judge the brief, the before and the after — and nothing about the run", async () => {
     const { model } = await judge(fullMarks(3));
     const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
@@ -646,6 +672,7 @@ describe("the judge", () => {
   // right-sized set that names the wrong criteria. Both keep the judge out.
   it("keeps itself out of the score when it grades a different set of criteria", async () => {
     const short = await judge({
+      defects: [],
       criteria: [{ criterion: task.judgeCriteria[0]!, score: 5, reason: "because" }],
       overall: 5,
       summary: "Short.",
@@ -656,6 +683,7 @@ describe("the judge", () => {
     // The right number of entries, all naming the first criterion: one scored
     // repeatedly and the rest never scored. Only the alignment sees this.
     const duplicated = await judge({
+      defects: [],
       criteria: task.judgeCriteria.map(() => ({ criterion: task.judgeCriteria[0]!, score: 5, reason: "because" })),
       overall: 5,
       summary: "Short.",

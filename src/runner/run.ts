@@ -412,7 +412,7 @@ async function runCell(
       judge = {
         criteriaScore: 0,
         overallScore: 0,
-        judgement: { criteria: [], overall: 1, summary: "" },
+        judgement: { defects: [], criteria: [], overall: 1, summary: "" },
         model: config.judgeModel,
         usage: { ...ZERO_USAGE },
         costUsd: 0,

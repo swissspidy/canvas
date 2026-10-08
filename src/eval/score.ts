@@ -62,6 +62,11 @@ export interface RunScore {
   judgeCriteriaScore: number | null;
   judgeOverallScore: number | null;
   judgeSummary: string | null;
+  /**
+   * How many defects the judge listed, by severity. Null when no judge ran;
+   * absent on records written before the judge listed them.
+   */
+  judgeDefects?: { major: number; minor: number } | null;
   judgeError?: string;
   /** 0..1 blend. Equals the constraint score when no judge ran. */
   composite: number;
@@ -191,6 +196,13 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     judgeCriteriaScore: judgeCriteria,
     judgeOverallScore: judge && !judge.error ? judge.overallScore : null,
     judgeSummary: judge && !judge.error ? judge.judgement.summary : null,
+    judgeDefects:
+      judge && !judge.error
+        ? {
+            major: judge.judgement.defects.filter((d) => d.severity === "major").length,
+            minor: judge.judgement.defects.filter((d) => d.severity === "minor").length,
+          }
+        : null,
     ...(judge?.error ? { judgeError: judge.error } : {}),
     composite,
     baselineScore: baseline,

@@ -5,7 +5,7 @@
  * `npm run cli -- <command> [options]`
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
@@ -35,7 +35,9 @@ import {
   expandMatrix,
   type SweepConfig,
 } from "./runner/run.js";
-import { buildReport, buildReportJson, SIGN_FLIP_EXHAUSTIVE_LIMIT, type ResolutionMethod } from "./runner/report.js";
+import { buildReport, buildReportJson, mulberry32, passed, SIGN_FLIP_EXHAUSTIVE_LIMIT, type ResolutionMethod } from "./runner/report.js";
+import { drawPairs, judgePair, tallyPairs, type PairWinner } from "./eval/pairwise.js";
+import { DEFAULT_JUDGE_MODEL } from "./eval/judge.js";
 import {
   DEFAULT_PARAMS,
   TARGET_POWER,
@@ -98,6 +100,7 @@ Commands
   report --dir <sweepDir>     Rebuild the report from an existing sweep.
   sample --dir <sweepDir>     Draw a stratified subset and write a human rating sheet.
   agreement --dir <sweepDir>  Compare human ratings against the judge.
+  compare --dir <sweepDir>    Judge finished pages head to head, within task.
   power [options]             What effect size the grid can resolve. No API key, no cost.
 
 Cross-provider runs
@@ -153,6 +156,13 @@ Run options
   --dry-run           Expand and wire the matrix with a scripted model; no API calls, no cost.
   --force             Re-run cells that already have a result on disk.
   --estimate          Print the matrix, and its cost if --out holds runs to extrapolate from.
+
+compare options
+  --by <axis>         model, surface or feedback: what the two pages of a pair differ on. Default: model
+  --pairs <n>         Pairs per task. Each is judged twice, once in each order. Default: 6
+  --passing           Only pages that passed every check: the comparison a saturated pass rate leaves.
+  --judge-model <id>  Default: ${DEFAULT_JUDGE_MODEL}
+  --concurrency <n>   Default: 4
 `;
 
 async function main(): Promise<void> {
@@ -175,6 +185,8 @@ async function main(): Promise<void> {
       return cmdSample(args);
     case "agreement":
       return cmdAgreement(args);
+    case "compare":
+      return cmdCompare(args);
     case "power":
       return cmdPower(args);
     default:
@@ -687,3 +699,118 @@ main().catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exitCode = 1;
 });
+
+interface PairRow {
+  id: string;
+  taskId: string;
+  a: string;
+  b: string;
+  aRun: string;
+  bRun: string;
+  winner: PairWinner;
+  verdicts: [string, string];
+  reasons: [string, string];
+  model: string;
+  costUsd: number;
+  error?: string;
+}
+
+async function cmdCompare(args: Args): Promise<void> {
+  const dir = str(args.flags, "dir", "");
+  if (!dir) throw new Error("Pass --dir <sweepDir>");
+  const by = str(args.flags, "by", "model");
+  const axis: Record<string, (s: RunScore) => string> = {
+    model: (s) => s.model,
+    surface: (s) => s.surfaceId,
+    feedback: (s) => s.feedbackMode,
+  };
+  const groupOf = axis[by];
+  if (!groupOf) throw new Error(`--by takes model, surface or feedback, not '${by}'.`);
+  const perTask = positiveInt(args.flags, "pairs", 6);
+  const judgeModel = str(args.flags, "judge-model", DEFAULT_JUDGE_MODEL);
+  const concurrency = positiveInt(args.flags, "concurrency", 4);
+  const passingOnly = bool(args.flags, "passing");
+
+  const scores = readScores(dir).filter((s) => !isHarnessFailure(s.stopReason) && (!passingOnly || passed(s)));
+  const pairs = drawPairs(
+    scores.map((s) => ({ runId: s.runId, taskId: s.taskId, group: groupOf(s) })),
+    perTask,
+    mulberry32(20261008),
+  );
+  if (pairs.length === 0) {
+    console.log(`No pairs to judge: no task has finished runs from two different ${by} values${passingOnly ? " that passed" : ""}.`);
+    return;
+  }
+
+  // Resumable: a pair already judged by this judge is not paid for twice.
+  const file = join(dir, `pairwise-${by}${passingOnly ? "-passing" : ""}.jsonl`);
+  const done = new Map<string, PairRow>();
+  if (existsSync(file)) {
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as PairRow;
+      if (row.model === judgeModel && !row.error) done.set(row.id, row);
+    }
+  }
+
+  const finalDoc = (runId: string) =>
+    (JSON.parse(readFileSync(join(sweepPaths(dir).runs, `${runId}.json`), "utf8")) as { finalDoc: import("./doc/types.js").Doc }).finalDoc;
+
+  const todo = pairs.filter((p) => !done.has(p.id));
+  console.log(`${pairs.length} pairs across ${new Set(pairs.map((p) => p.taskId)).size} tasks; ${todo.length} to judge with ${judgeModel}.`);
+  let next = 0;
+  let finished = 0;
+  const worker = async () => {
+    while (next < todo.length) {
+      const pair = todo[next++]!;
+      const task = getTask(pair.taskId);
+      const result = await judgePair({
+        brief: task.brief,
+        initialDoc: task.initial(),
+        a: finalDoc(pair.a.runId),
+        b: finalDoc(pair.b.runId),
+        model: judgeModel,
+      });
+      const row: PairRow = {
+        id: pair.id,
+        taskId: pair.taskId,
+        a: pair.a.group,
+        b: pair.b.group,
+        aRun: pair.a.runId,
+        bRun: pair.b.runId,
+        winner: result.winner,
+        verdicts: result.verdicts,
+        reasons: result.reasons,
+        model: judgeModel,
+        costUsd: result.costUsd,
+        ...(result.error ? { error: result.error } : {}),
+      };
+      appendFileSync(file, `${JSON.stringify(row)}\n`);
+      done.set(row.id, row);
+      finished++;
+      process.stdout.write(`\r${finished}/${todo.length}`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker));
+  if (todo.length) process.stdout.write("\n");
+
+  const rows = pairs.map((p) => done.get(p.id)).filter((r): r is PairRow => r !== undefined);
+  const failed = rows.filter((r) => r.error).length;
+  const tally = tallyPairs(rows);
+  const lines = [
+    `# Head to head, by ${by}${passingOnly ? " (passing pages only)" : ""}`,
+    "",
+    `${rows.length - failed} pairs judged by ${judgeModel}, each in both orders; a page wins only if it wins both. ` +
+      `Win rate counts a tie as half.${failed ? ` ${failed} pair(s) errored and are left out.` : ""}`,
+    "",
+    `| ${by} | Win rate | Wins | Ties | Losses |`,
+    "| --- | --- | --- | --- | --- |",
+    ...tally.map((t) => `| ${t.group} | ${Math.round(t.winRate * 100)}% | ${t.wins} | ${t.ties} | ${t.losses} |`),
+    "",
+    `Judge spend: $${rows.reduce((sum, r) => sum + r.costUsd, 0).toFixed(2)}.`,
+    "",
+  ];
+  const md = lines.join("\n");
+  writeFileSync(file.replace(/\.jsonl$/, ".md"), md);
+  console.log(md);
+}

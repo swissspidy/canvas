@@ -683,6 +683,47 @@ changes.
 any outcome is computed or read; the report's cost-to-pass section is built
 and tested on synthetic data.
 
+**2026-10-08 — per-call scoring, a stated call budget, and a judge that has to
+choose.** Written before any run that uses them.
+
+The eighth entry made cost to pass primary because pass rates sit at the
+ceiling. Three additions make the secondary outcomes informative at that
+ceiling too. None changes the primary outcome, the hypotheses, the decision
+rules or the grid.
+
+1. *Per-call scoring.* Every run now records its constraint score after each
+   tool call. The report reads off it the pass rate at budgets of 10, 20, 30,
+   50, 75 and 100 calls (the document as it stood at that call, not whether it
+   had passed earlier) and the median call of first pass. Exploratory under
+   §11. Calls per pass stays the co-primary measure; this is its distribution.
+2. *A stated call budget* (`run --max-calls N`). The agent is told the budget
+   in its opening message and sees how many calls are left after each one;
+   calls past it are not run, and the run ends with `max_tool_calls`, an
+   outcome like `max_turns`. It is a separate condition, not a change to the
+   grid. A budget the agent is not told about is just a run stopped early,
+   which (1) already measures, so the budget is stated. Turns are already
+   capped at 20–35 per task, and a turn can hold many calls (the measurement
+   family took 39–108 calls a run), so the cap that bites is on calls. The
+   first budget tried is 30 calls. Whether a budgeted grid replaces or joins
+   the confirmatory one is decided in a later entry, before it runs.
+3. *The judge.* (a) The absolute judge now lists every defect, as major or
+   minor, before it scores anything, against a scale whose steps are defined
+   by those defects ("4 — ready after one or two minor fixes"). The score
+   still feeds the composite at §3's weight; the defect counts are recorded
+   beside it and are exploratory. The human-rated subset of §9 validates the
+   new prompt exactly as it would have validated the old one. (b) A pairwise
+   judge (`compare --dir`) shows two finished pages from the same brief and
+   asks which is the better design. Each pair is judged in both orders, and a
+   page wins the pair only if it wins both, so position bias produces ties,
+   never a wrong winner. Exploratory, and subject to the same blinding as
+   everything else: no comparison by surface or feedback is run before the
+   grid.
+
+*Pilot, under the calibration rules of the second entry.* GPT-5.6 Luna and
+Terra (the only key on hand), the measurement family, three surfaces, `none`
+and `both`, one repeat, judged by GPT-5.6 Sol: once without a budget and once
+with `--max-calls 30`. Only pooled and per-model figures are read.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
