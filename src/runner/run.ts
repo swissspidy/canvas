@@ -47,8 +47,8 @@ export interface SweepConfig {
   /** Re-run cells that already have a result on disk. */
   force: boolean;
   maxTokens?: number;
-  /** A stated tool-call budget per run. See `RunConfig.maxToolCalls`. */
-  maxToolCalls?: number;
+  /** A stated turn budget per run. See `RunConfig.turnBudget`. */
+  turnBudget?: number;
 }
 
 export interface Cell {
@@ -133,7 +133,7 @@ export function runFingerprint(config: SweepConfig): Record<string, unknown> {
     effort: config.effort ?? null,
     maxTokens: config.maxTokens ?? null,
     // Only when set, so sweeps made before the budget existed still resume.
-    ...(config.maxToolCalls !== undefined ? { maxToolCalls: config.maxToolCalls } : {}),
+    ...(config.turnBudget !== undefined ? { turnBudget: config.turnBudget } : {}),
     judge: config.judge,
     judgeModel: config.judgeModel,
     dryRun: config.dryRun,
@@ -145,7 +145,7 @@ export function fingerprintConflicts(
   previous: Record<string, unknown>,
   current: Record<string, unknown>,
 ): string[] {
-  // Both sides' keys: a setting that is only recorded when set (the call
+  // Both sides' keys: a setting that is only recorded when set (the turn
   // budget) must conflict when one side has it and the other does not.
   return [...new Set([...Object.keys(previous), ...Object.keys(current)])]
     .filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(current[key]))
@@ -383,7 +383,7 @@ async function runCell(
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.maxTokens ? { maxTokens: config.maxTokens } : {}),
-    ...(config.maxToolCalls ? { maxToolCalls: config.maxToolCalls } : {}),
+    ...(config.turnBudget ? { turnBudget: config.turnBudget } : {}),
     // A dry run needs a model that never reaches the network — and one that
     // speaks this surface's vocabulary, or the wiring check never gets as far
     // as a tool call.

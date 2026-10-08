@@ -83,11 +83,16 @@ export interface RunConfig {
   /** Overrides the task's own budget when set. */
   maxTurns?: number;
   /**
-   * A stated budget of tool calls, failed ones included. The agent is told it
-   * in the opening message and after every call; calls past it are not run,
-   * and the run ends with `max_tool_calls`. Unset means no call budget.
+   * A stated turn budget. Replaces the task's own turn cap, and unlike it the
+   * agent is told: in the opening message, and after every turn how many are
+   * left. Spending it ends the run with `max_turns`, as the cap always has.
+   *
+   * Turns rather than tool calls, because a turn is the unit every surface
+   * spends alike: any number of calls can go in one, and feedback arrives once
+   * at its end. A call budget would not be neutral — document-as-code rewrites
+   * a page in one call that takes coordinate a call per element.
    */
-  maxToolCalls?: number;
+  turnBudget?: number;
   maxTokens?: number;
   /**
    * Run against this model instead of resolving `model` to a provider. A
@@ -267,7 +272,7 @@ function lastSuccessful<T extends { ok: boolean }>(results: T[]): T | undefined 
 export async function runAgent(config: RunConfig): Promise<RunResult> {
   const startedAt = Date.now();
   const emit: EventSink = config.onEvent ?? noopSink;
-  const maxTurns = config.maxTurns ?? config.task.maxTurns;
+  const maxTurns = config.turnBudget ?? config.maxTurns ?? config.task.maxTurns;
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
   const effort = config.effort ?? "high";
   const spec = getModel(config.model);
@@ -308,7 +313,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     // how the run ended.
     messages.push({
       role: "user",
-      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback, config.maxToolCalls)),
+      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback, config.turnBudget)),
     });
 
     for (turn = 1; turn <= maxTurns; turn++) {
@@ -413,13 +418,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         message: string;
       }[] = [];
 
-      // Calls past the budget are not run. The run ends after this turn, so
-      // nothing is sent back for them.
-      const budgetLeft =
-        config.maxToolCalls === undefined ? Infinity : config.maxToolCalls - session.actions.length;
-      const toRun = result.toolCalls.slice(0, Math.max(0, budgetLeft));
-
-      for (const call of toRun) {
+      for (const call of result.toolCalls) {
         const input = (call as { input?: unknown }).input ?? {};
         emit({ type: "tool_call", turn, seq: session.actions.length + 1, tool: call.toolName, input });
         const outcome = executeToolCall(session, surface, call.toolName, input);
@@ -441,12 +440,6 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
           emit({ type: "doc_update", turn, seq: outcome.record.seq, doc: session.doc, svg: renderSvg(session.doc) });
         }
 
-        // The count rides on the message the model reads, the same way on
-        // every surface, and never on what the action log records.
-        const message =
-          config.maxToolCalls === undefined
-            ? outcome.message
-            : `${outcome.message}\n${remainingText(config.maxToolCalls - session.actions.length)}`;
         results.push({
           type: "tool-result",
           toolCallId: call.toolCallId,
@@ -454,10 +447,10 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
           // `error-text` is how this SDK marks a failed call, so a rejection
           // reads as a rejection rather than as a result that says "no".
           output: outcome.ok
-            ? { type: "content", value: [{ type: "text", text: message }] }
-            : { type: "error-text", value: message },
+            ? { type: "content", value: [{ type: "text", text: outcome.message }] }
+            : { type: "error-text", value: outcome.message },
           ok: outcome.ok,
-          message,
+          message: outcome.message,
         });
       }
 
@@ -489,17 +482,19 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         role: "tool",
         content: results.map(({ ok: _ok, message: _message, ...part }) => part),
       });
-      if (feedbackBlocks.length > 0 && !carrier) {
-        messages.push({ role: "user", content: toContentParts(feedbackBlocks) });
+      // The turns left follow the feedback, the same way on every surface and
+      // under every feedback condition. Said even when none are left: the run
+      // ends here, and the transcript should show the agent was told.
+      const remaining = config.turnBudget === undefined ? [] : [{ type: "text" as const, text: remainingText(maxTurns - turn) }];
+      if ((feedbackBlocks.length > 0 && !carrier) || remaining.length > 0) {
+        messages.push({
+          role: "user",
+          content: [...(carrier ? [] : toContentParts(feedbackBlocks)), ...remaining],
+        });
       }
 
-      record(toRun.length);
+      record(result.toolCalls.length);
       emit({ type: "turn_end", turn, usage: turnUsage, stopReason: result.finishReason });
-
-      if (config.maxToolCalls !== undefined && session.actions.length >= config.maxToolCalls) {
-        stopReason = "max_tool_calls";
-        break;
-      }
     }
   } catch (err) {
     stopReason = config.signal?.aborted ? "aborted" : "api_error";

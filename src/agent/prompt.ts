@@ -68,7 +68,7 @@ export async function initialUserBlocks(
   task: Task,
   doc: Doc,
   feedback: FeedbackChannel,
-  maxToolCalls?: number,
+  turnBudget?: number,
 ): Promise<FeedbackBlock[]> {
   const blocks: FeedbackBlock[] = [
     {
@@ -87,7 +87,7 @@ export async function initialUserBlocks(
         "```json",
         documentJson(doc),
         "```",
-        ...(maxToolCalls === undefined ? [] : ["", budgetText(maxToolCalls)]),
+        ...(turnBudget === undefined ? [] : ["", budgetText(turnBudget)]),
       ].join("\n"),
     },
   ];
@@ -103,21 +103,21 @@ export async function initialUserBlocks(
 }
 
 /**
- * The tool-call budget, stated up front.
+ * The turn budget, stated up front.
  *
  * A budget the agent is not told about is just a run cut short, and the
- * report already reads that off every run's trajectory (`passWithinCalls`).
- * Stated, it is a different task: plan the edit so it lands inside the
- * budget. Identical on every surface and every feedback condition.
+ * report already reads that off every run's trajectory. Stated, it is a
+ * different task: plan the edit so it lands within the budget. Identical on
+ * every surface and every feedback condition.
  */
-export function budgetText(maxToolCalls: number): string {
+export function budgetText(turns: number): string {
   return (
-    `# Budget\n\nYou have ${maxToolCalls} tool calls for this task, counting failed ones. ` +
-    `The run ends when they are spent, and the document is scored as it stands then. ` +
-    `Each tool result says how many are left.`
+    `# Budget\n\nYou have ${turns} turn${turns === 1 ? "" : "s"} for this task. A turn is one reply from you, ` +
+    `and it may contain as many tool calls as you like. The run ends when the turns are spent, and the ` +
+    `document is scored as it stands then. After each turn you are told how many are left.`
   );
 }
 
 export function remainingText(left: number): string {
-  return `[${left} tool call${left === 1 ? "" : "s"} left]`;
+  return `[${left} turn${left === 1 ? "" : "s"} left]`;
 }

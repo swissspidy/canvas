@@ -355,10 +355,10 @@ describe("the dry run", () => {
 });
 
 describe("fingerprintConflicts", () => {
-  it("conflicts when only one side carries a call budget", () => {
+  it("conflicts when only one side carries a turn budget", () => {
     const base = { effort: "high", maxTokens: null };
-    expect(fingerprintConflicts(base, { ...base, maxToolCalls: 30 })).toEqual(["maxToolCalls: was null, now 30"]);
-    expect(fingerprintConflicts({ ...base, maxToolCalls: 30 }, base)).toEqual(["maxToolCalls: was 30, now null"]);
+    expect(fingerprintConflicts(base, { ...base, turnBudget: 10 })).toEqual(["turnBudget: was null, now 10"]);
+    expect(fingerprintConflicts({ ...base, turnBudget: 10 }, base)).toEqual(["turnBudget: was 10, now null"]);
     expect(fingerprintConflicts(base, base)).toEqual([]);
   });
 });

@@ -104,6 +104,8 @@ export interface RunScore {
   trajectory?: number[];
   /** The first call after which the document passed, or null if it never did. */
   firstPassCall?: number | null;
+  /** Tool calls made in each turn, in order: what maps the trajectory onto turns. */
+  callsByTurn?: number[];
   efficiency: Efficiency;
   toolUsage: Record<string, { ok: number; failed: number }>;
 }
@@ -166,6 +168,20 @@ export function passedWithin(row: Pick<RunScore, "trajectory" | "baselineScore">
   return row.trajectory[Math.min(calls, row.trajectory.length) - 1]! >= PASS_THRESHOLD;
 }
 
+/**
+ * Would this run have passed had it been stopped after `turns` turns? The
+ * surface-neutral reading: any surface can put any number of calls in a turn.
+ * Null when the row has no trajectory or no per-turn call counts.
+ */
+export function passedWithinTurns(
+  row: Pick<RunScore, "trajectory" | "baselineScore" | "callsByTurn">,
+  turns: number,
+): boolean | null {
+  if (!row.trajectory || !row.callsByTurn) return null;
+  const calls = row.callsByTurn.slice(0, turns).reduce((sum, n) => sum + n, 0);
+  return passedWithin(row, calls);
+}
+
 export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunScore {
   const { score: constraintScore, results } = scoreDocument(run.finalDoc, task);
   const baseline = baselineFor(task);
@@ -208,6 +224,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     baselineScore: baseline,
     normalizedScore: normalize(constraintScore, baseline),
     ...scoreTrajectory(run.session.actions, task),
+    callsByTurn: run.turnRecords.map((t) => t.toolCalls),
     efficiency: {
       turns: run.turns,
       toolCalls: run.toolCalls,

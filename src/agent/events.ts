@@ -29,7 +29,6 @@ export type AgentEvent =
 export type StopReason =
   | "completed"
   | "max_turns"
-  | "max_tool_calls"
   | "max_tokens"
   | "refusal"
   | "api_error"
@@ -39,7 +38,7 @@ export type StopReason =
  * Stop reasons that are the harness failing rather than the agent finishing.
  *
  * The distinction decides two things, and getting it wrong is expensive in
- * both directions. `max_turns`, `max_tool_calls`, `max_tokens` and `refusal` are *outcomes*: the
+ * both directions. `max_turns`, `max_tokens` and `refusal` are *outcomes*: the
  * model was handed a surface and a budget and that is what it did with them,
  * so they are scored on the document left behind and pooled into the results
  * exactly as `docs/PREREGISTRATION.md` §5 says. `api_error` and `aborted` are

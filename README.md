@@ -302,13 +302,16 @@ of a run stops separating anything. Three things keep measuring past that
 point:
 
 - **Every run is scored after every tool call.** The report reads off that
-  trajectory how many runs would have passed had they been stopped after 10,
-  20, 30, 50, 75 or 100 calls, and the median call at which a run first
-  passed. Two conditions that both end at 100% can be far apart at 30 calls.
-- **A stated call budget**, `run --max-calls 30`. The agent is told the budget
-  up front and sees how many calls are left after each one, and the run ends
-  when it is spent. It is a different task from a run stopped early: the
-  agent has to plan the edit to fit.
+  trajectory how many runs would have passed had they been stopped after 1,
+  2, 3, 5, 10 or 20 turns (or N calls, per model), and the median call at
+  which a run first passed. Two conditions that both end at 100% can be far
+  apart after three turns.
+- **A stated turn budget**, `run --turn-budget 5`. The agent is told the
+  budget up front and how many turns are left after each one, and the run
+  ends when it is spent. It is a different task from a run stopped early: the
+  agent has to plan the edit to fit. Turns, not tool calls, because a turn
+  holds any number of calls on every surface; a call budget would favour
+  document-as-code, which rewrites a page in one call.
 - **Pages judged head to head.** `compare` shows the judge two finished pages
   from the same brief and asks which is the better design, in both orders; a
   page wins only if it wins both, so position bias makes ties rather than
@@ -316,7 +319,7 @@ point:
   check, the comparison a saturated pass rate leaves.
 
 ```bash
-npm run cli -- run --tasks measure --max-calls 30 --out runs/budget
+npm run cli -- run --tasks measure --turn-budget 5 --out runs/budget
 npm run cli -- compare --dir runs/budget --by model --pairs 6 --passing
 ```
 

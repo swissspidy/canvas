@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baselineFor, normalize, passedWithin, scoreDocument, scoreRun, scoreTrajectory, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
+import { baselineFor, normalize, passedWithin, passedWithinTurns, scoreDocument, scoreRun, scoreTrajectory, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
 import { SOLUTIONS } from "../tasks/solutions.js";
 import { computeAgreement, pearson, sampleForRating, spearman } from "./human.js";
 import { alignCriteria, judgeRun, toUnit } from "./judge.js";
@@ -1457,5 +1457,12 @@ describe("per-call trajectory", () => {
     // A run that ended sooner stands as it ended.
     expect(passedWithin({ trajectory: [1], baselineScore: 0.5 }, 30)).toBe(true);
     expect(passedWithin({ baselineScore: 0.5 }, 30)).toBeNull();
+  });
+
+  it("maps turns onto calls, so a turn of many calls counts once", () => {
+    const row = { trajectory: [0.5, 0.5, 0.5, 1, 1], baselineScore: 0.5, callsByTurn: [3, 2] };
+    expect(passedWithinTurns(row, 1)).toBe(false);
+    expect(passedWithinTurns(row, 2)).toBe(true);
+    expect(passedWithinTurns({ trajectory: [1], baselineScore: 0.5 }, 1)).toBeNull();
   });
 });
