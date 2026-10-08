@@ -729,7 +729,7 @@ rules or the grid.
 *Pilot, under the calibration rules of the second entry.* GPT-5.6 Luna and
 Terra (the only key on hand), the measurement family, three surfaces, `none`
 and `both`, one repeat, judged by GPT-5.6 Sol, without a budget. A budgeted
-pilot follows, its budget set from the pooled turn counts of this one. Only
+pilot follows, its budget set from the pooled turn counts of this one: a median of 6 (Terra) and 7.5 (Luna) turns, no run passing within 3, and none stopped by a turn cap. The budget is 5 turns. Only
 pooled and per-model figures are read.
 
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
