@@ -117,7 +117,7 @@ A sweep writes to `runs/<timestamp>/`: `report.md`, `report.json`,
 under `renders/`. Run ids are derived from the cell, so an interrupted sweep
 resumes without re-paying for finished work — just run the same command with
 the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
-call budget, judge) are fingerprinted, and resuming after changing one is refused rather
+turn budget, judge) are fingerprinted, and resuming after changing one is refused rather
 than silently averaged.
 
 **A cell that something outside the run ended is not a run.** An overloaded

@@ -731,7 +731,15 @@ async function cmdCompare(args: Args): Promise<void> {
   const concurrency = positiveInt(args.flags, "concurrency", 4);
   const passingOnly = bool(args.flags, "passing");
 
-  const scores = readScores(dir).filter((s) => !isHarnessFailure(s.stopReason) && (!passingOnly || passed(s)));
+  // A run whose record failed to write keeps its score (`writeArtifacts` only
+  // warns), but has no page to show the judge, so it cannot be paired.
+  const runsDir = sweepPaths(dir).runs;
+  const scores = readScores(dir).filter(
+    (s) =>
+      !isHarnessFailure(s.stopReason) &&
+      (!passingOnly || passed(s)) &&
+      existsSync(join(runsDir, `${s.runId}.json`)),
+  );
   const pairs = drawPairs(
     scores.map((s) => ({ runId: s.runId, taskId: s.taskId, group: groupOf(s) })),
     perTask,
@@ -754,7 +762,7 @@ async function cmdCompare(args: Args): Promise<void> {
   }
 
   const finalDoc = (runId: string) =>
-    (JSON.parse(readFileSync(join(sweepPaths(dir).runs, `${runId}.json`), "utf8")) as { finalDoc: import("./doc/types.js").Doc }).finalDoc;
+    (JSON.parse(readFileSync(join(runsDir, `${runId}.json`), "utf8")) as { finalDoc: import("./doc/types.js").Doc }).finalDoc;
 
   const todo = pairs.filter((p) => !done.has(p.id));
   console.log(`${pairs.length} pairs across ${new Set(pairs.map((p) => p.taskId)).size} tasks; ${todo.length} to judge with ${judgeModel}.`);

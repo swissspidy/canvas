@@ -683,7 +683,7 @@ changes.
 any outcome is computed or read; the report's cost-to-pass section is built
 and tested on synthetic data.
 
-**2026-10-08 — per-call scoring, a stated call budget, and a judge that has to
+**2026-10-08 — per-call scoring, a stated turn budget, and a judge that has to
 choose.** Written before any run that uses them.
 
 The eighth entry made cost to pass primary because pass rates sit at the
