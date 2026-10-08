@@ -14,7 +14,7 @@
 
 import type { Doc } from "../doc/types.js";
 import type { Task } from "../tasks/types.js";
-import { runChecks, universalChecks, type CheckResult } from "./checks.js";
+import { PASS_THRESHOLD, runChecks, universalChecks, type CheckResult } from "./checks.js";
 import type { JudgeResult } from "./judge.js";
 import type { RunResult } from "../agent/loop.js";
 
@@ -62,6 +62,11 @@ export interface RunScore {
   judgeCriteriaScore: number | null;
   judgeOverallScore: number | null;
   judgeSummary: string | null;
+  /**
+   * How many defects the judge listed, by severity. Null when no judge ran;
+   * absent on records written before the judge listed them.
+   */
+  judgeDefects?: { major: number; minor: number } | null;
   judgeError?: string;
   /** 0..1 blend. Equals the constraint score when no judge ran. */
   composite: number;
@@ -86,6 +91,21 @@ export interface RunScore {
    * the document worse than it found it, which is a finding, not an error.
    */
   normalizedScore: number;
+  /**
+   * The constraint score after each tool call, in order: entry `i` is the
+   * document as it stood after call `i + 1`. A failed call repeats the score
+   * before it. Absent on records written before it existed.
+   *
+   * It is what turns a saturated pass rate back into a measurement. Every
+   * condition may end at a pass; they do not get there equally fast, and
+   * `passWithinCalls` reads off where each run stood at any budget without
+   * re-running anything.
+   */
+  trajectory?: number[];
+  /** The first call after which the document passed, or null if it never did. */
+  firstPassCall?: number | null;
+  /** Tool calls made in each turn, in order: what maps the trajectory onto turns. */
+  callsByTurn?: number[];
   efficiency: Efficiency;
   toolUsage: Record<string, { ok: number; failed: number }>;
 }
@@ -112,6 +132,54 @@ export function normalize(score: number, baseline: number): number {
 export function scoreDocument(doc: Doc, task: Task): { score: number; results: CheckResult[] } {
   const { results, score } = runChecks(doc, [...universalChecks(), ...task.checks]);
   return { score, results };
+}
+
+/**
+ * Score the document after every call. Kept at full precision: the report
+ * reads it against the pass threshold, and a score rounded up onto 0.999
+ * would count as a pass there while failing `passed` everywhere else.
+ */
+export function scoreTrajectory(
+  actions: readonly { ok: boolean; doc: Doc }[],
+  task: Task,
+): { trajectory: number[]; firstPassCall: number | null } {
+  const trajectory: number[] = [];
+  let current = baselineFor(task);
+  let firstPassCall: number | null = null;
+  actions.forEach((action, i) => {
+    // A failed call leaves the document as it was, so its score is the last one.
+    if (action.ok) current = scoreDocument(action.doc, task).score;
+    trajectory.push(current);
+    if (firstPassCall === null && current >= PASS_THRESHOLD) firstPassCall = i + 1;
+  });
+  return { trajectory, firstPassCall };
+}
+
+/**
+ * Would this run have passed had it been stopped after `calls` calls?
+ *
+ * Read off the trajectory: the document as it stood then, not whether it
+ * passed at some earlier point and was then broken again. A run that ended
+ * before the budget stands as it ended. Null when the row has no trajectory.
+ */
+export function passedWithin(row: Pick<RunScore, "trajectory" | "baselineScore">, calls: number): boolean | null {
+  if (!row.trajectory) return null;
+  if (calls <= 0 || row.trajectory.length === 0) return row.baselineScore >= PASS_THRESHOLD;
+  return row.trajectory[Math.min(calls, row.trajectory.length) - 1]! >= PASS_THRESHOLD;
+}
+
+/**
+ * Would this run have passed had it been stopped after `turns` turns? The
+ * surface-neutral reading: any surface can put any number of calls in a turn.
+ * Null when the row has no trajectory or no per-turn call counts.
+ */
+export function passedWithinTurns(
+  row: Pick<RunScore, "trajectory" | "baselineScore" | "callsByTurn">,
+  turns: number,
+): boolean | null {
+  if (!row.trajectory || !row.callsByTurn) return null;
+  const calls = row.callsByTurn.slice(0, turns).reduce((sum, n) => sum + n, 0);
+  return passedWithin(row, calls);
 }
 
 export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunScore {
@@ -144,10 +212,19 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     judgeCriteriaScore: judgeCriteria,
     judgeOverallScore: judge && !judge.error ? judge.overallScore : null,
     judgeSummary: judge && !judge.error ? judge.judgement.summary : null,
+    judgeDefects:
+      judge && !judge.error
+        ? {
+            major: judge.judgement.defects.filter((d) => d.severity === "major").length,
+            minor: judge.judgement.defects.filter((d) => d.severity === "minor").length,
+          }
+        : null,
     ...(judge?.error ? { judgeError: judge.error } : {}),
     composite,
     baselineScore: baseline,
     normalizedScore: normalize(constraintScore, baseline),
+    ...scoreTrajectory(run.session.actions, task),
+    callsByTurn: run.turnRecords.map((t) => t.toolCalls),
     efficiency: {
       turns: run.turns,
       toolCalls: run.toolCalls,

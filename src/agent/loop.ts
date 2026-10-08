@@ -59,7 +59,7 @@ import {
   type TokenUsage,
 } from "./models.js";
 import { noopSink, type EventSink, type StopReason } from "./events.js";
-import { initialUserBlocks, systemPrompt } from "./prompt.js";
+import { initialUserBlocks, remainingText, systemPrompt } from "./prompt.js";
 
 export interface RunConfig {
   runId: string;
@@ -82,6 +82,17 @@ export interface RunConfig {
   effort?: Effort;
   /** Overrides the task's own budget when set. */
   maxTurns?: number;
+  /**
+   * A stated turn budget. Replaces the task's own turn cap, and unlike it the
+   * agent is told: in the opening message, and after every turn how many are
+   * left. Spending it ends the run with `max_turns`, as the cap always has.
+   *
+   * Turns rather than tool calls, because a turn is the unit every surface
+   * spends alike: any number of calls can go in one, and feedback arrives once
+   * at its end. A call budget would not be neutral — document-as-code rewrites
+   * a page in one call that takes coordinate a call per element.
+   */
+  turnBudget?: number;
   maxTokens?: number;
   /**
    * Run against this model instead of resolving `model` to a provider. A
@@ -261,7 +272,7 @@ function lastSuccessful<T extends { ok: boolean }>(results: T[]): T | undefined 
 export async function runAgent(config: RunConfig): Promise<RunResult> {
   const startedAt = Date.now();
   const emit: EventSink = config.onEvent ?? noopSink;
-  const maxTurns = config.maxTurns ?? config.task.maxTurns;
+  const maxTurns = config.turnBudget ?? config.maxTurns ?? config.task.maxTurns;
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
   const effort = config.effort ?? "high";
   const spec = getModel(config.model);
@@ -302,7 +313,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     // how the run ended.
     messages.push({
       role: "user",
-      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback)),
+      content: toContentParts(await initialUserBlocks(config.task, initialDoc, config.feedback, config.turnBudget)),
     });
 
     for (turn = 1; turn <= maxTurns; turn++) {
@@ -471,8 +482,15 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         role: "tool",
         content: results.map(({ ok: _ok, message: _message, ...part }) => part),
       });
-      if (feedbackBlocks.length > 0 && !carrier) {
-        messages.push({ role: "user", content: toContentParts(feedbackBlocks) });
+      // The turns left follow the feedback, the same way on every surface and
+      // under every feedback condition. Said even when none are left: the run
+      // ends here, and the transcript should show the agent was told.
+      const remaining = config.turnBudget === undefined ? [] : [{ type: "text" as const, text: remainingText(maxTurns - turn) }];
+      if ((feedbackBlocks.length > 0 && !carrier) || remaining.length > 0) {
+        messages.push({
+          role: "user",
+          content: [...(carrier ? [] : toContentParts(feedbackBlocks)), ...remaining],
+        });
       }
 
       record(result.toolCalls.length);

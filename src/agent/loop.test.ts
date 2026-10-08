@@ -122,6 +122,62 @@ describe("agent loop", () => {
     expect(r.turns).toBe(trivialTask.maxTurns);
   });
 
+  describe("a stated turn budget", () => {
+    const rect = { name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } };
+    const budgeted = (turnBudget: number, script: ScriptedTurn[], mode: FeedbackMode = "none") => {
+      const model = createScriptedModel(fixedScript(script));
+      return {
+        model,
+        result: runAgent({
+          runId: "test",
+          task: trivialTask,
+          surface: coordinateSurface,
+          feedback: createFeedbackChannel(mode, { screenshotWidth: 200 }),
+          model: MODEL,
+          languageModel: model,
+          turnBudget,
+        }),
+      };
+    };
+
+    it("is stated up front, counted down after each turn, and ends the run when spent", async () => {
+      const { model, result } = budgeted(2, [{ tools: [rect, rect] }, { tools: [rect] }, { text: "Never reached." }]);
+      const r = await result;
+      expect(r.stopReason).toBe("max_turns");
+      expect(r.turns).toBe(2);
+      // Every call in a turn runs: the budget is on rounds, not on calls.
+      expect(r.toolCalls).toBe(3);
+      const calls = model.doGenerateCalls as Call[];
+      expect(calls).toHaveLength(2);
+      expect(promptText(calls[0]!)).toContain("You have 2 turns");
+      expect(promptText(calls[1]!)).toContain("[1 turn left]");
+    });
+
+    it("replaces the task's own cap, in either direction", async () => {
+      const many = Array.from({ length: 12 }, () => ({ tools: [rect] }));
+      expect((await budgeted(8, many).result).turns).toBe(8);
+      expect(trivialTask.maxTurns).toBe(5);
+    });
+
+    it("keeps the feedback where it was and adds the count after it", async () => {
+      const { model, result } = budgeted(3, [{ tools: [rect] }, { text: "Done." }], "structured");
+      await result;
+      const second = messagesOf((model.doGenerateCalls as Call[])[1]!);
+      const last = second.at(-1)!;
+      expect(last.role).toBe("user");
+      expect(JSON.stringify(last.content)).toContain("[2 turns left]");
+      // The structured description still rides on the tool result.
+      expect(JSON.stringify(second.find((m) => m.role === "tool")!.content)).toMatch(/el_1/);
+    });
+
+    it("says nothing about a budget when there is none", async () => {
+      const { model, result } = run("none", [{ tools: [rect] }, { text: "Done." }]);
+      await result;
+      const calls = model.doGenerateCalls as Call[];
+      expect(promptText(calls[1]!)).not.toMatch(/turns? left|# Budget/);
+    });
+  });
+
   it("ends the run on a refusal without running that turn's tools", async () => {
     const { result } = run("none", [
       {

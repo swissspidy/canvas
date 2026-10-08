@@ -683,6 +683,81 @@ changes.
 any outcome is computed or read; the report's cost-to-pass section is built
 and tested on synthetic data.
 
+**2026-10-08 — per-call scoring, a stated turn budget, and a judge that has to
+choose.** Written before any run that uses them.
+
+The eighth entry made cost to pass primary because pass rates sit at the
+ceiling. Three additions make the secondary outcomes informative at that
+ceiling too. None changes the primary outcome, the hypotheses, the decision
+rules or the grid.
+
+1. *Per-call scoring.* Every run now records its constraint score after each
+   tool call. The report reads off it the pass rate at budgets of 10, 20, 30,
+   50, 75 and 100 calls (the document as it stood at that call, not whether it
+   had passed earlier) and the median call of first pass. Exploratory under
+   §11. Calls per pass stays the co-primary measure; this is its distribution.
+2. *A stated turn budget* (`run --turn-budget N`). The agent is told the
+   budget in its opening message and how many turns are left after each one,
+   and the run ends with `max_turns` when it is spent, as the task's own cap
+   always has. It is a separate condition, not a change to the grid. A budget
+   the agent is not told about is just a run stopped early, which (1) already
+   measures, so the budget is stated. Turns, not tool calls: a turn holds any
+   number of calls on every surface and feedback arrives once at its end, so
+   a turn budget limits rounds of look-and-fix alike everywhere. A call budget
+   would not — document-as-code rewrites a page in one call that takes
+   coordinate or relational a call per element — and the first version of this
+   entry, which proposed one, was withdrawn for that reason four runs into the
+   pilot below (all four spent their thirty calls in one turn on the sixteen-
+   headline contents page). Those four runs are discarded. The report reads
+   pass rates within 1, 2, 3, 5, 10 and 20 turns off the trajectory, and
+   within call budgets only per model, never across surfaces. Whether a
+   budgeted grid replaces or joins the confirmatory one is decided in a later
+   entry, before it runs.
+3. *The judge.* (a) The absolute judge now lists every defect, as major or
+   minor, before it scores anything, against a scale whose steps are defined
+   by those defects ("4 — ready after one or two minor fixes"). The score
+   still feeds the composite at §3's weight; the defect counts are recorded
+   beside it and are exploratory. The human-rated subset of §9 validates the
+   new prompt exactly as it would have validated the old one. (b) A pairwise
+   judge (`compare --dir`) shows two finished pages from the same brief and
+   asks which is the better design. Each pair is judged in both orders, and a
+   page wins the pair only if it wins both, so position bias produces ties,
+   never a wrong winner. Exploratory, and subject to the same blinding as
+   everything else: no comparison by surface or feedback is run before the
+   grid.
+
+*Pilot, under the calibration rules of the second entry.* GPT-5.6 Luna and
+Terra (the only key on hand), the measurement family, three surfaces, `none`
+and `both`, one repeat, judged by GPT-5.6 Sol, without a budget. A budgeted
+pilot follows, its budget set from the pooled turn counts of this one: a median of 6 (Terra) and 7.5 (Luna) turns, no run passing within 3, and none stopped by a turn cap. The budget is 5 turns. Only
+pooled and per-model figures are read.
+
+*Pilot results, pooled and per model only.* The measurement family, three
+surfaces, `none` and `both`, one repeat; 48 runs each.
+
+| | Luna, no budget | Terra, no budget | Luna, 5 turns | Terra, 5 turns |
+|---|---|---|---|---|
+| Pass | 9 / 24 | 8 / 24 | 2 / 24 | 3 / 24 |
+| Mean improvement | 89% | 91% | 69% | 76% |
+| Median turns · calls | 7.5 · 89 | 6 · 94.5 | 5 · 79 | 5 · 76.5 |
+| Cost / run | $0.025 | $0.167 | $0.018 | $0.123 |
+| Judge, mean criteria score | 0.83 | 0.90 | 0.69 | 0.80 |
+
+Without a budget no run hit a turn cap, and none passed within three turns:
+passing runs took 5 to 10 turns and 63 to 212 calls. With a stated budget of
+five turns, half of all runs spent it (13 Luna, 12 Terra) and the pass rate
+fell from 35% to 10%. That is on models the measurement family does not
+saturate; on Opus 5.5, which passed all 24 runs without a budget, it is the
+first condition likely to land near the 30% target, and it is the next pilot
+to run when there is an Anthropic key. The defect-first judge spread its
+scores from 0.33 to 1 where the old prompt gave most pages a 4 or a 5, and
+failed to return a parseable judgement once in 96. Head to head, on the
+unbudgeted runs (24 pairs, both orders), Terra's pages beat Luna's 12 to 7
+with 5 ties, a separation the end-of-run pass rates (8 and 9) did not show.
+Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
+$0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
+figure was computed.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.
