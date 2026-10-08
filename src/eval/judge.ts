@@ -21,6 +21,7 @@ import { generateObject, NoObjectGeneratedError, type LanguageModel, type ModelM
 import { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import { rasterize } from "../render/raster.js";
+import { fitPixelWidth } from "../render/rasterizer.js";
 import {
   costUsd,
   getModel,
@@ -170,16 +171,27 @@ function imagePart(doc: Doc) {
  * compares them with a 1080-unit brief: it reported a column "at x≈43 rather
  * than the briefed x=60" on a page where the column sat exactly at 60, which is
  * 43 pixels at that scale. Measurement is the deterministic checks' job anyway,
- * so the judge is told both the scale and that the numbers are already checked.
+ * so the judge is told both the scale and that positions and sizes are already
+ * checked — only those: a count or anything else the brief states is still the
+ * judge's to see.
+ *
+ * The width is the one the rasterizer actually delivers, which is narrower than
+ * `JUDGE_SCREENSHOT_WIDTH` for a canvas tall enough to hit its pixel cap.
  */
-export function scaleNote(doc: Doc): string {
-  const scale = doc.width / JUDGE_SCREENSHOT_WIDTH;
+export function scaleOf(doc: Doc): string {
+  const shown = fitPixelWidth(doc, JUDGE_SCREENSHOT_WIDTH);
   return (
-    `The canvas is ${doc.width} x ${doc.height} units. Images are shown ${JUDGE_SCREENSHOT_WIDTH} pixels wide, ` +
-    `so one pixel is about ${scale.toFixed(2)} units. Every position, size and number the brief states has ` +
-    `already been checked exactly by measurement; do not try to measure them from the image, and do not ` +
-    `report a stated number as wrong.`
+    `The canvas is ${doc.width} x ${doc.height} units, shown ${shown} pixels wide: ` +
+    `one pixel is about ${(doc.width / shown).toFixed(2)} units.`
   );
+}
+
+export const MEASURE_NOTE =
+  "Positions and sizes the brief gives in canvas units have already been checked exactly by measurement; do not " +
+  "try to measure them from the image, and do not report one as off. Everything else the brief asks for is yours to judge.";
+
+export function scaleNote(doc: Doc): string {
+  return `${scaleOf(doc)} ${MEASURE_NOTE}`;
 }
 
 function textPart(text: string) {

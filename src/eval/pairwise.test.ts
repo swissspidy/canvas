@@ -62,6 +62,8 @@ describe("judgePair", () => {
     const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
     expect(prompt).toContain(task.brief.slice(0, 40));
     expect(prompt.match(/"type":"file"/g)).toHaveLength(3);
+    // Each image says its own scale.
+    expect(prompt.match(/pixels wide: one pixel is about/g)).toHaveLength(3);
     // Image bytes stripped first: base64 spells short words by chance.
     const text = prompt.replace(/"data":"[A-Za-z0-9+/=]{200,}"/g, '"data":""');
     expect(text).not.toMatch(/coordinate|relational|feedback|screenshot condition|turns|opus|sonnet|gpt/i);
