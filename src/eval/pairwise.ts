@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import { rasterize } from "../render/raster.js";
 import { costUsd, getModel, MAX_RETRIES, resolveLanguageModel, tokenUsage, ZERO_USAGE, addUsage, type TokenUsage } from "../agent/models.js";
-import { DEFAULT_JUDGE_MODEL, JUDGE_SCREENSHOT_WIDTH } from "./judge.js";
+import { DEFAULT_JUDGE_MODEL, JUDGE_SCREENSHOT_WIDTH, scaleNote } from "./judge.js";
 
 export const PAIRWISE_SYSTEM = [
   "You are comparing two finished visual documents made from the same brief.",
@@ -78,7 +78,7 @@ function image(doc: Doc) {
 }
 
 function content(input: PairInput, first: Doc, second: Doc): Content {
-  const parts: Content = [{ type: "text", text: `# Brief\n\n${input.brief}` }];
+  const parts: Content = [{ type: "text", text: `# Brief\n\n${input.brief}\n\n${scaleNote(first)}` }];
   if ((input.initialDoc?.elements.length ?? 0) > 0 && input.initialDoc) {
     parts.push({ type: "text", text: "\n# Starting layout" }, image(input.initialDoc));
   }

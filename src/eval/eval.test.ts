@@ -644,6 +644,9 @@ describe("the judge", () => {
     const call = model.doGenerateCalls[0]!;
     expect(JSON.stringify(call.prompt)).toContain("List the defects before scoring.");
     expect(JSON.stringify(call.prompt)).toContain("Start by listing the defects");
+    // The screenshot is scaled; the judge is told by how much, and not to measure.
+    expect(JSON.stringify(call.prompt)).toContain("one pixel is about 1.41 units");
+    expect(JSON.stringify(call.prompt)).toContain("do not try to measure them from the image");
 
     const run = await runAgent({
       runId: "t",
