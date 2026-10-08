@@ -117,7 +117,7 @@ A sweep writes to `runs/<timestamp>/`: `report.md`, `report.json`,
 under `renders/`. Run ids are derived from the cell, so an interrupted sweep
 resumes without re-paying for finished work — just run the same command with
 the same `--out`. Settings a run id does *not* encode (effort, token ceiling,
-judge) are fingerprinted, and resuming after changing one is refused rather
+call budget, judge) are fingerprinted, and resuming after changing one is refused rather
 than silently averaged.
 
 **A cell that something outside the run ended is not a run.** An overloaded
@@ -288,9 +288,37 @@ establishing one.
 
 **A blinded judge** scores intent — does this read as a poster, is the
 hierarchy sensible — and only intent. It never sees the surface, feedback
-condition, model, turn count or cost. A stratified human-rated subset validates
-it, with agreement reported **per surface**; the trust rule is in the
+condition, model, turn count or cost. It lists every defect it sees, major or
+minor, *before* it scores anything, against a scale whose steps are defined by
+those defects; asked for a rating straight away, a judge gives most competent
+pages a 4 or a 5 and stops separating them. A stratified human-rated subset
+validates it, with agreement reported **per surface**; the trust rule is in the
 pre-registration.
+
+### When everything passes
+
+Current models pass most of these tasks eventually, so a pass rate at the end
+of a run stops separating anything. Three things keep measuring past that
+point:
+
+- **Every run is scored after every tool call.** The report reads off that
+  trajectory how many runs would have passed had they been stopped after 10,
+  20, 30, 50, 75 or 100 calls, and the median call at which a run first
+  passed. Two conditions that both end at 100% can be far apart at 30 calls.
+- **A stated call budget**, `run --max-calls 30`. The agent is told the budget
+  up front and sees how many calls are left after each one, and the run ends
+  when it is spent. It is a different task from a run stopped early: the
+  agent has to plan the edit to fit.
+- **Pages judged head to head.** `compare` shows the judge two finished pages
+  from the same brief and asks which is the better design, in both orders; a
+  page wins only if it wins both, so position bias makes ties rather than
+  wrong winners. `--passing` restricts it to pages that already passed every
+  check, the comparison a saturated pass rate leaves.
+
+```bash
+npm run cli -- run --tasks measure --max-calls 30 --out runs/budget
+npm run cli -- compare --dir runs/budget --by model --pairs 6 --passing
+```
 
 ---
 
