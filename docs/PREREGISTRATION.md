@@ -755,7 +755,7 @@ failed to return a parseable judgement once in 96. Head to head, on the
 unbudgeted runs (24 pairs, both orders), Terra's pages beat Luna's 12 to 7
 with 5 ties, a separation the end-of-run pass rates (8 and 9) did not show.
 Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
-$0.10 on four withdrawn call-budget runs. No per-surface or per-feedback
+$0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
