@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canvas Agent Bench</title>
-<meta name="description" content="Pilot results from a benchmark of how an AI agent's tool surface and feedback change what it can do on a 2D canvas.">
+<meta name="description" content="A benchmark of how an AI agent's tool surface and feedback change what it costs to lay out a page on a 2D canvas.">
 <style>
 :root {
   --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b675f; --line: #e3dfd6;
@@ -75,78 +75,31 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <main>
 
 <h1>Canvas Agent Bench</h1>
-<p class="lede">Does an AI agent lay out a page better when it edits coordinates, states relations, or rewrites the whole document as code? And does seeing its own work help more than the choice of tools?</p>
+<p class="lede">Does an AI agent lay out a page better when it edits coordinates, states relations, or rewrites the whole document as code? And does seeing its own work matter more than the choice of tools?</p>
 
-<p>The bench gives one agent loop a 2D canvas document and a brief — fix this clipped headline, set this menu so every dish name fills two lines, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets one of six <strong>feedback</strong> conditions, from nothing to a rendered screenshot plus a structured description. Deterministic checks score the result; a pass is a run that satisfies all of them.</p>
+<p>The bench gives one agent loop a 2D canvas document and a brief — fix this clipped headline, set this menu so every dish name fills two lines, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets one of six <strong>feedback</strong> conditions, from nothing to a rendered screenshot plus a structured description. Deterministic checks score the result; a <strong>pass</strong> is a run that satisfies all of them.</p>
 
-<div class="status sans"><strong>Status, 7 October 2026.</strong> Everything below is a <em>pilot</em>. The confirmatory grid — 27 tasks × 3 surfaces × 6 feedback conditions × 3 repeats on Opus 5.5, 1,458 runs — is pre-registered but has not run. Until it does, no per-surface or per-feedback result from the current task set is computed, so this page reports models and tasks only. The <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registration</a> records every change made along the way.</div>
+<div class="status sans"><strong>Status.</strong> The numbers below are from pilot runs used to calibrate the tasks. The confirmatory grid — 27 tasks × 3 surfaces × 6 feedback conditions × 3 repeats on Opus 5.5 — is <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> and has not run yet, so this page deliberately reports nothing per surface or per feedback condition.</div>
 
 <nav>
-  <a href="#saturation">1 · The first tasks were too easy</a>
-  <a href="#bugs">2 · Two harness bugs</a>
-  <a href="#geometry">3 · Geometry is solved</a>
-  <a href="#measure">4 · Measurement is (almost) solved</a>
-  <a href="#next">5 · What's next</a>
+  <a href="#saturated">Current models pass</a>
+  <a href="#cost">What still varies: cost</a>
+  <a href="#lessons">Lessons for agent tool design</a>
+  <a href="#try">Try it</a>
 </nav>
 
 <div class="stats">
-  <div class="stat"><b>1,300+</b><span>pilot runs across eight models</span></div>
-  <div class="stat"><b>27</b><span>tasks in the registered set, six families</span></div>
+  <div class="stat"><b>27</b><span>tasks across six families</span></div>
   <div class="stat"><b>24 / 24</b><span>Opus 5.5 passes on the hardest family</span></div>
+  <div class="stat"><b>39–108</b><span>Opus 5.5 tool calls per run on that family</span></div>
   <div class="stat"><b>$0.36–$0.98</b><span>Opus 5.5 cost per run on that family</span></div>
 </div>
 
-<h2 id="saturation">1 · The first tasks were too easy</h2>
-<p>The first task set (v1, 23 tasks) was meant to land around a 30% pass rate so that differences between surfaces and feedback would have room to show. It didn't. Across 552 runs on four cheaper models, every one closed most of the gap between the starting page and a perfect one:</p>
-<div class="scroll"><table>
-<thead><tr><th>Model</th><th class="n">Improvement</th><th class="n">95% interval</th><th class="n">Cost/run</th></tr></thead>
-<tbody>
-<tr><td>GPT-5.6 Terra</td><td class="n">97.7%</td><td class="n">94.8–99.6</td><td class="n">$0.027</td></tr>
-<tr><td>GPT-5.6 Luna</td><td class="n">97.0%</td><td class="n">94.0–99.2</td><td class="n">$0.016</td></tr>
-<tr><td>Haiku 4.5</td><td class="n">93.0%</td><td class="n">88.4–96.8</td><td class="n">$0.077</td></tr>
-<tr><td>Gemini 3.8 Flash</td><td class="n">83.5%</td><td class="n">75.3–90.9</td><td class="n">$0.146</td></tr>
-</tbody></table></div>
-<p class="note">Improvement is the share of available headroom a run closed: 0% leaves the page as found, 100% satisfies every check. One repeat, no feedback and screenshot + description.</p>
+<h2 id="saturated">Current models get the page right</h2>
+<p>The tasks were built to leave room: a target of about 30% passes on the strongest model, so differences between surfaces and feedback could show. Current models don't leave that room.</p>
 
-<p>The same brief, five models. The GPT-5.6 pair cleared every check for two or three cents. Haiku 4.5 clipped its own title. Gemini 3.8 Flash ran out of output tokens while writing the document and left the canvas empty.</p>
-<div class="grid g5">
-  <figure><img src="img/models-opus5.png" alt="Opus 5's poster" loading="lazy"><figcaption><b>Opus 5</b>100% · $0.11</figcaption></figure>
-  <figure><img src="img/models-terra.png" alt="GPT-5.6 Terra's poster" loading="lazy"><figcaption><b>GPT-5.6 Terra</b>100% · $0.027</figcaption></figure>
-  <figure><img src="img/models-luna.png" alt="GPT-5.6 Luna's poster" loading="lazy"><figcaption><b>GPT-5.6 Luna</b>100% · $0.017</figcaption></figure>
-  <figure><img src="img/models-haiku.png" alt="Haiku 4.5's poster with a clipped title" loading="lazy"><figcaption><b>Haiku 4.5</b>93% · title clipped</figcaption></figure>
-  <figure><img src="img/models-gemini.png" alt="An empty canvas" loading="lazy"><figcaption><b>Gemini 3.8 Flash</b>0% · hit max_tokens</figcaption></figure>
-</div>
-
-<h3>What the checks couldn't see</h3>
-<p>Both of these cards satisfy every constraint. One is composed; the other sits timidly in the middle of an empty canvas. Briefs now state minimum sizes and coverage for exactly this reason.</p>
-<div class="grid g2">
-  <figure><img src="img/product-opus5.png" alt="A well-composed product card" loading="lazy"><figcaption><b>Opus 5</b>checks 100% · judge 94%</figcaption></figure>
-  <figure><img src="img/product-haiku.png" alt="A small product card in a large empty canvas" loading="lazy"><figcaption><b>Haiku 4.5</b>checks 100% · judge 88%</figcaption></figure>
-</div>
-
-<h2 id="bugs">2 · Two harness bugs the pilots found</h2>
-<p>Pilots exist to break the harness before it costs a real result. Two findings changed the tools every surface gets, and both are logged as deviations.</p>
-
-<h3>No way to set the background</h3>
-<p>The coordinate and relational surfaces had no tool for the canvas background, and the dark-mode check reads it. The agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. Identical page, 56% instead of 100%. Coordinate and relational now have <code>set_background</code>; document-as-code always could set it by rewriting the document.</p>
-<div class="grid g4">
-  <figure><img src="img/dark-start.png" alt="Light-themed starting page" loading="lazy"><figcaption><b>Starting page</b>light theme</figcaption></figure>
-  <figure><img src="img/dark-coordinate-before-fix.png" alt="Dark page made with a full-canvas rectangle" loading="lazy"><figcaption><b>Coordinate, before</b>56%</figcaption></figure>
-  <figure><img src="img/dark-document.png" alt="Dark page from document-as-code" loading="lazy"><figcaption><b>Document-as-code</b>100%</figcaption></figure>
-  <figure><img src="img/dark-coordinate-after-fix.png" alt="Dark page after the fix" loading="lazy"><figcaption><b>Coordinate, after</b>100%</figcaption></figure>
-</div>
-
-<h3>Relational couldn't resize, so it rebuilt</h3>
-<p>Relational could only size an element when creating it. To fix a clipped headline, the agent deleted the headline and paragraph and made new ones. The page looks fine, but checks find elements by id, so the rebuilt page scored 5%. Relational now has <code>set_size</code>, alignment margins, <code>fit_text</code> modes for “fill this box” and “at most N lines”, and an <code>around</code> relation for radial layouts.</p>
-<div class="grid g3">
-  <figure><img src="img/headline-start.png" alt="Starting page with a clipped headline" loading="lazy"><figcaption><b>Starting page</b>headline clipped</figcaption></figure>
-  <figure><img src="img/headline-coordinate.png" alt="Fixed headline via coordinate tools" loading="lazy"><figcaption><b>Coordinate</b>100%</figcaption></figure>
-  <figure><img src="img/headline-relational.png" alt="Rebuilt page via relational tools" loading="lazy"><figcaption><b>Relational, rebuilt</b>5%</figcaption></figure>
-</div>
-
-<h2 id="geometry">3 · Geometry is solved</h2>
-<p>Hardening the task set (v2) with exact gaps, grids, insets and rotations didn't bite. In 138 calibration runs Opus 5 almost never missed stated geometry; a strong model computes exact arithmetic exactly. The few misses were measurement: type that didn't quite fill its space, or broke onto one line too many.</p>
-<p>To look for hardness that wasn't contrived, we took a cue from the Web Stories editor and added shapes (ellipse, polygon, star) and linear gradients, then built four prototypes: a sunburst badge, a clock at ten past ten, a Bauhaus study built from tangencies, and a justified photo gallery with exactly one valid row partition. Even the cheapest model solved the geometry. GPT-5.6 Luna and Terra each passed 75% of 24 runs, and nine of the twelve misses were one constraint: a title set as large as it goes on one line.</p>
+<h3>Geometry is solved</h3>
+<p>Exact gaps, grids, insets and rotations are almost never missed — a strong model computes exact arithmetic exactly. To look for hardness that wasn't contrived, the bench gained shapes (ellipse, polygon, star) and linear gradients, and four prototype pages: a sunburst badge, a clock at ten past ten, a Bauhaus study built from tangencies, and a justified photo gallery with exactly one valid row partition. Even GPT-5.6 Luna, the cheapest model tested, solved the geometry. Luna and Terra each passed 75% of 24 runs, and nine of the twelve misses were the same constraint: a title set as large as it goes on one line.</p>
 <div class="grid g3">
   <figure><img src="img/ref-proto.sunburst.png" alt="Sunburst badge reference" loading="lazy"><figcaption><b>Sunburst</b>12 rays every 30°</figcaption></figure>
   <figure><img src="img/ref-proto.clock.png" alt="Clock reference" loading="lazy"><figcaption><b>Clock</b>hands at 305° and 60°</figcaption></figure>
@@ -154,8 +107,8 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 </div>
 <p class="note">Reference solutions, rendered by the bench. Every task has one that scores 100%, so a miss is never the task's fault.</p>
 
-<h2 id="measure">4 · Measurement is (almost) solved</h2>
-<p>So we built a family around the one thing that failed: text the agent has to <em>measure</em> without seeing it. Each page has a dozen or more pieces of text that must fill their space exactly: as large as they go on two lines, boxes hugging their text, a timeline spine that runs exactly as far as its entries.</p>
+<h3>Measurement is solved too</h3>
+<p>The one thing that did fail was text the agent has to <em>measure</em> without seeing it. So the hardest family is built around exactly that: each page has twelve or more pieces of text that must fill their space precisely — as large as they go on two lines, boxes hugging their text, a timeline spine that runs exactly as far as its entries.</p>
 <div class="grid g4">
   <figure><img src="img/ref2-measure.contents.png" alt="Magazine contents page" loading="lazy"><figcaption><b>Contents</b>16 auto-fit headlines</figcaption></figure>
   <figure><img src="img/ref2-measure.menu.png" alt="Restaurant menu" loading="lazy"><figcaption><b>Menu</b>12 dishes, 2 lines each</figcaption></figure>
@@ -163,22 +116,6 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
   <figure><img src="img/ref2-measure.timeline.png" alt="Timeline" loading="lazy"><figcaption><b>Timeline</b>hugged entries, fitted spine</figcaption></figure>
 </div>
 
-<h3>First version: the older models</h3>
-<p>Pass rate by task, six runs a cell (three surfaces × two feedback conditions, one repeat). This is where the 30% target looked in reach.</p>
-<div class="scroll"><table>
-<thead><tr><th>Task</th><th class="n">Opus 5</th><th class="n">GPT-5.6 Terra</th><th class="n">GPT-5.6 Luna</th><th class="n">Sonnet 5</th><th class="n">Haiku 4.5</th></tr></thead>
-<tbody>
-<tr><td>contents</td><td class="n hi">100%</td><td class="n hi">83%</td><td class="n md">67%</td><td class="n lo">33%</td><td class="n lo">0%</td></tr>
-<tr><td>contents (wide)</td><td class="n md">67%</td><td class="n md">50%</td><td class="n md">50%</td><td class="n lo">33%</td><td class="n lo">0%</td></tr>
-<tr><td>menu</td><td class="n hi">100%</td><td class="n hi">100%</td><td class="n md">67%</td><td class="n lo">33%</td><td class="n lo">17%</td></tr>
-<tr><td>programme</td><td class="n lo">33%</td><td class="n lo">33%</td><td class="n lo">17%</td><td class="n lo">33%</td><td class="n lo">33%</td></tr>
-<tr><td>timeline</td><td class="n hi">100%</td><td class="n md">50%</td><td class="n md">67%</td><td class="n lo">33%</td><td class="n lo">17%</td></tr>
-<tr><th>Cost per pass</th><th class="n">$0.71</th><th class="n">$0.19</th><th class="n">$0.04</th><th class="n">$0.76</th><th class="n">$1.49</th></tr>
-</tbody></table></div>
-<p class="note">Sonnet 5's row is partly an output-token ceiling, not the model: 17 of its 30 runs stopped at <code>max_tokens</code>. The ceiling was raised to 32,000 for everything after this.</p>
-
-<h3>Rebuilt harder: the 5.5 models</h3>
-<p>Every task was rebuilt to carry the programme's load (twelve or more independent measurements). Then Opus 5.5 and Sonnet 5.5 arrived.</p>
 <div class="scroll"><table>
 <thead><tr><th>Task</th><th class="n">Opus 5.5</th><th class="n">calls · cost/run</th><th class="n">Sonnet 5.5</th><th class="n">calls · cost/run</th></tr></thead>
 <tbody>
@@ -188,15 +125,48 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <tr><td>timeline</td><td class="n hi">100% (6/6)</td><td class="n">39 · $0.36</td><td class="n hi">83% (5/6)</td><td class="n">40 · $0.21</td></tr>
 <tr><th>Cost per pass</th><th class="n">$0.62</th><th></th><th class="n">$0.35</th><th></th></tr>
 </tbody></table></div>
-<p>Opus 5.5 passed <strong>all 24 runs</strong>. The programme had held Opus 5 to 33%. One model generation later, a dozen invisible measurements per page don't separate anything: the model measures what it can't see, by iterating on feedback or reaching for <code>fit_text</code>, as reliably as it computes geometry. Sonnet 5.5 misses more often, but at less than half the price per run it is still the cheaper way to a pass.</p>
+<p class="note">Six runs a cell: three surfaces × two feedback conditions (none, and screenshot + description), one repeat, pooled. Cost per pass is total spend, failed runs included, over passes.</p>
+<p>Opus 5.5 passed all 24 runs. It measures what it can't see — by iterating on feedback, or by reaching for <code>fit_text</code> — as reliably as it computes geometry. Sonnet 5.5 misses more often, but at less than half the price per run it is still the cheaper way to a correct page.</p>
 
-<h2 id="next">5 · What's next: cost to pass</h2>
-<p>Chasing a 30% pass rate on the newest frontier model means writing tasks to defeat the model rather than tasks people actually do. So the question changes. When every surface eventually gets the page right, the difference that matters is <strong>what it costs to get there</strong>.</p>
-<p>The primary outcome is now <strong>cost to pass</strong>: a cell's total agent spend, failed runs included, over its passes (a zero-pass cell divides by 0.5), combined across tasks by geometric mean. Surfaces and feedback conditions are compared as paired ratios within task, with a task-clustered bootstrap. A difference counts as resolved when its interval excludes 1, and as meaningful at 15% or more. The confirmatory grid of 1,458 runs on Opus 5.5 is fixed in advance and waiting to run.</p>
-<p class="note">The relational surface's pilot profile already hints at why this matters: on the v1 tasks it took more turns and more tokens per run than the other two surfaces for similar quality. Whether that holds on the current tasks is exactly what the grid is blinded to until it runs.</p>
+<h2 id="cost">What still varies: cost to get there</h2>
+<p>Writing tasks until the newest frontier model fails means writing tasks to defeat the model rather than tasks people actually do. And once every surface eventually gets the page right, the difference that matters to anyone building an editor is <strong>what it costs to get there</strong>. That still varies widely — Opus 5.5 spent 39 to 108 tool calls per run on the measurement family — and how much of it the tool surface and the feedback account for is exactly what the grid is blinded to until it runs.</p>
+<p>So the primary outcome is <strong>cost to pass</strong>: a cell's total agent spend, failed runs included, over its passes, combined across tasks by geometric mean. Tool calls per pass is co-primary, since it depends on neither a price list nor token counts. Surfaces and feedback conditions are compared as paired ratios within task, with a task-clustered bootstrap; a difference counts as resolved when its interval excludes 1, and as meaningful at 15% or more. The hypotheses going in:</p>
+<ul>
+  <li><strong>Relational</strong> costs at least 15% less per pass than coordinate.</li>
+  <li><strong>Feedback</strong> moves cost more than the choice of surface does.</li>
+  <li><strong>Document-as-code</strong> needs the fewest calls, at a dollar cost close to the cheapest incremental surface.</li>
+</ul>
+
+<h2 id="lessons">Lessons for anyone designing agent tools</h2>
+<p>Most of what the pilots turned up was not about models at all. It was about the tools and the checks — and it applies to any product exposing an editor to an agent.</p>
+
+<h3>A missing tool looks like a weak model</h3>
+<p>The coordinate and relational surfaces had no tool for the canvas background. Asked for dark mode, the agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. The page looks identical; it scored 56% instead of 100%, and a surface comparison would have blamed the surface's vocabulary rather than its missing verb.</p>
+<div class="grid g4">
+  <figure><img src="img/dark-start.png" alt="Light-themed starting page" loading="lazy"><figcaption><b>Starting page</b>light theme</figcaption></figure>
+  <figure><img src="img/dark-coordinate-before-fix.png" alt="Dark page made with a full-canvas rectangle" loading="lazy"><figcaption><b>No background tool</b>56%</figcaption></figure>
+  <figure><img src="img/dark-document.png" alt="Dark page from document-as-code" loading="lazy"><figcaption><b>Document-as-code</b>100%</figcaption></figure>
+  <figure><img src="img/dark-coordinate-after-fix.png" alt="Dark page after adding set_background" loading="lazy"><figcaption><b>With set_background</b>100%</figcaption></figure>
+</div>
+
+<h3>An agent that can't edit will rebuild</h3>
+<p>The relational surface could only size an element when creating it. To fix a clipped headline, the agent deleted the headline and paragraph and made new ones. The page looks fine — but anything that tracks elements by identity (comments, links, history, here the checks) sees two elements gone. It scored 5%. Every surface now reaches the same set of documents, and a test proves it for each.</p>
+<div class="grid g3">
+  <figure><img src="img/headline-start.png" alt="Starting page with a clipped headline" loading="lazy"><figcaption><b>Starting page</b>headline clipped</figcaption></figure>
+  <figure><img src="img/headline-coordinate.png" alt="Fixed headline via coordinate tools" loading="lazy"><figcaption><b>Edited in place</b>100%</figcaption></figure>
+  <figure><img src="img/headline-relational.png" alt="Rebuilt page via relational tools" loading="lazy"><figcaption><b>Deleted and rebuilt</b>5%</figcaption></figure>
+</div>
+
+<h3>A cheap way to satisfy a check is a bug in the check</h3>
+<p>Shrink the type until it fits. Fade the shape covering the text. Carry the missing copy in a text element at <code>opacity: 0</code>. Each of these once satisfied a task without doing what its brief asked. Every one now has a test asserting it scores below the honest fix — and the honest fix has to reach 100%. Checks read glyph ink from the font rather than line boxes, and overlap is measured as hidden ink rather than raw area, because a headline sitting on a card is good design, not a defect.</p>
+
+<h2 id="try">Try it</h2>
+<p>The <strong>live page</strong> lets you type a brief, watch the agent build it, and switch the tool surface mid-run — the document and conversation carry over, only the vocabulary changes. It runs a recorded replay without an API key. Six providers work through one agent loop on the Vercel AI SDK.</p>
+<p>The surfaces are also published over <strong>WebMCP</strong>, screenshots included, so any WebMCP agent or eval harness can drive the canvas with no code from this repository in the loop.</p>
+<p><code>npm install &amp;&amp; npm run serve</code>, then open <code>localhost:5173</code>. The <a href="https://github.com/swissspidy/canvas#readme">README</a> covers sweeps, cost estimates and the WebMCP host.</p>
 
 <footer>
-  <p>Source, tasks and the full pre-registration: <a href="https://github.com/swissspidy/canvas">github.com/swissspidy/canvas</a>. All numbers are from single-repeat pilot sweeps on 7 October 2026 and are recorded as deviations in §13 of the pre-registration.</p>
+  <p>Source, tasks and the full pre-registration, including every change made during calibration: <a href="https://github.com/swissspidy/canvas">github.com/swissspidy/canvas</a>. Apache 2.0.</p>
 </footer>
 </main>
 </body>
