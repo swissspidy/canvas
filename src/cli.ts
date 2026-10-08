@@ -731,15 +731,24 @@ async function cmdCompare(args: Args): Promise<void> {
   const concurrency = positiveInt(args.flags, "concurrency", 4);
   const passingOnly = bool(args.flags, "passing");
 
-  // A run whose record failed to write keeps its score (`writeArtifacts` only
-  // warns), but has no page to show the judge, so it cannot be paired.
+  // A run whose record failed to write, or was cut off mid-write, keeps its
+  // score (`writeArtifacts` only warns) but has no page to show the judge, so
+  // it is left out before pairs are drawn rather than failing the comparison.
   const runsDir = sweepPaths(dir).runs;
-  const scores = readScores(dir).filter(
-    (s) =>
-      !isHarnessFailure(s.stopReason) &&
-      (!passingOnly || passed(s)) &&
-      existsSync(join(runsDir, `${s.runId}.json`)),
-  );
+  const finalDocs = new Map<string, import("./doc/types.js").Doc>();
+  const scores = readScores(dir).filter((s) => {
+    if (isHarnessFailure(s.stopReason) || (passingOnly && !passed(s))) return false;
+    try {
+      const record = JSON.parse(readFileSync(join(runsDir, `${s.runId}.json`), "utf8")) as {
+        finalDoc?: import("./doc/types.js").Doc;
+      };
+      if (!record.finalDoc) return false;
+      finalDocs.set(s.runId, record.finalDoc);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   const pairs = drawPairs(
     scores.map((s) => ({ runId: s.runId, taskId: s.taskId, group: groupOf(s) })),
     perTask,
@@ -761,9 +770,6 @@ async function cmdCompare(args: Args): Promise<void> {
     }
   }
 
-  const finalDoc = (runId: string) =>
-    (JSON.parse(readFileSync(join(runsDir, `${runId}.json`), "utf8")) as { finalDoc: import("./doc/types.js").Doc }).finalDoc;
-
   const todo = pairs.filter((p) => !done.has(p.id));
   console.log(`${pairs.length} pairs across ${new Set(pairs.map((p) => p.taskId)).size} tasks; ${todo.length} to judge with ${judgeModel}.`);
   let next = 0;
@@ -775,8 +781,8 @@ async function cmdCompare(args: Args): Promise<void> {
       const result = await judgePair({
         brief: task.brief,
         initialDoc: task.initial(),
-        a: finalDoc(pair.a.runId),
-        b: finalDoc(pair.b.runId),
+        a: finalDocs.get(pair.a.runId)!,
+        b: finalDocs.get(pair.b.runId)!,
         model: judgeModel,
       });
       const row: PairRow = {

@@ -1444,9 +1444,15 @@ describe("per-call trajectory", () => {
       ],
       task,
     );
-    const base = Math.round(baselineFor(task) * 10_000) / 10_000;
+    const base = baselineFor(task);
     expect(trajectory).toEqual([base, base, 1, base]);
     expect(firstPassCall).toBe(3);
+  });
+
+  it("keeps full precision, so a score just short of the threshold never reads as a pass", () => {
+    // 0.99895 would round to 0.999 at four places.
+    const row = { trajectory: [0.99895], baselineScore: 0.5 };
+    expect(passedWithin(row, 1)).toBe(false);
   });
 
   it("reads a budget off where the run stood then, not whether it ever passed", () => {

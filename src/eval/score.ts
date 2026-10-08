@@ -135,9 +135,9 @@ export function scoreDocument(doc: Doc, task: Task): { score: number; results: C
 }
 
 /**
- * Score the document after every call. Rounded to four places: the report
- * reads it against a pass threshold of 0.999, and a row of a hundred full-
- * precision floats would make `scores.jsonl` mostly noise.
+ * Score the document after every call. Kept at full precision: the report
+ * reads it against the pass threshold, and a score rounded up onto 0.999
+ * would count as a pass there while failing `passed` everywhere else.
  */
 export function scoreTrajectory(
   actions: readonly { ok: boolean; doc: Doc }[],
@@ -149,7 +149,7 @@ export function scoreTrajectory(
   actions.forEach((action, i) => {
     // A failed call leaves the document as it was, so its score is the last one.
     if (action.ok) current = scoreDocument(action.doc, task).score;
-    trajectory.push(Math.round(current * 10_000) / 10_000);
+    trajectory.push(current);
     if (firstPassCall === null && current >= PASS_THRESHOLD) firstPassCall = i + 1;
   });
   return { trajectory, firstPassCall };
