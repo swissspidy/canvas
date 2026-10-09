@@ -75,40 +75,65 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <main>
 
 <h1>Canvas Agent Bench</h1>
-<p class="lede">Does an AI agent lay out a page better when it edits coordinates, states relations, or rewrites the whole document as code? And does seeing its own work matter more than the choice of tools?</p>
+<p class="lede">For an agent editing a visual document, a tool that measures for it is worth more than a better model.</p>
 
-<p>The bench gives one agent loop a 2D canvas document and a brief — fix this clipped headline, set this menu so every dish name fills two lines, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets one of six <strong>feedback</strong> conditions, from nothing to a rendered screenshot plus a structured description. Deterministic checks score the result; a <strong>pass</strong> is a run that satisfies all of them.</p>
+<p>The bench hands one agent loop a 2D canvas document and a brief — set this menu so every dish name fills two lines, fix this clipped headline, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets either no feedback or a rendered screenshot plus a structured description. Deterministic checks score the result; a <strong>pass</strong> satisfies every one of them.</p>
 
-<div class="status sans"><strong>Status.</strong> The numbers below are from pilot runs used to calibrate the tasks. The confirmatory grid — 27 tasks × 3 surfaces × 6 feedback conditions × 3 repeats on Opus 5.5 — is <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> and has not run yet, so this page deliberately reports nothing per surface or per feedback condition.</div>
+<div class="status sans"><strong>What is confirmed.</strong> One result, <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on the four text-measurement tasks, with GPT-5.6 Luna and Terra, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots, one repeat per cell, and is exploratory.</div>
 
 <nav>
-  <a href="#saturated">Current models pass</a>
-  <a href="#cost">What still varies: cost</a>
-  <a href="#lessons">Lessons for agent tool design</a>
+  <a href="#measure">A measuring tool beats a bigger model</a>
+  <a href="#cost">When the model can measure</a>
+  <a href="#hard">Hard tasks are hard to write</a>
+  <a href="#lessons">Lessons for tool design</a>
   <a href="#try">Try it</a>
 </nav>
 
 <div class="stats">
-  <div class="stat"><b>27</b><span>tasks across six families</span></div>
-  <div class="stat"><b>24 / 24</b><span>Opus 5.5 passes on the hardest family</span></div>
-  <div class="stat"><b>39–108</b><span>Opus 5.5 tool calls per run on that family</span></div>
-  <div class="stat"><b>$0.36–$0.98</b><span>Opus 5.5 cost per run on that family</span></div>
+  <div class="stat"><b>22 / 24</b><span>Luna passes with a measuring tool</span></div>
+  <div class="stat"><b>5 / 24</b><span>Luna passes without one, best other surface</span></div>
+  <div class="stat"><b>$0.018</b><span>Luna's cost per pass with it</span></div>
+  <div class="stat"><b>$1.05</b><span>Terra's cost per pass without it</span></div>
 </div>
 
-<h2 id="saturated">Current models get the page right</h2>
-<p>The tasks were built to leave room: a target of about 30% passes on the strongest model, so differences between surfaces and feedback could show. Current models don't leave that room.</p>
+<h2 id="measure">A measuring tool beats a bigger model</h2>
+<p>Each measurement task is a page with twelve or more pieces of text that must fill their space exactly: a title as large as it goes on two lines, a box hugging its text, a timeline spine running exactly as far as its entries. Getting one right means knowing how wide a string set in a given font at a given size is — something a model can only estimate.</p>
+<p>The relational surface has <code>fit_text</code>: name the text, its box and the number of lines, and it sets the type as large as it goes. The other two surfaces can reach exactly the same page, but the agent has to pick the font size itself. Here is the same task done by the same model, GPT-5.6 Luna, with no feedback, once each way:</p>
+<div class="grid g2">
+  <figure><img src="img/luna-programme-coordinate.png" alt="Conference programme with several titles clipped or too small" loading="lazy"><figcaption><b>Coordinate: picks sizes itself</b>90%: titles clipped mid-line, others well short of their box. Fail.</figcaption></figure>
+  <figure><img src="img/luna-programme-relational.png" alt="Conference programme with every title filling its box" loading="lazy"><figcaption><b>Relational: calls fit_text</b>100%: every title as large as it goes. Pass.</figcaption></figure>
+</div>
 
-<h3>Geometry is solved</h3>
-<p>Exact gaps, grids, insets and rotations are almost never missed — a strong model computes exact arithmetic exactly. To look for hardness that wasn't contrived, the bench gained shapes (ellipse, polygon, star) and linear gradients, and four prototype pages: a sunburst badge, a clock at ten past ten, a Bauhaus study built from tangencies, and a justified photo gallery with exactly one valid row partition. Even GPT-5.6 Luna, the cheapest model tested, solved the geometry. Luna and Terra each passed 75% of 24 runs, and nine of the twelve misses were the same constraint: a title set as large as it goes on one line.</p>
+<p>The confirmation ran each of the four tasks on all three surfaces, with and without feedback, three times, on two models: 144 runs, $13.51.</p>
+<div class="scroll"><table>
+<thead><tr><th>Model</th><th class="n">Relational</th><th class="n">Coordinate</th><th class="n">Document-as-code</th></tr></thead>
+<tbody>
+<tr><td>GPT-5.6 Luna — passes</td><td class="n hi">22 / 24</td><td class="n lo">5 / 24</td><td class="n lo">0 / 24</td></tr>
+<tr><td>GPT-5.6 Luna — cost per pass</td><td class="n hi">$0.018</td><td class="n">$0.13</td><td class="n">$0.37</td></tr>
+<tr><td>GPT-5.6 Terra — passes</td><td class="n hi">22 / 24</td><td class="n lo">4 / 24</td><td class="n lo">2 / 24</td></tr>
+<tr><td>GPT-5.6 Terra — cost per pass</td><td class="n hi">$0.17</td><td class="n">$1.05</td><td class="n">$1.31</td></tr>
+</tbody></table></div>
+<p class="note">Cost per pass is a cell's total spend, failed runs included, over its passes, combined across tasks by geometric mean. Both tests were paired within task with a task-clustered bootstrap. Relational's lead in pass rate: +0.71 to +0.92, every interval clear of zero. Its cost per pass: 0.05 to 0.16 times the other surfaces', every interval clear of the 0.85 the pre-registration required.</p>
+
+<p>The failures are near misses — the average score on the losing surfaces is 0.93 to 0.98 — but a page with one clipped title is not done. Seeing the page helps less than you might expect: a screenshot plus a structured description lifted coordinate and document-as-code from 2 to 9 passes out of 48, while the measuring tool got 44. And the bigger model doesn't close the gap either: Terra without <code>fit_text</code> passed less often than Luna with it, at nearly sixty times the cost per pass.</p>
+
+<h2 id="cost">When the model can measure, the tool only changes the cost</h2>
+<p>Opus 5.5 passes the measurement tasks on every surface: it estimates, checks the feedback and corrects, or reaches for <code>fit_text</code> on its own. There the surface no longer decides whether the page gets made, only what it costs. Under a five-turn budget, coordinate cost 1.39 times as much per pass as relational (interval 1.15–1.66), document-as-code 1.18 times (not resolved).</p>
+<p>On twelve other tasks — composing, repairing, restyling and arranging pages, and the animation prototypes — no surface was resolved cheaper in dollars than another (119 runs). The surfaces did differ in shape: document-as-code needed about a quarter of the tool calls, relational took the most turns (5.1, against 3.0 and 3.2), and the totals came out even. Feedback mattered for passing rather than for cost: 88.9% of runs passed with no feedback, 100% with any.</p>
+
+<h2 id="hard">Hard tasks are hard to write</h2>
+<p>The tasks were built to leave room — a target of about 30% passes on the strongest model — so that differences between surfaces could show. Three rounds of making them harder all ended the same way.</p>
+
+<h3>Geometry</h3>
+<p>Exact gaps, grids, insets and rotations are almost never missed: a strong model computes exact arithmetic exactly. Prototype pages built from shapes and gradients — a sunburst badge, a clock at ten past ten, a Bauhaus study made only of tangencies — were solved even by Luna, the cheapest model tested. Nine of its twelve misses there were the same constraint: a title set as large as it goes on one line. That pointed to measurement.</p>
 <div class="grid g3">
   <figure><img src="img/ref-proto.sunburst.png" alt="Sunburst badge reference" loading="lazy"><figcaption><b>Sunburst</b>12 rays every 30°</figcaption></figure>
   <figure><img src="img/ref-proto.clock.png" alt="Clock reference" loading="lazy"><figcaption><b>Clock</b>hands at 305° and 60°</figcaption></figure>
   <figure><img src="img/ref-proto.bauhaus.png" alt="Bauhaus study reference" loading="lazy"><figcaption><b>Bauhaus</b>tangencies only</figcaption></figure>
 </div>
-<p class="note">Reference solutions, rendered by the bench. Every task has one that scores 100%, so a miss is never the task's fault.</p>
 
-<h3>Measurement is solved too</h3>
-<p>The one thing that did fail was text the agent has to <em>measure</em> without seeing it. So the hardest family is built around exactly that: each page has twelve or more pieces of text that must fill their space precisely — as large as they go on two lines, boxes hugging their text, a timeline spine that runs exactly as far as its entries.</p>
+<h3>Measurement</h3>
+<p>So the hardest family was built around text the agent must measure without seeing it. It separates the surfaces on every model below the frontier, as above. Opus 5.5 passed all 24 pilot runs anyway.</p>
 <div class="grid g4">
   <figure><img src="img/ref2-measure.contents.png" alt="Magazine contents page" loading="lazy"><figcaption><b>Contents</b>16 auto-fit headlines</figcaption></figure>
   <figure><img src="img/ref2-measure.menu.png" alt="Restaurant menu" loading="lazy"><figcaption><b>Menu</b>12 dishes, 2 lines each</figcaption></figure>
@@ -116,32 +141,19 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
   <figure><img src="img/ref2-measure.timeline.png" alt="Timeline" loading="lazy"><figcaption><b>Timeline</b>hugged entries, fitted spine</figcaption></figure>
 </div>
 
-<div class="scroll"><table>
-<thead><tr><th>Task</th><th class="n">Opus 5.5</th><th class="n">calls · cost/run</th><th class="n">Sonnet 5.5</th><th class="n">calls · cost/run</th></tr></thead>
-<tbody>
-<tr><td>contents</td><td class="n hi">100% (6/6)</td><td class="n">108 · $0.98</td><td class="n hi">83% (5/6)</td><td class="n">88 · $0.33</td></tr>
-<tr><td>menu</td><td class="n hi">100% (6/6)</td><td class="n">64 · $0.56</td><td class="n md">50% (3/6)</td><td class="n">76 · $0.26</td></tr>
-<tr><td>programme</td><td class="n hi">100% (6/6)</td><td class="n">64 · $0.59</td><td class="n hi">83% (5/6)</td><td class="n">61 · $0.25</td></tr>
-<tr><td>timeline</td><td class="n hi">100% (6/6)</td><td class="n">39 · $0.36</td><td class="n hi">83% (5/6)</td><td class="n">40 · $0.21</td></tr>
-<tr><th>Cost per pass</th><th class="n">$0.62</th><th></th><th class="n">$0.35</th><th></th></tr>
-</tbody></table></div>
-<p class="note">Six runs a cell: three surfaces × two feedback conditions (none, and screenshot + description), one repeat, pooled. Cost per pass is total spend, failed runs included, over passes.</p>
-<p>Opus 5.5 passed all 24 runs. It measures what it can't see — by iterating on feedback, or by reaching for <code>fit_text</code> — as reliably as it computes geometry. Sonnet 5.5 misses more often, but at less than half the average price per run it is still the cheaper way to a correct page.</p>
-
-<h2 id="cost">What still varies: cost to get there</h2>
-<p>Writing tasks until the newest frontier model fails means writing tasks to defeat the model rather than tasks people actually do. And once every surface eventually gets the page right, the difference that matters to anyone building an editor is <strong>what it costs to get there</strong>. That still varies widely — Opus 5.5 spent 39 to 108 tool calls per run on the measurement family — and how much of it the tool surface and the feedback account for is exactly what the grid is blinded to until it runs.</p>
-<p>So the primary outcome is <strong>cost to pass</strong>: a cell's total agent spend, failed runs included, over its passes, combined across tasks by geometric mean. Tool calls per pass is co-primary, since it depends on neither a price list nor token counts. Surfaces and feedback conditions are compared as paired ratios within task, with a task-clustered bootstrap; a difference counts as resolved when its interval excludes 1, and as meaningful at 15% or more. The hypotheses going in:</p>
-<ul>
-  <li><strong>Relational</strong> costs at least 15% less per pass than coordinate.</li>
-  <li><strong>Feedback</strong> moves cost more than the choice of surface does.</li>
-  <li><strong>Document-as-code</strong> needs the fewest calls, at a dollar cost close to the cheapest incremental surface.</li>
-</ul>
+<h3>Motion</h3>
+<p>Then time. Elements gained an entrance animation, fade or fly in, and the checks sample the frames in between: nothing may cover text mid-flight, a button's label must stay inside the button, and everything must be at rest by a deadline. The three prototypes are built so that the obvious plan fails — half the sides an element could fly in from sweep it across text, and reading order drops each card onto the title of the one before.</p>
+<figure><img src="img/anim-launch-filmstrip.png" alt="Five frames of a launch page animating in, from blank to at rest" loading="lazy"><figcaption><b>A reference solution, frame by frame</b>The headline flies in from the left, the four lines below it fade in one by one, the button follows.</figcaption></figure>
+<p>Opus 5.5, Sonnet 5.5 and Luna each passed all 18 runs. Models plan motion they cannot see as reliably as they compute geometry.</p>
+<p>Writing tasks until the newest frontier model fails means writing tasks to defeat the model, not tasks people actually do. The useful signal is lower down: which tools let a cheaper model do what only the frontier does unaided.</p>
 
 <h2 id="lessons">Lessons for anyone designing agent tools</h2>
-<p>Most of what the pilots turned up was not about models at all. It was about the tools and the checks — and it applies to any product exposing an editor to an agent.</p>
+
+<h3>Give the agent a measuring tool</h3>
+<p>Anything the agent would otherwise have to estimate — text widths, line breaks, what fits — is worth a tool that computes it. It is the largest effect the bench found, larger than feedback and larger than a model step. Screenshots don't replace it: an agent that can see a title is clipped still has to guess the size that fixes it.</p>
 
 <h3>A missing tool looks like a weak model</h3>
-<p>The coordinate and relational surfaces had no tool for the canvas background. Asked for dark mode, the agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. The page looks identical; it scored 56% instead of 100%, and a surface comparison would have blamed the surface's vocabulary rather than its missing verb.</p>
+<p>The coordinate and relational surfaces once had no tool for the canvas background. Asked for dark mode, the agent noticed (“there's no tool to set the canvas background directly”) and painted a full-canvas dark rectangle. The page looks identical; it scored 56% instead of 100%, and a surface comparison would have blamed the vocabulary rather than the missing verb.</p>
 <div class="grid g4">
   <figure><img src="img/dark-start.png" alt="Light-themed starting page" loading="lazy"><figcaption><b>Starting page</b>light theme</figcaption></figure>
   <figure><img src="img/dark-coordinate-before-fix.png" alt="Dark page made with a full-canvas rectangle" loading="lazy"><figcaption><b>No background tool</b>56%</figcaption></figure>
@@ -150,23 +162,26 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 </div>
 
 <h3>An agent that can't edit will rebuild</h3>
-<p>The relational surface could only size an element when creating it. To fix a clipped headline, the agent deleted the headline and paragraph and made new ones. The page looks fine — but anything that tracks elements by identity (comments, links, history, here the checks) sees two elements gone. It scored 5%. Every surface now reaches the same set of documents, and a test proves it for each.</p>
+<p>The relational surface once could size an element only when creating it. To fix a clipped headline, the agent deleted the headline and paragraph and made new ones. The page looks fine, but anything that tracks elements by identity — comments, links, history, here the checks — sees two elements gone. It scored 5%. Every surface now reaches the same set of documents, and a test proves it for each.</p>
 <div class="grid g3">
   <figure><img src="img/headline-start.png" alt="Starting page with a clipped headline" loading="lazy"><figcaption><b>Starting page</b>headline clipped</figcaption></figure>
   <figure><img src="img/headline-coordinate.png" alt="Fixed headline via coordinate tools" loading="lazy"><figcaption><b>Edited in place</b>100%</figcaption></figure>
   <figure><img src="img/headline-relational.png" alt="Rebuilt page via relational tools" loading="lazy"><figcaption><b>Deleted and rebuilt</b>5%</figcaption></figure>
 </div>
 
+<h3>A budget is never neutral</h3>
+<p>A cap on tool calls penalises the surface that works in many small calls; a cap on turns penalises the one that checks its work between steps. Under a five-turn budget, relational on the GPT models fell from 15 of 16 passes to 4 of 16, because measuring and then checking takes turns. Decide which you are pricing before you cap it.</p>
+
 <h3>A cheap way to satisfy a check is a bug in the check</h3>
-<p>Shrink the type until it fits. Fade the shape covering the text. Carry the missing copy in a text element at <code>opacity: 0</code>. Each of these once satisfied a task without doing what its brief asked. Every one now has a test asserting it scores below the honest fix — and the honest fix has to reach 100%. Checks read glyph ink from the font rather than line boxes, and overlap is measured as hidden ink rather than raw area, because a headline sitting on a card is good design, not a defect.</p>
+<p>Shrink the type until it fits. Fade the shape covering the text. Carry the missing copy in a text element at <code>opacity: 0</code>. Each of these once satisfied a task without doing what its brief asked. Every one now has a test asserting it scores below the honest fix, and the honest fix has to reach 100%. Checks read glyph ink from the font rather than line boxes, and overlap is measured as hidden ink rather than raw area, because a headline sitting on a card is good design, not a defect.</p>
 
 <h2 id="try">Try it</h2>
-<p>The <strong>live page</strong> lets you type a brief, watch the agent build it, and switch the tool surface mid-run — the document and conversation carry over, only the vocabulary changes. It runs a recorded replay without an API key. Six providers work through one agent loop on the Vercel AI SDK.</p>
+<p>The <strong>live page</strong> lets you type a brief, watch the agent build it, and switch the tool surface mid-run: the document and conversation carry over, only the vocabulary changes. It runs a recorded replay without an API key. Six providers work through one agent loop on the Vercel AI SDK.</p>
 <p>The surfaces are also published over <strong>WebMCP</strong>, screenshots included, so any WebMCP agent or eval harness can drive the canvas with no code from this repository in the loop.</p>
 <p><code>npm install &amp;&amp; npm run serve</code>, then open <code>localhost:5173</code>. The <a href="https://github.com/swissspidy/canvas#readme">README</a> covers sweeps, cost estimates and the WebMCP host.</p>
 
 <footer>
-  <p>Source, tasks and the full pre-registration, including every change made during calibration: <a href="https://github.com/swissspidy/canvas">github.com/swissspidy/canvas</a>. Apache 2.0.</p>
+  <p>Source, tasks and the full pre-registration, including every deviation and the confirmation's own entry: <a href="https://github.com/swissspidy/canvas">github.com/swissspidy/canvas</a>. Apache 2.0.</p>
 </footer>
 </main>
 </body>
