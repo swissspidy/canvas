@@ -784,6 +784,38 @@ already paid for are unblinded instead, as an exploratory analysis under §11:
   its decision rules are unchanged. If it is run later it is run as written,
   and its report states that these pilots were read first.
 
+*What the pilots show, exploratory throughout.*
+
+On the measurement family the surface decided the outcome on every model
+that does not saturate it. Without a turn budget, GPT-5.6 Luna and Terra
+passed 15 of 16 runs on relational, 0 of 16 on coordinate and 2 of 16 on
+document-as-code; relational's cost per pass was 4.4 times lower than either
+(paired within task, intervals 3.4–5.6, resolved). Every relational run used
+`fit_text`, which sets text as large as it goes on a stated number of lines
+and is the one operation of the three surfaces that measures type for the
+agent. Under the five-turn budget the advantage shrank (relational 4 of 16
+passes, improvement 41% and 61%): relational is the surface that takes the
+most turns, and a budget on turns spends it first.
+
+On Opus 5.5, which saturates everything, every surface passed every
+measurement run under the five-turn budget, and relational was the cheapest
+per pass: coordinate cost 1.39 times as much (interval 1.15–1.66, resolved,
+over the 15% line), document-as-code 1.18 times (not resolved). Across the
+twelve other tasks piloted on Opus 5.5 without a budget (119 runs, one repeat,
+five families and the animation prototypes) no surface was resolved cheaper
+than another in dollars (ratios 0.99 to 1.15, every interval spanning 1);
+document-as-code needed about a quarter of the calls of the other two
+(resolved) at the same dollar cost, and relational took the most turns (5.1
+against 3.0 and 3.2) and the most tokens, recovered by caching. Relational
+passed every run, coordinate 97.5% and document-as-code 92.3%. No feedback
+contrast in cost was over the 15% line; passing was where feedback showed —
+88.9% of runs passed with no feedback against 100% with any.
+
+Read against the hypotheses, and only as direction: H1 (relational cheaper
+than coordinate) holds where the task needs measurement and fades where it
+does not; H3 (document-as-code fewest calls, similar dollars) holds; H2 and
+H4 cannot be read at this sample size.
+
 **2026-10-09 — prototyping animation: three tasks, outside every grid.** An
 exploration like the shapes prototypes of the 2026-10-07 (fifth) entry,
 recorded because its runs are pilots and because it changes one thing every
