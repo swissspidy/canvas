@@ -794,6 +794,15 @@ Four of six runs of each of the last two passed within the first turn; the
 rest within six. The strongest model plans motion it cannot see as reliably
 as it computes geometry. No per-surface or per-feedback figure was computed.
 
+*Weaker models, same three tasks and conditions.* Sonnet 5.5 passed 18 of 18
+($1.30) and GPT-5.6 Luna 18 of 18 ($0.28). Motion does not open a gap between
+models either: as built, these tasks separate nothing on any model tried, and
+they stay prototypes.
+
+*Pricing the grid, under §10.* The `fit` family on Opus 5.5, three surfaces,
+`none` and `both`, one repeat, judged: 30 runs, $4.09, $0.14 a run with the
+judge, 28 passing. Kept out of every grid.
+
 **2026-10-08 (second entry) — the five-turn budget on Opus 5.5, and two judge
 fixes found by reading its judgements.** The pilot was run under the previous
 entry; the judge fixes were made *after* reading its judgements, which is the
