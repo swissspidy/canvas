@@ -801,7 +801,14 @@ they stay prototypes.
 
 *Pricing the grid, under §10.* The `fit` family on Opus 5.5, three surfaces,
 `none` and `both`, one repeat, judged: 30 runs, $4.09, $0.14 a run with the
-judge, 28 passing. Kept out of every grid.
+judge, 28 passing. Kept out of every grid. A second pilot priced the families
+the first did not: one task each from compose, repair, restyle and arrange,
+three surfaces, all six feedback conditions, one repeat — 72 runs, $11.80,
+$0.12 to $0.27 a run with the judge, the full feedback mix 5% dearer than
+`none` and `both` alone. One run ended in `api_error` when the key ran out of
+credit. Weighted by family, the grid prices at about $305 at three repeats
+(1,458 runs) and $205 at two (972), the measurement family a little under
+half of either.
 
 **2026-10-08 (second entry) — the five-turn budget on Opus 5.5, and two judge
 fixes found by reading its judgements.** The pilot was run under the previous
