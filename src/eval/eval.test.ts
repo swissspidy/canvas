@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { baselineFor, normalize, passedWithin, passedWithinTurns, scoreDocument, scoreRun, scoreTrajectory, CONSTRAINT_WEIGHT, JUDGE_WEIGHT } from "./score.js";
 import { SOLUTIONS } from "../tasks/solutions.js";
 import { computeAgreement, pearson, sampleForRating, spearman } from "./human.js";
-import { alignCriteria, judgeRun, toUnit } from "./judge.js";
+import { alignCriteria, judgeRun, JUDGE_SCREENSHOT_WIDTH, scaleOf, toUnit } from "./judge.js";
+import { fitPixelWidth } from "../render/rasterizer.js";
 import { bootstrapCI, mean, stdev } from "../runner/report.js";
 import { getTask, TASKS } from "../tasks/index.js";
 import { runAgent } from "../agent/loop.js";
@@ -586,6 +587,17 @@ function judgeModel(judgement: unknown): MockLanguageModelV4 {
   });
 }
 
+describe("the judge's scale note", () => {
+  it("reports the width the rasterizer delivers, not the one it was asked for", () => {
+    // Tall enough to hit the pixel cap, so the screenshot comes out narrower than requested.
+    const tall = { width: 500, height: 8000, background: "#ffffff", elements: [] };
+    const shown = fitPixelWidth(tall, JUDGE_SCREENSHOT_WIDTH);
+    expect(shown).toBeLessThan(JUDGE_SCREENSHOT_WIDTH);
+    expect(scaleOf(tall)).toContain(`shown ${shown} pixels wide`);
+    expect(scaleOf(tall)).toContain(`one pixel is about ${(500 / shown).toFixed(2)} units`);
+  });
+});
+
 describe("the judge", () => {
   const task = getTask("arrange.ragged-column");
   const fullMarks = (score: number) => ({
@@ -644,6 +656,11 @@ describe("the judge", () => {
     const call = model.doGenerateCalls[0]!;
     expect(JSON.stringify(call.prompt)).toContain("List the defects before scoring.");
     expect(JSON.stringify(call.prompt)).toContain("Start by listing the defects");
+    // The screenshot is scaled; the judge is told by how much, and not to measure.
+    expect(JSON.stringify(call.prompt)).toContain("shown 768 pixels wide: one pixel is about 1.41 units");
+    expect(JSON.stringify(call.prompt)).toContain("do not try to measure them from the image");
+    // Only positions and sizes are vouched for; a count is still the judge's to see.
+    expect(JSON.stringify(call.prompt)).toContain("Everything else the brief asks for is yours to judge");
 
     const run = await runAgent({
       runId: "t",

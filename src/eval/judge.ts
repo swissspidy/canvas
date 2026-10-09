@@ -21,6 +21,7 @@ import { generateObject, NoObjectGeneratedError, type LanguageModel, type ModelM
 import { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import { rasterize } from "../render/raster.js";
+import { fitPixelWidth } from "../render/rasterizer.js";
 import {
   costUsd,
   getModel,
@@ -58,7 +59,9 @@ const zCriterionScore = z.object({
 
 const zDefect = z.object({
   severity: z.enum(["major", "minor"]).describe("major: a reader would notice it or it breaks the brief. minor: a designer would fix it."),
-  what: z.string().max(300).describe("What is wrong and where, in one sentence."),
+  // No length cap: a cap the model overruns rejects the whole judgement, and
+  // the specific, located defects this prompt asks for run long.
+  what: z.string().describe("What is wrong and where, in one sentence."),
 });
 
 /*
@@ -121,6 +124,10 @@ export const JUDGE_SYSTEM = [
   "composition that leaves the canvas empty or crowded. Mark each major or minor. Look hard: a competent",
   "page usually still has a few minor ones, and an empty list is a claim that nothing should change.",
   "",
+  "What the brief requires is never a defect. If it asks for each headline to be set as large as it fits,",
+  "headlines of different sizes are the brief's choice, not the designer's. Judge how well the brief was",
+  "carried out, not the brief.",
+  "",
   "Then score, consistently with the defects you listed:",
   "  5 — you would ship it unchanged. No defects, or only the most marginal.",
   "  4 — ready after one or two minor fixes.",
@@ -156,6 +163,37 @@ function imagePart(doc: Doc) {
   };
 }
 
+/**
+ * What the judge must be told about the images it is shown.
+ *
+ * The screenshot is scaled to `JUDGE_SCREENSHOT_WIDTH`, and the brief speaks in
+ * canvas units. Untold, a judge reads pixel positions off a 768-pixel image and
+ * compares them with a 1080-unit brief: it reported a column "at x≈43 rather
+ * than the briefed x=60" on a page where the column sat exactly at 60, which is
+ * 43 pixels at that scale. Measurement is the deterministic checks' job anyway,
+ * so the judge is told both the scale and that positions and sizes are already
+ * checked — only those: a count or anything else the brief states is still the
+ * judge's to see.
+ *
+ * The width is the one the rasterizer actually delivers, which is narrower than
+ * `JUDGE_SCREENSHOT_WIDTH` for a canvas tall enough to hit its pixel cap.
+ */
+export function scaleOf(doc: Doc): string {
+  const shown = fitPixelWidth(doc, JUDGE_SCREENSHOT_WIDTH);
+  return (
+    `The canvas is ${doc.width} x ${doc.height} units, shown ${shown} pixels wide: ` +
+    `one pixel is about ${(doc.width / shown).toFixed(2)} units.`
+  );
+}
+
+export const MEASURE_NOTE =
+  "Positions and sizes the brief gives in canvas units have already been checked exactly by measurement; do not " +
+  "try to measure them from the image, and do not report one as off. Everything else the brief asks for is yours to judge.";
+
+export function scaleNote(doc: Doc): string {
+  return `${scaleOf(doc)} ${MEASURE_NOTE}`;
+}
+
 function textPart(text: string) {
   return { type: "text" as const, text };
 }
@@ -164,7 +202,9 @@ export async function judgeRun(input: JudgeRunInput): Promise<JudgeResult> {
   const model = input.model ?? DEFAULT_JUDGE_MODEL;
   const spec = getModel(model);
 
-  const content: JudgeContent = [textPart(`# Brief given to the designer\n\n${input.brief}`)];
+  const content: JudgeContent = [
+    textPart(`# Brief given to the designer\n\n${input.brief}\n\n${scaleNote(input.finalDoc)}`),
+  ];
 
   const startedFromLayout = (input.initialDoc?.elements.length ?? 0) > 0;
   if (startedFromLayout && input.initialDoc) {

@@ -758,6 +758,54 @@ Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
 $0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
+**2026-10-08 (second entry) — the five-turn budget on Opus 5.5, and two judge
+fixes found by reading its judgements.** The pilot was run under the previous
+entry; the judge fixes were made *after* reading its judgements, which is the
+order this entry has to be read in.
+
+*Pilot.* Opus 5.5, effort `high`, the measurement family, three surfaces,
+`none` and `both`, one repeat, `--turn-budget 5`, judged by Sonnet 5.5: 24
+runs, $12.52. Every run passed (24 of 24) and none spent the budget: median 3
+turns and 76 calls, $0.51 a run. Read off the trajectories, 9 of 24 had passed
+within one turn, 17 within two and all 24 within three. A stated budget of
+five turns does not bite on the confirmatory model; the pass rate within one
+and two turns does separate runs, and needs no budget to read. No per-surface
+or per-feedback figure was computed.
+
+*Judge fix 1: no length cap on a defect.* 3 of the 24 judgements failed to
+parse ("response did not match schema"). The defect field was capped at 300
+characters, and the located, specific defects the prompt asks for run longer;
+a cap the model overruns discards the whole judgement. The cap is removed.
+
+*Judge fix 2: the image's scale, and no measuring.* The judgements faulted
+pages for numbers they had right: "columns at x≈43 and x≈398 rather than the
+briefed x=60 and x=560" on a page whose columns sat exactly at 60 and 560 —
+43 and 398 pixels on the 768-pixel screenshot of a 1080-unit canvas. Neither
+judge was told the image is scaled. Both are now told the canvas size, the
+scale, and that every number the brief states has already been checked
+exactly, so they do not measure from the image; measurement was never the
+judge's job (§3). The prompt also says that what the brief requires is never
+a defect.
+
+*Narrowed in review, after the re-judge below.* "Every number the brief
+states" claimed more than the checks cover: positions and sizes in canvas
+units are measured, but a count, say, need not be, and that wording told the
+judge not to report one. The judges are now told only that positions and
+sizes are checked, and that everything else the brief asks for is theirs to
+judge. The stated scale also now uses the width the rasterizer delivers,
+which is narrower for a canvas tall enough to hit its pixel cap (none of
+these tasks is), and the pairwise judge states it beside each image. The
+re-judge figures below were made with the broader wording; no page in it is
+affected by a count or by the pixel cap.
+
+Re-judged with the same pages and the same model after both fixes: no
+judgement failed, the mean criteria score went from 0.58 to 0.68, and no
+defect cites a coordinate. What remains is design critique of pages that pass
+every check — an empty band under the content, headline sizes that vary from
+entry to entry — which is the judgement the deterministic checks cannot make.
+Both fixes change the judge's prompt, and the human-rated subset of §9 has not
+yet validated it; until it has, judge scores are exploratory.
+
 **2026-10-07 — the canvas background, which two surfaces could not reach.**
 Written *after* runs against a real model, and found by reading them, which
 is the order this entry has to be read in.

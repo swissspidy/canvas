@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import { rasterize } from "../render/raster.js";
 import { costUsd, getModel, MAX_RETRIES, resolveLanguageModel, tokenUsage, ZERO_USAGE, addUsage, type TokenUsage } from "../agent/models.js";
-import { DEFAULT_JUDGE_MODEL, JUDGE_SCREENSHOT_WIDTH } from "./judge.js";
+import { DEFAULT_JUDGE_MODEL, JUDGE_SCREENSHOT_WIDTH, MEASURE_NOTE, scaleOf } from "./judge.js";
 
 export const PAIRWISE_SYSTEM = [
   "You are comparing two finished visual documents made from the same brief.",
@@ -78,12 +78,14 @@ function image(doc: Doc) {
 }
 
 function content(input: PairInput, first: Doc, second: Doc): Content {
-  const parts: Content = [{ type: "text", text: `# Brief\n\n${input.brief}` }];
+  // Each image carries its own scale. Pages of one task share a canvas, but
+  // nothing here should rely on it.
+  const parts: Content = [{ type: "text", text: `# Brief\n\n${input.brief}\n\n${MEASURE_NOTE}` }];
   if ((input.initialDoc?.elements.length ?? 0) > 0 && input.initialDoc) {
-    parts.push({ type: "text", text: "\n# Starting layout" }, image(input.initialDoc));
+    parts.push({ type: "text", text: `\n# Starting layout\n${scaleOf(input.initialDoc)}` }, image(input.initialDoc));
   }
-  parts.push({ type: "text", text: "\n# First" }, image(first));
-  parts.push({ type: "text", text: "\n# Second" }, image(second));
+  parts.push({ type: "text", text: `\n# First\n${scaleOf(first)}` }, image(first));
+  parts.push({ type: "text", text: `\n# Second\n${scaleOf(second)}` }, image(second));
   parts.push({ type: "text", text: "\nWhich is the better design for this brief?" });
   return parts;
 }
