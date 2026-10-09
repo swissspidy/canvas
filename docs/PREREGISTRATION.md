@@ -782,6 +782,19 @@ fresh runs only; no pilot run enters this analysis.
   that only relational has. Opus 5.5 is not part of this test: its cost
   difference stays exploratory.
 
+*Result.* 144 runs, $13.51, no harness failures, nothing else read first.
+
+| Model | Passes: relational · coordinate · document | C1, relational minus coordinate · minus document | C2, relational's cost per pass over coordinate's · document's |
+|---|---|---|---|
+| GPT-5.6 Luna | 22/24 · 5/24 · 0/24 | +0.71 [0.67, 0.79] · +0.92 [0.83, 1.00] | 0.14 [0.11, 0.17] · 0.05 [0.03, 0.07] |
+| GPT-5.6 Terra | 22/24 · 4/24 · 2/24 | +0.75 [0.67, 0.83] · +0.83 [0.71, 0.96] | 0.16 [0.11, 0.20] · 0.13 [0.09, 0.19] |
+
+C1 and C2 hold for both models: the effect is confirmed, on these four tasks.
+Relational's cost per pass was $0.018 (Luna) and $0.17 (Terra), against
+$0.13 and $1.05 on coordinate and $0.37 and $1.31 on document-as-code. (C2's
+intervals are the reciprocals of the report's coordinate-over-relational and
+document-over-relational ratios.)
+
 **2026-10-09 (second entry) — unblinding the pilots, instead of running the
 grid now.** Written before any per-surface or per-feedback figure is computed.
 
