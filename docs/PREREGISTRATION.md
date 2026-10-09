@@ -758,6 +758,30 @@ Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
 $0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
+**2026-10-09 (third entry) — a confirmation of the one effect the pilots
+show.** Written before any run it describes.
+
+The unblinded pilots (next entry) show one large effect: on models that do not
+saturate the measurement family, the relational surface passes and the other
+two do not. That came from one repeat on pilot data. It is tested here on
+fresh runs only; no pilot run enters this analysis.
+
+- *Design.* The four measurement tasks; surfaces `coordinate`, `relational`,
+  `document`; feedback `none` and `both`; GPT-5.6 Luna and GPT-5.6 Terra at
+  effort `high`; no turn budget; three repeats; no judge, since the judge is
+  no part of either outcome. 144 runs, about $14.
+- *C1.* For each model, relational's pass rate is higher than coordinate's and
+  than document-as-code's, paired within task: the mean within-task
+  difference, with the task-clustered bootstrap of §4, excludes zero.
+- *C2.* For each model, relational's cost per pass (§13, eighth entry) is at
+  most 0.85 times coordinate's and document-as-code's, the paired ratio's
+  interval excluding 1.
+- *Reading it.* Both hold, or the effect is not confirmed for that model. Four
+  tasks is a thin basis for a task-clustered interval; a result that holds is
+  a result about these four tasks, which share one operation (`fit_text`)
+  that only relational has. Opus 5.5 is not part of this test: its cost
+  difference stays exploratory.
+
 **2026-10-09 (second entry) — unblinding the pilots, instead of running the
 grid now.** Written before any per-surface or per-feedback figure is computed.
 
