@@ -758,6 +758,42 @@ Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
 $0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
+**2026-10-09 — prototyping animation: three tasks, outside every grid.** An
+exploration like the shapes prototypes of the 2026-10-07 (fifth) entry,
+recorded because its runs are pilots and because it changes one thing every
+task sends.
+
+Elements can now carry one entrance animation, fade or fly, with a delay and
+a duration. An element's stored geometry and style stay its resting state, so
+every static check scores the last frame unchanged. Motion checks sample
+frames: stated timing, a fly that starts entirely off the canvas, one element
+staying inside another, rest by a deadline, and no text covered at any moment,
+counting ink on the canvas only. Coordinate gets `set_animation`, which takes
+every number; relational gets `animate`, which can start one animation after
+or with another and fly from 'offscreen'; document-as-code writes the field.
+Those tools are attached only to tasks marked `motion`, so no other task's
+tool list changes. One change does reach every task: `write_document`'s schema
+gains the optional `animation` field. Nothing else in any request moves.
+
+Three prototype tasks, each kept out of `TASKS`, each with a reference
+solution at full marks and a starting page below 0.9:
+
+- `anim.launch` leaves the side each element flies in from to the agent, and
+  the layout makes half the sides cover text mid-flight.
+- `anim.market` fixes the sides and leaves the start times, with a deadline;
+  the natural order covers the blurbs with the card and the button's label
+  with the footer, and runs late.
+- `anim.cards` drops five cards from the top in an order of the agent's
+  choosing; reading order covers each landed card's title with the next.
+
+Pilots on Opus 5.5, three surfaces, `none` and `both`, one repeat, pooled:
+`anim.launch` 6 of 6 ($0.80), choosing left for both elements every time;
+`anim.market` 6 of 6 and `anim.cards` 6 of 6 ($2.31 together), choosing a
+working schedule every time and the bottom-first order in all six card runs.
+Four of six runs of each of the last two passed within the first turn; the
+rest within six. The strongest model plans motion it cannot see as reliably
+as it computes geometry. No per-surface or per-feedback figure was computed.
+
 **2026-10-08 (second entry) — the five-turn budget on Opus 5.5, and two judge
 fixes found by reading its judgements.** The pilot was run under the previous
 entry; the judge fixes were made *after* reading its judgements, which is the
