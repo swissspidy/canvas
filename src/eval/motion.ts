@@ -154,3 +154,35 @@ export function atRestBy(ms: number, weight = 1): Check {
     return { score: Math.max(0, 1 - (end - ms) / 1000), detail: `Still moving until ${end}ms.` };
   });
 }
+
+/**
+ * Animations that start a fixed gap apart. `order: "given"` holds them to the
+ * order of `ids` (the blurbs fade in top to bottom); `order: "any"` lets the
+ * agent choose which goes when and checks only that the starts form an even
+ * ladder, from `first` if that is stated. Graded on the share of gaps that
+ * are right, plus the first start when one is set; `tolerance` in ms.
+ */
+export function staggered(
+  ids: string[],
+  gap: number,
+  opts: { order: "given" | "any"; first?: number },
+  weight = 1,
+  label?: string,
+  tolerance = 10,
+): Check {
+  return check("staggered", label ?? `${ids.join(", ")} start ${gap}ms apart`, weight, (doc) => {
+    const delays = ids.map((id) => doc.elements.find((e) => e.id === id)?.animation?.delay);
+    if (delays.some((d) => d === undefined)) {
+      return { score: 0, detail: `Not animated: ${ids.filter((_, i) => delays[i] === undefined).join(", ")}` };
+    }
+    const starts = opts.order === "any" ? [...(delays as number[])].sort((a, b) => a - b) : (delays as number[]);
+    const tests: boolean[] = [];
+    for (let i = 1; i < starts.length; i++) tests.push(Math.abs(starts[i]! - starts[i - 1]! - gap) <= tolerance);
+    if (opts.first !== undefined) tests.push(Math.abs(starts[0]! - opts.first) <= tolerance);
+    const ok = tests.filter(Boolean).length;
+    return {
+      score: ok / tests.length,
+      detail: ok === tests.length ? "Evenly staggered." : `Starts at ${starts.join(", ")}ms.`,
+    };
+  });
+}
