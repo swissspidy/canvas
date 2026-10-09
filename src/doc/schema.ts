@@ -9,9 +9,9 @@
  */
 
 import { z } from "zod";
-import { ELEMENT_TYPES, FONT_WEIGHTS, H_ALIGNS, OBJECT_FITS,
+import { ANIMATION_EFFECTS, ELEMENT_TYPES, FLY_SIDES, FONT_WEIGHTS, H_ALIGNS, OBJECT_FITS,
   SHAPES, V_ALIGNS } from "./types.js";
-import type { Doc, Element } from "./types.js";
+import type { Animation, Doc, Element } from "./types.js";
 import { ASSET_KEYS } from "./assets.js";
 import { round } from "./geometry.js";
 
@@ -133,6 +133,16 @@ export const zStylePatch = z.strictObject(
   ) as { [K in keyof typeof zStyle.shape]: z.ZodNullable<(typeof zStyle.shape)[K]> },
 );
 
+export const zAnimation = z
+  .strictObject({
+    effect: z.enum(ANIMATION_EFFECTS).describe("fade: opacity rises from 0. fly: travels in a straight line to its place."),
+    delay: z.number().min(0).max(60000).describe("Milliseconds from the moment the page opens to the start."),
+    duration: z.number().min(1).max(60000).describe("Milliseconds the animation takes. Linear."),
+    from: z.enum(FLY_SIDES).optional().describe("fly only: the side it comes in from."),
+    distance: z.number().min(0).max(20000).optional().describe("fly only: how far it travels, in canvas units."),
+  })
+  .describe("An entrance animation. The element's x, y and style are where it comes to rest.");
+
 export const zElement = z
   .strictObject({
     id: z.string().min(1).max(64).describe("Unique element id."),
@@ -147,6 +157,7 @@ export const zElement = z
     src: z.string().optional().describe(`Asset key (image elements). One of: ${ASSET_KEYS.join(", ")}`),
     alt: z.string().max(300).optional(),
     style: zStyle.default({}),
+    animation: zAnimation.optional(),
   })
   .describe("A single absolutely-positioned element.");
 
@@ -204,6 +215,7 @@ export function semanticIssues(doc: Doc): string[] {
     if (el.type !== "image" && el.src !== undefined) {
       issues.push(`${el.id}: only image elements may set 'src'`);
     }
+    issues.push(...animationIssues(el.id, el.animation));
   }
   return issues;
 }
@@ -238,7 +250,19 @@ export function normalizeElement(el: Element): Element {
   if (el.text !== undefined) out.text = el.text;
   if (el.src !== undefined) out.src = el.src;
   if (el.alt !== undefined) out.alt = el.alt;
+  if (el.animation !== undefined) out.animation = { ...el.animation };
   return out;
+}
+
+/** What an animation's schema cannot say: which fields go with which effect. */
+export function animationIssues(id: string, a: Animation | undefined): string[] {
+  if (!a) return [];
+  if (a.effect === "fly") {
+    const missing = [a.from === undefined ? "from" : "", a.distance === undefined ? "distance" : ""].filter(Boolean);
+    return missing.length ? [`${id}: a fly animation needs ${missing.join(" and ")}`] : [];
+  }
+  const stray = [a.from !== undefined ? "from" : "", a.distance !== undefined ? "distance" : ""].filter(Boolean);
+  return stray.length ? [`${id}: only a fly animation takes ${stray.join(" and ")}`] : [];
 }
 
 /** Map any angle into (-180, 180]. */

@@ -758,6 +758,153 @@ Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
 $0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
+**2026-10-09 (third entry) — a confirmation of the one effect the pilots
+show.** Written before any run it describes.
+
+The unblinded pilots (next entry) show one large effect: on models that do not
+saturate the measurement family, the relational surface passes and the other
+two do not. That came from one repeat on pilot data. It is tested here on
+fresh runs only; no pilot run enters this analysis.
+
+- *Design.* The four measurement tasks; surfaces `coordinate`, `relational`,
+  `document`; feedback `none` and `both`; GPT-5.6 Luna and GPT-5.6 Terra at
+  effort `high`; no turn budget; three repeats; no judge, since the judge is
+  no part of either outcome. 144 runs, about $14.
+- *C1.* For each model, relational's pass rate is higher than coordinate's and
+  than document-as-code's, paired within task: the mean within-task
+  difference, with the task-clustered bootstrap of §4, excludes zero.
+- *C2.* For each model, relational's cost per pass (§13, eighth entry) is at
+  most 0.85 times coordinate's and document-as-code's, the paired ratio's
+  interval excluding 1.
+- *Reading it.* Both hold, or the effect is not confirmed for that model. Four
+  tasks is a thin basis for a task-clustered interval; a result that holds is
+  a result about these four tasks, which share one operation (`fit_text`)
+  that only relational has. Opus 5.5 is not part of this test: its cost
+  difference stays exploratory.
+
+*Result.* 144 runs, $13.51, no harness failures, nothing else read first.
+
+| Model | Passes: relational · coordinate · document | C1, relational minus coordinate · minus document | C2, relational's cost per pass over coordinate's · document's |
+|---|---|---|---|
+| GPT-5.6 Luna | 22/24 · 5/24 · 0/24 | +0.71 [0.67, 0.79] · +0.92 [0.83, 1.00] | 0.14 [0.11, 0.17] · 0.05 [0.03, 0.07] |
+| GPT-5.6 Terra | 22/24 · 4/24 · 2/24 | +0.75 [0.67, 0.83] · +0.83 [0.71, 0.96] | 0.16 [0.11, 0.20] · 0.13 [0.09, 0.19] |
+
+C1 and C2 hold for both models: the effect is confirmed, on these four tasks.
+Relational's cost per pass was $0.018 (Luna) and $0.17 (Terra), against
+$0.13 and $1.05 on coordinate and $0.37 and $1.31 on document-as-code. (C2's
+intervals are the reciprocals of the report's coordinate-over-relational and
+document-over-relational ratios.)
+
+**2026-10-09 (second entry) — unblinding the pilots, instead of running the
+grid now.** Written before any per-surface or per-feedback figure is computed.
+
+Every pilot so far read only pooled and per-model figures. With pass rates at
+the ceiling on every task set built, the author chose not to spend about $205
+to $305 on the confirmatory grid (§10, previous entry) before knowing whether
+the surfaces or the feedback conditions differ in cost at all. The pilots
+already paid for are unblinded instead, as an exploratory analysis under §11:
+
+- *What is read.* The Opus 5.5 pilots without a turn budget: the `fit` pricing
+  pilot (30 runs), the four-family pricing pilot (71 runs that finished), and
+  the three animation prototypes (18 runs), all at effort `high`; separately,
+  the five-turn-budget measurement pilot (24 runs), and the GPT-5.6 Luna and
+  Terra measurement pilots with and without a budget (96 runs).
+- *What is computed.* By surface and by feedback condition: pass rate, cost
+  per pass and calls per pass as §13's eighth entry defines them, compared as
+  paired within-task ratios with the task-clustered bootstrap of §4, and the
+  share of runs passing within one and within two turns.
+- *How it is reported.* As exploratory throughout: one repeat a cell, a
+  handful of tasks per family, surfaces and feedback crossed unevenly, and
+  tasks chosen to price the grid rather than to test the hypotheses. Nothing
+  read here confirms or refutes H1 to H5.
+- *What stays fixed.* The confirmatory grid, its outcomes, its hypotheses and
+  its decision rules are unchanged. If it is run later it is run as written,
+  and its report states that these pilots were read first.
+
+*What the pilots show, exploratory throughout.*
+
+On the measurement family the surface decided the outcome on every model
+that does not saturate it. Without a turn budget, GPT-5.6 Luna and Terra
+passed 15 of 16 runs on relational, 0 of 16 on coordinate and 2 of 16 on
+document-as-code; relational's cost per pass was 4.4 times lower than either
+(paired within task, intervals 3.4–5.6, resolved). Every relational run used
+`fit_text`, which sets text as large as it goes on a stated number of lines
+and is the one operation of the three surfaces that measures type for the
+agent. Under the five-turn budget the advantage shrank (relational 4 of 16
+passes, improvement 41% and 61%): relational is the surface that takes the
+most turns, and a budget on turns spends it first.
+
+On Opus 5.5, which saturates everything, every surface passed every
+measurement run under the five-turn budget, and relational was the cheapest
+per pass: coordinate cost 1.39 times as much (interval 1.15–1.66, resolved,
+over the 15% line), document-as-code 1.18 times (not resolved). Across the
+twelve other tasks piloted on Opus 5.5 without a budget (119 runs, one repeat,
+five families and the animation prototypes) no surface was resolved cheaper
+than another in dollars (ratios 0.99 to 1.15, every interval spanning 1);
+document-as-code needed about a quarter of the calls of the other two
+(resolved) at the same dollar cost, and relational took the most turns (5.1
+against 3.0 and 3.2) and the most tokens, recovered by caching. Relational
+passed every run, coordinate 97.5% and document-as-code 92.3%. No feedback
+contrast in cost was over the 15% line; passing was where feedback showed —
+88.9% of runs passed with no feedback against 100% with any.
+
+Read against the hypotheses, and only as direction: H1 (relational cheaper
+than coordinate) holds where the task needs measurement and fades where it
+does not; H3 (document-as-code fewest calls, similar dollars) holds; H2 and
+H4 cannot be read at this sample size.
+
+**2026-10-09 — prototyping animation: three tasks, outside every grid.** An
+exploration like the shapes prototypes of the 2026-10-07 (fifth) entry,
+recorded because its runs are pilots and because it changes one thing every
+task sends.
+
+Elements can now carry one entrance animation, fade or fly, with a delay and
+a duration. An element's stored geometry and style stay its resting state, so
+every static check scores the last frame unchanged. Motion checks sample
+frames: stated timing, a fly that starts entirely off the canvas, one element
+staying inside another, rest by a deadline, and no text covered at any moment,
+counting ink on the canvas only. Coordinate gets `set_animation`, which takes
+every number; relational gets `animate`, which can start one animation after
+or with another and fly from 'offscreen'; document-as-code writes the field.
+Those tools are attached only to tasks marked `motion`, so no other task's
+tool list changes. One change does reach every task: `write_document`'s schema
+gains the optional `animation` field. Nothing else in any request moves.
+
+Three prototype tasks, each kept out of `TASKS`, each with a reference
+solution at full marks and a starting page below 0.9:
+
+- `anim.launch` leaves the side each element flies in from to the agent, and
+  the layout makes half the sides cover text mid-flight.
+- `anim.market` fixes the sides and leaves the start times, with a deadline;
+  the natural order covers the blurbs with the card and the button's label
+  with the footer, and runs late.
+- `anim.cards` drops five cards from the top in an order of the agent's
+  choosing; reading order covers each landed card's title with the next.
+
+Pilots on Opus 5.5, three surfaces, `none` and `both`, one repeat, pooled:
+`anim.launch` 6 of 6 ($0.80), choosing left for both elements every time;
+`anim.market` 6 of 6 and `anim.cards` 6 of 6 ($2.31 together), choosing a
+working schedule every time and the bottom-first order in all six card runs.
+Four of six runs of each of the last two passed within the first turn; the
+rest within six. The strongest model plans motion it cannot see as reliably
+as it computes geometry. No per-surface or per-feedback figure was computed.
+
+*Weaker models, same three tasks and conditions.* Sonnet 5.5 passed 18 of 18
+($1.30) and GPT-5.6 Luna 18 of 18 ($0.28). Motion does not open a gap between
+models either: as built, these tasks separate nothing on any model tried, and
+they stay prototypes.
+
+*Pricing the grid, under §10.* The `fit` family on Opus 5.5, three surfaces,
+`none` and `both`, one repeat, judged: 30 runs, $4.09, $0.14 a run with the
+judge, 28 passing. Kept out of every grid. A second pilot priced the families
+the first did not: one task each from compose, repair, restyle and arrange,
+three surfaces, all six feedback conditions, one repeat — 72 runs, $11.80,
+$0.12 to $0.27 a run with the judge, the full feedback mix 5% dearer than
+`none` and `both` alone. One run ended in `api_error` when the key ran out of
+credit. Weighted by family, the grid prices at about $305 at three repeats
+(1,458 runs) and $205 at two (972), the measurement family a little under
+half of either.
+
 **2026-10-08 (second entry) — the five-turn budget on Opus 5.5, and two judge
 fixes found by reading its judgements.** The pilot was run under the previous
 entry; the judge fixes were made *after* reading its judgements, which is the

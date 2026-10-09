@@ -32,6 +32,12 @@ export interface Task {
   judgeCriteria: string[];
   /** Turn budget. Generous by default; exceeding it ends the run as incomplete. */
   maxTurns: number;
+  /**
+   * The task animates, so each surface gets its animation tool
+   * (`withMotion`). Unset everywhere else, so a task that never animates sends
+   * exactly the tool list it always has.
+   */
+  motion?: boolean;
 }
 
 export function defineTask(task: Task): Task {

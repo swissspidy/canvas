@@ -499,7 +499,66 @@ function radial(id: string, cx: number, cy: number, r: number, deg: number, w: n
   return shape(id, { x: cx + Math.sin(a) * r - w / 2, y: cy - Math.cos(a) * r - h / 2, w, h }, style, deg, z);
 }
 
+/** The task's own page, with these animations added. */
+function animated(id: string, animations: Record<string, Element["animation"]>): Doc {
+  const d = getTask(id).initial();
+  return { ...d, elements: d.elements.map((el) => (animations[el.id] ? { ...el, animation: animations[el.id] } : el)) };
+}
+
 export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
+  // The natural order — headline, blurbs, card, button, footer — fails twice
+  // and misses the deadline: the card swings in from the left across the
+  // blurbs, and the button rises through the footer's row. So the card comes
+  // first, alongside the headline, and the blurbs fade in once it has landed;
+  // the button rises at once, and the footer fades in after it has passed.
+  // Everything is at rest at 1100ms. Both cards travel 1000, the card's own
+  // offscreen distance; the caption starts off the canvas at that distance too.
+  "anim.market": () =>
+    animated("anim.market", {
+      headline: { effect: "fly", from: "left", distance: 1000, delay: 0, duration: 600 },
+      card: { effect: "fly", from: "left", distance: 1000, delay: 0, duration: 500 },
+      card_caption: { effect: "fly", from: "left", distance: 1000, delay: 0, duration: 500 },
+      b1: { effect: "fade", delay: 500, duration: 300 },
+      b2: { effect: "fade", delay: 650, duration: 300 },
+      b3: { effect: "fade", delay: 800, duration: 300 },
+      cta: { effect: "fly", from: "bottom", distance: 260, delay: 0, duration: 500 },
+      cta_label: { effect: "fly", from: "bottom", distance: 260, delay: 0, duration: 500 },
+      footer: { effect: "fade", delay: 500, duration: 300 },
+    }),
+
+  // Bottom card first. Dropping from the top, every card passes the rows of
+  // the cards above it, so a card that has already landed up there would be
+  // crossed by each one that follows: reading order is exactly wrong. The
+  // heading fades in once the last card (card1) has dropped past its row.
+  "anim.cards": () =>
+    animated(
+      "anim.cards",
+      Object.fromEntries([
+        ...[0, 1, 2, 3, 4].flatMap((i): [string, Element["animation"]][] => {
+          const fly = { effect: "fly" as const, from: "top" as const, distance: 200 + i * 215 + 180, delay: (4 - i) * 120, duration: 400 };
+          return [[`card${i + 1}`, fly], [`title${i + 1}`, fly]];
+        }),
+        ["heading", { effect: "fade" as const, delay: 880, duration: 300 }],
+      ]),
+    ),
+
+  // The headline comes from the left and the button from the left. From the
+  // right the headline would pass under the badge, and from below it, like
+  // the button's label, would pass under the footer, which is there from the
+  // start and painted above everything; a button from the top would cross the
+  // headline and the feature lines. Distances are exactly what starts each
+  // one off the canvas: the headline's right edge is at 840, the button's at 540.
+  "anim.launch": () =>
+    animated("anim.launch", {
+      headline: { effect: "fly", from: "left", distance: 840, delay: 0, duration: 600 },
+      f1: { effect: "fade", delay: 600, duration: 300 },
+      f2: { effect: "fade", delay: 750, duration: 300 },
+      f3: { effect: "fade", delay: 900, duration: 300 },
+      f4: { effect: "fade", delay: 1050, duration: 300 },
+      cta: { effect: "fly", from: "left", distance: 540, delay: 1550, duration: 450 },
+      cta_label: { effect: "fly", from: "left", distance: 540, delay: 1550, duration: 450 },
+    }),
+
   "proto.sunburst": () => {
     const rays = Array.from({ length: 12 }, (_, i) => radial(`ray_${i}`, 540, 480, 240 + 24 + 75, i * 30, 36, 150, { fill: "#ffd166" }, 1));
     // The ray at 180 degrees reaches 480 + 264 + 150 = 894.
