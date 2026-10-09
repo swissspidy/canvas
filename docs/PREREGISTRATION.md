@@ -758,6 +758,32 @@ Spend: $6.64 and $5.28 on the two sweeps, $0.75 on the comparison, and
 $0.18 on four withdrawn call-budget runs. No per-surface or per-feedback
 figure was computed.
 
+**2026-10-09 (second entry) — unblinding the pilots, instead of running the
+grid now.** Written before any per-surface or per-feedback figure is computed.
+
+Every pilot so far read only pooled and per-model figures. With pass rates at
+the ceiling on every task set built, the author chose not to spend about $205
+to $305 on the confirmatory grid (§10, previous entry) before knowing whether
+the surfaces or the feedback conditions differ in cost at all. The pilots
+already paid for are unblinded instead, as an exploratory analysis under §11:
+
+- *What is read.* The Opus 5.5 pilots without a turn budget: the `fit` pricing
+  pilot (30 runs), the four-family pricing pilot (71 runs that finished), and
+  the three animation prototypes (18 runs), all at effort `high`; separately,
+  the five-turn-budget measurement pilot (24 runs), and the GPT-5.6 Luna and
+  Terra measurement pilots with and without a budget (96 runs).
+- *What is computed.* By surface and by feedback condition: pass rate, cost
+  per pass and calls per pass as §13's eighth entry defines them, compared as
+  paired within-task ratios with the task-clustered bootstrap of §4, and the
+  share of runs passing within one and within two turns.
+- *How it is reported.* As exploratory throughout: one repeat a cell, a
+  handful of tasks per family, surfaces and feedback crossed unevenly, and
+  tasks chosen to price the grid rather than to test the hypotheses. Nothing
+  read here confirms or refutes H1 to H5.
+- *What stays fixed.* The confirmatory grid, its outcomes, its hypotheses and
+  its decision rules are unchanged. If it is run later it is run as written,
+  and its report states that these pilots were read first.
+
 **2026-10-09 — prototyping animation: three tasks, outside every grid.** An
 exploration like the shapes prototypes of the 2026-10-07 (fifth) entry,
 recorded because its runs are pilots and because it changes one thing every
