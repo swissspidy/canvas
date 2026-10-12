@@ -26,7 +26,7 @@
     "@ai-sdk/xai": "^5.0.14",
     "@ai-sdk/zai": "^3.0.24",
     "@resvg/resvg-js": "^2.6.2",
-    "ai": "^7.0.127",
+    "ai": "^7.0.136",
     "zod": "^4.6.5"
   },
   "devDependencies": {
