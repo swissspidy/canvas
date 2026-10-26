@@ -19,12 +19,12 @@
     "e2e:webmcp": "node scripts/build-web.mjs && tsx scripts/e2e-webmcp.mjs"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.81",
-    "@ai-sdk/google": "^4.0.98",
-    "@ai-sdk/openai": "^4.0.95",
-    "@ai-sdk/togetherai": "^3.0.71",
-    "@ai-sdk/xai": "^5.0.23",
-    "@ai-sdk/zai": "^3.0.32",
+    "@ai-sdk/anthropic": "^4.0.87",
+    "@ai-sdk/google": "^4.0.104",
+    "@ai-sdk/openai": "^4.0.101",
+    "@ai-sdk/togetherai": "^3.0.78",
+    "@ai-sdk/xai": "^5.0.29",
+    "@ai-sdk/zai": "^3.0.39",
     "@resvg/resvg-js": "^2.6.2",
     "ai": "^7.0.142",
     "zod": "^4.6.7"
