@@ -566,6 +566,48 @@ answer by luck, and it is not needed once the reward is gone.
 
 ---
 
+## Drawing: paths
+
+Three rounds of harder layout tasks ended the same way: a strong model does
+exact box arithmetic exactly. So the model grew the one thing a layout tool
+does not have and a painting app does — a line drawn through points.
+
+A `path` is open or closed, runs straight between its points or curves
+smoothly through them, and is stroked, filled, dashed or tipped with
+arrowheads. Two rules keep it from needing a special case anywhere else.
+
+**The box is the bounding box of the points.** Every other element is a box
+with something stretched to fill it, and a path is too. Move or resize the
+element and its points go with it; give only points and the box is derived.
+So `move`, `place`, `align`, rotation, and every check that reads a box work
+on a path without knowing it is one — and document-as-code may leave the four
+box numbers out rather than compute a minimum and a maximum the document
+already implies.
+
+**What is painted is the flattened outline, exactly.** A smooth path is a
+Catmull-Rom spline turned into short segments once, in `src/doc/path.ts`, and
+the renderer draws those segments rather than asking SVG for a curve. The
+geometry the checks measure and the pixels the agent is shown cannot disagree,
+which is the bargain `textLength` strikes for type.
+
+**Area is compared by mask, not by construction.** A pie slice traced with
+sixty points and one drawn as a smooth curve through seven are the same slice
+if they cover the same paper, so `regionCovers` samples both regions on one
+grid and scores intersection over union. A check that asked *how* a region was
+drawn would be grading the vocabulary, which is the variable.
+
+**The drawing tools are attached only to tasks that draw**, as the animation
+tools are to tasks that animate. Coordinate's `draw` takes every point as two
+numbers. Relational's `draw` takes every point as a place on something — "the
+right edge of el_3, 20 further down" — and `connect` works a whole line out:
+where it leaves one shape's outline and meets another's, and, asked to, the
+shortest square-cornered way round whatever stands between them. That router
+is the `fit_text` of this family: a thing the agent would otherwise have to
+work out blind. `paint.test.ts` proves all three surfaces reach the same path,
+and that the relational tools alone can finish the maze, the board and the
+flowchart — a route the reference cannot find would be a brief asking for
+something the surface's own tool cannot do.
+
 ## Things that are approximations, stated plainly
 
 - **Contrast backdrop**, as above.
@@ -596,13 +638,11 @@ answer by luck, and it is not needed once the reward is gone.
   across the lower third crowds no edge, but it does fill that third.
 - **Asset average colour** for contrast against an image is the midpoint of its
   two gradient stops.
-- **Contrast ignores element opacity.** `minContrast` reads `style.color`
-  against the backdrop, so text at `opacity: 0.1` is scored as though it were
-  fully painted. Only fully invisible text is excluded, by the rule above.
-  Doing it properly means compositing the glyph colour with the backdrop at the
-  element's opacity, which would also change the score of every legitimately
-  translucent caption — a bigger change than the failure justifies, since
-  nothing in the task set asks for faint type.
+- **A path's pieces overlap at its joints.** A stroke is one quad per segment
+  and a fill is triangulated, because everything downstream clips convex
+  shapes. Where two segments meet, their quads share a wedge, so a path's
+  area is counted slightly over at each corner, and a round join is squared
+  off. A dashed line is measured as a solid one.
 - **Glyph ink** is the bounding box of a line's glyphs, read from `glyf`, not
   the outlines themselves — the counters and the gaps between letters count as
   ink. Tight enough that a rule passing through the blank band under a line of

@@ -651,3 +651,34 @@ describe("transcripts", () => {
     expect(json.length).toBeLessThan(200_000);
   });
 });
+
+describe("answering a call the SDK has already answered", () => {
+  // A call to a tool that is not in the set is marked invalid by the SDK,
+  // which writes its own `tool` message for it. The loop answers every call
+  // itself, so that message has to be left out — or the next request carries
+  // two results for one call id.
+  it("sends exactly one result for a call to a tool that does not exist", async () => {
+    const { model, result } = run("none", [
+      { tools: [{ name: "teleport", input: { id: "el_1" } }] },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.failedToolCalls).toBe(1);
+    const second = (model.doGenerateCalls as Call[])[1]!;
+    const results = messagesOf(second)
+      .filter((m) => m.role === "tool")
+      .flatMap((m) => m.content as { type: string; toolCallId: string }[])
+      .filter((p) => p.type === "tool-result");
+    expect(results).toHaveLength(1);
+    expect(JSON.stringify(results[0])).toContain("There is no tool called 'teleport'");
+  });
+
+  it("keeps the per-turn call counts adding up to the calls that ran", async () => {
+    const { result } = run("none", [
+      { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.turnRecords.reduce((sum, t) => sum + t.toolCalls, 0)).toBe(r.toolCalls);
+  });
+});

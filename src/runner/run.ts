@@ -13,7 +13,7 @@
  * so nothing that was already paid for gets thrown away.
  */
 
-import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { Task } from "../tasks/types.js";
 import { getTask } from "../tasks/index.js";
@@ -238,6 +238,36 @@ export interface SweepProgress {
   onWarnings?(messages: string[]): void;
 }
 
+/**
+ * Leave the scores file in a state this sweep can safely append to.
+ *
+ * Two things went wrong here. `--force` re-ran every cell but left the old
+ * rows in the file; if that forced sweep was then interrupted, a plain resume
+ * found the old rows for the cells it had not reached, saw a matching
+ * fingerprint — `--force` had already overwritten it — and reported runs made
+ * under the old settings beside runs made under the new. So a forced sweep
+ * sets the old file aside rather than appending to it. Nothing paid for is
+ * deleted: it is renamed, and says so in its name.
+ *
+ * And a sweep killed mid-write leaves a last line with no newline. Loading
+ * skips that fragment, but the next append was glued onto the end of it, so
+ * the first cell finished after a resume was lost too, and re-run, and
+ * re-billed. A file that does not end in a newline is given one.
+ */
+function prepareScoresFile(paths: SweepPaths, force: boolean): void {
+  if (!existsSync(paths.scoresFile)) return;
+  if (force) {
+    renameSync(paths.scoresFile, `${paths.scoresFile}.superseded-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+    return;
+  }
+  try {
+    const raw = readFileSync(paths.scoresFile, "utf8");
+    if (raw.length > 0 && !raw.endsWith("\n")) appendFileSync(paths.scoresFile, "\n");
+  } catch {
+    // Unreadable: `loadExistingScores` is about to say so, with the reason.
+  }
+}
+
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
   const paths = sweepPaths(config.outDir);
   ensureDirs(paths);
@@ -253,6 +283,8 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
   }
 
   writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
+
+  prepareScoresFile(paths, !!config.force);
 
   const cells = expandMatrix(config);
   const existing = config.force ? new Map<string, RunScore>() : completedScores(paths);

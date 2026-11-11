@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bool, list, num, parseArgs, positiveInt, str } from "./cli-args.js";
+import { assertKnownFlags, bool, list, num, parseArgs, positiveInt, str } from "./cli-args.js";
 
 describe("parseArgs", () => {
   it("reads --help after any command as a request for help, not a run", () => {
@@ -97,8 +97,19 @@ describe("str, bool and list", () => {
   it("reads a string flag or falls back", () => {
     expect(str({ method: "permutation" }, "method", "bootstrap")).toBe("permutation");
     expect(str({}, "method", "bootstrap")).toBe("bootstrap");
-    // A bare `--method` carries no string, so the default stands.
-    expect(str({ method: true }, "method", "bootstrap")).toBe("bootstrap");
+    // A bare `--method` carries no string. Letting the default stand read
+    // `--tasks --models x` as "every task" on a command that bills per cell.
+    expect(() => str({ method: true }, "method", "bootstrap")).toThrow(/needs a value/);
+    expect(() => list({ tasks: true }, "tasks", ["all"])).toThrow(/needs a value/);
+    expect(() => list({ surfaces: "," }, "surfaces", ["coordinate"])).toThrow(/at least one/);
+  });
+
+  it("keeps everything after the first '=' and refuses a flag nobody reads", () => {
+    expect(parseArgs(["run", "--out=runs/a=b"]).flags.out).toBe("runs/a=b");
+    expect(parseArgs(["run", "--toString"]).flags.constructor).toBeUndefined();
+    expect(() => assertKnownFlags(parseArgs(["run", "--dryrun"]).flags)).toThrow(/Did you mean --dry-run/);
+    expect(() => assertKnownFlags(parseArgs(["run", "--model", "x"]).flags)).toThrow(/Did you mean --models/);
+    expect(() => assertKnownFlags(parseArgs(["run", "--dry-run", "--tasks", "fit"]).flags)).not.toThrow();
   });
 
   it("treats a bare switch as on and an explicit 'false' as off", () => {

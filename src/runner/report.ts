@@ -101,7 +101,16 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   alpha = 0.05,
   seed = BOOTSTRAP_SEED,
 ): Interval {
-  const clusters = [...groupBy(items, clusterOf).values()].map((rows) => mean(rows.map(valueOf)));
+  // Each cluster keeps its sum and its count, so a resample can recompute the
+  // statistic that is actually reported: the mean over runs. Resampling the
+  // mean of per-task means instead put an interval for one number around
+  // another, and on an unbalanced grid — a resumed sweep, a cell excluded as a
+  // harness failure — the point could sit outside its own interval.
+  const groups = [...groupBy(items, clusterOf).values()].map((rows) => {
+    const values = rows.map(valueOf);
+    return { sum: values.reduce((a, b) => a + b, 0), n: values.length };
+  });
+  const clusters = groups.map((g) => g.sum / g.n);
   const k = clusters.length;
   const observed = mean(items.map(valueOf));
   if (k === 0) return { mean: 0, low: 0, high: 0, n: 0, sd: 0 };
@@ -111,8 +120,13 @@ export function clusterBootstrapCI<T extends { taskId: string }>(
   const means: number[] = new Array(iterations);
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
-    for (let j = 0; j < k; j++) sum += clusters[Math.floor(rand() * k)]!;
-    means[i] = sum / k;
+    let n = 0;
+    for (let j = 0; j < k; j++) {
+      const g = groups[Math.floor(rand() * k)]!;
+      sum += g.sum;
+      n += g.n;
+    }
+    means[i] = sum / n;
   }
   means.sort((a, b) => a - b);
   const lowIdx = Math.floor((alpha / 2) * iterations);
@@ -246,19 +260,32 @@ export function pairedDifference(
   seed = BOOTSTRAP_SEED,
   method: ResolutionMethod = "bootstrap",
 ): PairedDifference {
-  const perTask = new Map<string, { a: number[]; b: number[] }>();
+  // Paired within task, and within everything else that varies. Pooling a
+  // side's runs across the other factors confounds them whenever the grid is
+  // uneven: if A is missing its screenshot cells on half the tasks, A's mean
+  // there is a no-feedback mean set against B's mean over both, and the
+  // difference between two identical surfaces came out resolved. So a side is
+  // compared only on the cells both sides have. On a full grid with equal
+  // repeats this is the same number as pooling.
+  const stratumOf = (s: RunScore, side: string) =>
+    [s.model, s.surfaceId, s.feedbackMode].map((v) => (v === side ? "*" : v)).join("|");
+  const perTask = new Map<string, Map<string, { a: number[]; b: number[] }>>();
   for (const score of scores) {
     const side = condition(score);
     if (side !== a && side !== b) continue;
-    const bucket = perTask.get(score.taskId) ?? { a: [], b: [] };
+    const strata = perTask.get(score.taskId) ?? new Map<string, { a: number[]; b: number[] }>();
+    const key = stratumOf(score, side);
+    const bucket = strata.get(key) ?? { a: [], b: [] };
     (side === a ? bucket.a : bucket.b).push(valueOf(score));
-    perTask.set(score.taskId, bucket);
+    strata.set(key, bucket);
+    perTask.set(score.taskId, strata);
   }
 
   const deltas: number[] = [];
-  for (const { a: left, b: right } of perTask.values()) {
-    if (left.length === 0 || right.length === 0) continue;
-    deltas.push(mean(left) - mean(right));
+  for (const strata of perTask.values()) {
+    const shared = [...strata.values()].filter((c) => c.a.length > 0 && c.b.length > 0);
+    if (shared.length === 0) continue;
+    deltas.push(mean(shared.map((c) => mean(c.a) - mean(c.b))));
   }
 
   const interval = bootstrapCI(deltas, iterations, 0.05, seed);
@@ -690,7 +717,13 @@ const costCluster = (s: RunScore) => `${s.model}|${s.taskId}`;
 export function geometricPerPass(rows: RunScore[], metric: PerPassMetric): { value: number; zeroPassCells: number; cells: number } {
   const cells = [...groupBy(rows, costCluster).values()].map((r) => perPass(r, metric));
   if (cells.length === 0) return { value: NaN, zeroPassCells: 0, cells: 0 };
-  const logMean = cells.reduce((sum, c) => sum + Math.log(Math.max(c.value, 1e-9)), 0) / cells.length;
+  // A cell that spent nothing has no cost per pass to take the logarithm of:
+  // an unpriced model, or a run that made no calls. Flooring it at a billionth
+  // dragged a geometric mean of ten calls down to under three, and priced a
+  // mix of priced and unpriced models at a thousandth of a cent.
+  const priced = cells.filter((c) => c.value > 0);
+  if (priced.length === 0) return { value: NaN, zeroPassCells: cells.filter((c) => c.zeroPass).length, cells: cells.length };
+  const logMean = priced.reduce((sum, c) => sum + Math.log(c.value), 0) / priced.length;
   return { value: Math.exp(logMean), zeroPassCells: cells.filter((c) => c.zeroPass).length, cells: cells.length };
 }
 
@@ -719,13 +752,23 @@ export function compareCostToPass(
   metric: PerPassMetric,
 ): RatioComparison {
   const byCluster = groupBy(scores, costCluster);
-  const logs: number[] = [];
+  // Log ratios per task, averaged over the models that ran it: the unit
+  // resampled is the task, as pre-registered. Resampling model-by-task cells
+  // treated one task on two models as two independent tasks and drew the
+  // interval too narrow.
+  const perTask = new Map<string, number[]>();
   for (const rows of byCluster.values()) {
     const ra = rows.filter((r) => key(r) === a);
     const rb = rows.filter((r) => key(r) === b);
     if (!ra.length || !rb.length) continue;
-    logs.push(Math.log(Math.max(perPass(ra, metric).value, 1e-9)) - Math.log(Math.max(perPass(rb, metric).value, 1e-9)));
+    const va = perPass(ra, metric).value;
+    const vb = perPass(rb, metric).value;
+    // Nothing spent on one side: no ratio to take (see `geometricPerPass`).
+    if (!(va > 0) || !(vb > 0)) continue;
+    const taskId = rows[0]!.taskId;
+    perTask.set(taskId, [...(perTask.get(taskId) ?? []), Math.log(va) - Math.log(vb)]);
   }
+  const logs = [...perTask.values()].map(mean);
   if (logs.length === 0) return { a, b, ratio: NaN, ci: [NaN, NaN], clusters: 0, resolved: false, meaningful: false };
   const rand = mulberry32(BOOTSTRAP_SEED);
   const means: number[] = [];
@@ -740,7 +783,11 @@ export function compareCostToPass(
   const ratio = Math.exp(mean(logs));
   // One cluster cannot resolve anything, whatever its interval says.
   const resolved = logs.length > 1 && (hi < 1 || lo > 1);
-  return { a, b, ratio, ci: [lo, hi], clusters: logs.length, resolved, meaningful: resolved && Math.abs(ratio - 1) >= MEANINGFUL_RATIO };
+  // The same verdict whichever way round the pair is written: A at 0.85 of B
+  // is B at 1.18 of A. Testing the distance from 1 called one of those
+  // meaningful and not the other.
+  const far = ratio <= 1 - MEANINGFUL_RATIO || ratio >= 1 / (1 - MEANINGFUL_RATIO);
+  return { a, b, ratio, ci: [lo, hi], clusters: logs.length, resolved, meaningful: resolved && far };
 }
 
 function costToPassSection(scores: RunScore[], surfaces: string[], feedbacks: string[], families: string[]): string {
@@ -925,7 +972,7 @@ function effectivenessSection(scores: RunScore[], models: string[]): string {
         const rows = scores.filter((s) => s.model === model);
         const e = effectiveness(rows);
         const rates = passRatesByTask(rows);
-        const median = rates.length ? rates[Math.floor((rates.length - 1) / 2)]! : 0;
+        const median = medianOf(rates) ?? 0;
         const unpriced = e.pricingKnown ? "" : " *";
         return [
           model,

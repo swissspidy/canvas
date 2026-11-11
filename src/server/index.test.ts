@@ -49,3 +49,57 @@ describe("the server entry point", () => {
     expect(availableFeedbackModes()).toEqual([...FEEDBACK_MODES]);
   });
 });
+
+describe("the server and requests it did not expect", () => {
+  async function withServer<T>(fn: (base: string, port: number) => Promise<T>): Promise<T> {
+    const { createApp } = await import("./index.js");
+    const server = createApp();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      return await fn(`http://127.0.0.1:${port}`, port);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+
+  /** A raw request, for the things `fetch` will not send. */
+  async function raw(port: number, text: string): Promise<string> {
+    const { connect } = await import("node:net");
+    return new Promise((resolve, reject) => {
+      const socket = connect(port, "127.0.0.1", () => socket.write(text));
+      let out = "";
+      socket.on("data", (d) => (out += String(d)));
+      socket.on("end", () => resolve(out));
+      socket.on("error", reject);
+    });
+  }
+
+  it("survives a malformed path, a malformed Host and a directory", async () => {
+    await withServer(async (base, port) => {
+      await raw(port, "GET // HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n");
+      await raw(port, "GET http:// HTTP/1.1\r\nHost: [\r\nConnection: close\r\n\r\n");
+      expect((await fetch(`${base}/dist`)).status).toBe(404);
+      // Still serving.
+      expect((await fetch(`${base}/api/meta`)).status).toBe(200);
+    });
+  });
+
+  it("refuses to start a run for another site's page", async () => {
+    await withServer(async (base) => {
+      const cross = await fetch(`${base}/api/run?brief=x&demo=1`, { headers: { "sec-fetch-site": "cross-site" } });
+      expect(cross.status).toBe(403);
+      const rebound = await fetch(`${base}/api/run?brief=x&demo=1`, { headers: { origin: "http://evil.example" } });
+      expect(rebound.status).toBe(403);
+    });
+  });
+
+  it("tells an event-stream client why a run was turned down", async () => {
+    await withServer(async (base) => {
+      const res = await fetch(`${base}/api/run?brief=`, { headers: { accept: "text/event-stream" } });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("Pass either a known task id or a non-empty brief.");
+      expect((await fetch(`${base}/api/run?brief=`)).status).toBe(400);
+    });
+  });
+});

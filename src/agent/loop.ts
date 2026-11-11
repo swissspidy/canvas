@@ -319,6 +319,8 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     for (turn = 1; turn <= maxTurns; turn++) {
       if (config.signal?.aborted) {
         stopReason = "aborted";
+        // This turn never started, so it is not one of the turns the run took.
+        turn--;
         break;
       }
       emit({ type: "turn_start", turn });
@@ -380,7 +382,9 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         stopReason = "max_tokens";
         error = `Turn ${turn} stopped at the output limit before finishing (maxOutputTokens ${maxTokens}).`;
         emit({ type: "error", message: error, fatal: true });
-        record(result.toolCalls.length);
+        // None of the calls it was writing ran, so none are counted: the
+        // per-turn counts have to add up to the calls on the session.
+        record(0);
         break;
       }
 
@@ -406,7 +410,14 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         break;
       }
 
-      messages.push(...(result.responseMessages as ModelMessage[]));
+      // Only the assistant's side. When a call names a tool that does not
+      // exist or carries input that will not parse, the SDK answers it itself,
+      // with a `tool` message of its own wording — and this loop then answered
+      // the same call id again below. The next request carried two results for
+      // one call, which a provider may reject outright, and the wording the
+      // model read was the SDK's rather than the one held constant across
+      // surfaces. Every call is answered here, once, by `executeToolCall`.
+      messages.push(...(result.responseMessages as ModelMessage[]).filter((m) => m.role !== "tool"));
 
       const results: {
         type: "tool-result";
@@ -456,7 +467,9 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
       // Feedback describes the state after *all* of this turn's calls, so it
       // attaches once, to the last result that can carry it.
-      const feedbackBlocks = await config.feedback.after(session.doc);
+      // Not after the last turn: there is no next request to carry it, and
+      // under the screenshot conditions it is a rasterization nobody sees.
+      const feedbackBlocks = turn < maxTurns ? await config.feedback.after(session.doc) : [];
       if (feedbackBlocks.length > 0) {
         emit({
           type: "feedback",

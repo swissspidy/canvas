@@ -521,7 +521,11 @@ const distributeTool: ToolDef<z.infer<typeof zDistributeInput>> = {
     "without it, the outermost two stay put and the gaps between are equalized.",
   schema: zDistributeInput,
   run(ctx, input) {
-    const els = requireElements(ctx.doc, input.ids);
+    // An id named twice is one element: counted twice it took two slots in
+    // the row and was moved to the second, leaving a hole where the first was.
+    const ids = [...new Set(input.ids)];
+    if (ids.length < 2) throw new ToolError("Distribute needs at least two different elements.");
+    const els = requireElements(ctx.doc, ids);
     const horizontal = input.axis === "horizontal";
     const sorted = [...els].sort((a, b) => (horizontal ? aabb(a).x - aabb(b).x : aabb(a).y - aabb(b).y));
     const sizes = sorted.map((el) => (horizontal ? aabb(el).width : aabb(el).height));
@@ -780,6 +784,10 @@ const avoidOverlapTool: ToolDef<z.infer<typeof zAvoidOverlapInput>> = {
     "Nudge elements apart until none of them overlaps another, moving each the smallest distance that works.",
   schema: zAvoidOverlapInput,
   run(ctx, input) {
+    // An id named twice would be asked to move clear of itself, which no
+    // amount of nudging achieves.
+    input = { ...input, ids: [...new Set(input.ids)] };
+    if (input.ids.length < 2) throw new ToolError("avoid_overlap needs at least two different elements.");
     requireElements(ctx.doc, input.ids);
     const padding = input.padding ?? 0;
     const keepIn = input.keep_in_canvas !== false;

@@ -131,6 +131,12 @@ export const animateTool: ToolDef<z.infer<typeof zAnimateInput>> = {
       throw new ToolError("Only a fly animation takes from and distance.");
     }
     const delay = startOf(ctx.doc, input.start);
+    // The same ceiling `set_animation` and the document schema hold a delay
+    // to. A relation can add up past it, and a document holding one could not
+    // be written back by the document surface.
+    if (delay > 60000) {
+      throw new ToolError(`That starts at ${round(delay, 1)}ms; an animation must start within 60000ms of the page opening.`);
+    }
     if (input.effect === "fade") return apply(ctx.doc, input.id, { effect: "fade", delay, duration: input.duration });
     const from = input.from!;
     const distance = input.distance === "offscreen" ? offscreenDistance(ctx.doc, el, from) : input.distance!;

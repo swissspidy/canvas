@@ -28,7 +28,8 @@ export const TASKS: Task[] = [
 ];
 
 /**
- * Prototype tasks: resolvable by id, or all together as `proto`, and never
+ * Prototype tasks: resolvable by id, all together as `proto`, or by kind as
+ * `anim` and `paint`, and never
  * part of `TASKS` — so no default sweep, grid or registry test includes them.
  */
 export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks, ...paintTasks];

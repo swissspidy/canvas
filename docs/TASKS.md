@@ -317,6 +317,31 @@ marks for it before anything had been done.
 
 ---
 
+### `paint` — drawn, not laid out (6 prototypes)
+
+Not in the registered set or any default grid. Run them by id or all together
+with `--tasks paint`. Each sets `paint: true`, which attaches the drawing tools
+and the paragraph that explains a path.
+
+| Task | What has to be found | What scores it |
+|---|---|---|
+| `paint.route` | Three traces across a board of ten chips, square-cornered, 12 units clear of every chip and of each other. Lay them in the wrong order and one pad is walled in. | `pathClearOf`, `pathsApart`, `pathEnds`, `pathOrthogonal`, `pathLengthAtMost` |
+| `paint.maze` | The one way through an 8 by 6 maze, from the walls' coordinates. | `pathClearOf` against every wall, `pathEnds`, a length cap |
+| `paint.flowchart` | Seven arrows that start and end *on the outline* of a box, an oval or a diamond, along the line joining centres. | `connects`, one per arrow |
+| `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
+| `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
+| `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |
+
+Asserted in `src/surfaces/paint.test.ts`: a straight line through the maze's
+walls scores zero on clearance; an invisible path earns nothing on any of them;
+a pie of straight-edged triangles fails every slice while one drawn as smooth
+curves through a few points passes; an arrow drawn the wrong way round, or to a
+shape's box rather than its outline, loses its marks.
+
+`paint.lighthouse` is deliberately not a pass/fail task. Its checks are floors
+a blank page fails and any honest attempt clears, so a pass rate says nothing
+there; compare its pages head to head (`compare --passing`).
+
 ## The check library
 
 Universal checks run on every task, whatever else it asks for:

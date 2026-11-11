@@ -1272,3 +1272,57 @@ Nothing in the question, the hypotheses, the primary outcome or the analysis
 plan changes. It narrows what counts as an observation, in the direction of
 counting fewer things, and it is written down now because deciding which runs
 count *after* seeing them is the move this document exists to prevent.
+
+**2026-11-11 — paths, a paint family of prototypes, and corrections to the
+analysis code.** Exploratory; nothing here touches the confirmed result.
+
+*The document model gained a fourth element, `path`* (`docs/DESIGN.md`,
+"Drawing: paths"). The drawing tools — `draw` on coordinate, `draw` and
+`connect` on relational — are attached only to tasks that set `paint`, so the
+tool list of every registered task is unchanged. Two things did change for
+every task: `write_document`'s schema now admits a path (with `x`, `y`,
+`width` and `height` no longer marked required in the JSON Schema, since a
+path may omit them; they are still required of every other element, and the
+error says so), and a rendered document leaves out any element wholly off the
+canvas. Six prototype tasks, `--tasks paint`, are in no grid. They are the
+fourth attempt at a family a frontier model does not saturate, and whether
+they are is not known: no run against a real model has been made on them.
+
+*The analysis code was wrong in ways that could have moved a reported
+number*, found by review rather than by a result that looked odd. Each is
+fixed, each has a test, and none was exercised by the confirmation's balanced
+144-run grid except where noted:
+
+- The task-clustered interval was drawn for the mean of per-task means while
+  the point beside it was the mean over runs. On an unbalanced grid the point
+  could sit outside its own interval. The interval now resamples tasks and
+  recomputes the mean over runs.
+- A paired difference pooled each side's runs within a task across the other
+  factors. With cells missing on one side — excluded harness failures, a
+  resumed sweep — that confounded the factors, and two identical surfaces
+  could come out resolved. Sides are now compared only on the cells both have.
+  On a full grid with equal repeats the number is unchanged.
+- Cost per pass floored a cell that spent nothing at a billionth before taking
+  its logarithm. Such cells are now left out of the geometric mean and the
+  ratio.
+- The cost-ratio interval resampled model-by-task cells, not tasks as §13
+  says. **This one may apply to the confirmation**, which ran two models:
+  any ratio computed across both of them had its interval drawn over
+  model-by-task cells rather than tasks, and would be narrower than it should
+  be. Nothing has been recomputed here, because the run records are not in
+  the repository; `report --dir` on those runs now resamples tasks.
+- "Practically meaningful" tested the ratio's distance from 1, so 0.86 was not
+  meaningful and its reciprocal 1.16 was. It is now 0.85 or below, or 1/0.85
+  or above.
+- The judge's reply was accepted when it left one criterion out and added an
+  "Overall" row: the counts agreed, and the overall rating was read as the
+  missing criterion's score. That is now an error, like any other miscount.
+- Runs ended by a harness failure were eligible for the human-rating sample
+  and counted in judge agreement. They are excluded there as everywhere else.
+
+*And the harness*: a call to a tool that does not exist was answered twice in
+the next request (once by the SDK, once by the loop), which a provider may
+reject — turning a malformed-call run into an `api_error`, excluded and
+retried, and so removing from the data exactly the runs the malformed-call
+rate is counted on. Whether that happened in any recorded sweep is unknown.
+

@@ -16,7 +16,7 @@ import type { Doc, Element } from "../doc/types.js";
 import { getAsset } from "../doc/assets.js";
 import { layoutTextElement } from "../text/layout.js";
 import { FONT_FAMILY, getFontBytes } from "../text/font-registry.js";
-import { round, shapePolygons } from "../doc/geometry.js";
+import { corners, round, shapePolygons } from "../doc/geometry.js";
 import { toBase64 } from "./rasterizer.js";
 import { localDrawing, pathFill, pathStroke } from "../doc/path.js";
 
@@ -350,6 +350,29 @@ function renderPath(el: Element, idx: number): string {
   return parts.join("");
 }
 
+/** True when nothing the element could paint reaches the canvas. */
+function isOffCanvas(el: Element, doc: Doc): boolean {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  // A path paints where its stroke and curve go, which can be outside the
+  // box its points span; everything else paints inside its rotated box.
+  const polys = el.type === "path" ? shapePolygons(el) : [corners(el)];
+  for (const poly of polys) {
+    for (const p of poly) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+  if (minX > maxX) return true;
+  // A stroke is centred on the edge, so it reaches half its width further.
+  const reach = el.type === "path" ? 0 : (el.style.strokeWidth ?? 1) / 2 + 1;
+  return maxX + reach < 0 || maxY + reach < 0 || minX - reach > doc.width || minY - reach > doc.height;
+}
+
 export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
   const clipText = opts.clipText !== false;
   const scale = opts.scale ?? 1;
@@ -357,6 +380,12 @@ export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
   const body: string[] = [];
 
   doc.elements.forEach((el, i) => {
+    // An element wholly off the canvas paints nothing, so it is not drawn.
+    // Not an optimization: the clip path of a text or image element far
+    // enough outside the view box makes resvg abort the whole process — a
+    // native panic no `try` can catch — and one stray `create` at y=4200 took
+    // down a sweep and every cell running beside it.
+    if (isOffCanvas(el, doc)) return;
     let inner: string;
     if (el.type === "rect") inner = renderRect(el, i);
     else if (el.type === "path") inner = renderPath(el, i);

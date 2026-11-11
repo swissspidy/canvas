@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -360,5 +360,41 @@ describe("fingerprintConflicts", () => {
     expect(fingerprintConflicts(base, { ...base, turnBudget: 10 })).toEqual(["turnBudget: was null, now 10"]);
     expect(fingerprintConflicts({ ...base, turnBudget: 10 }, base)).toEqual(["turnBudget: was 10, now null"]);
     expect(fingerprintConflicts(base, base)).toEqual([]);
+  });
+});
+
+describe("a scores file left in a bad state", () => {
+  it("does not glue the next score onto a line an interrupted sweep cut short", async () => {
+    const paths = sweepPaths(dir);
+    const first = await runSweep(config());
+    // What a kill mid-write leaves: a last line with no newline.
+    const whole = readFileSync(paths.scoresFile, "utf8").trim().split("\n");
+    writeFileSync(paths.scoresFile, `${whole.slice(0, -1).join("\n")}\n${whole[whole.length - 1]!.slice(0, 40)}`);
+
+    await runSweep(config());
+
+    const lines = readFileSync(paths.scoresFile, "utf8").split("\n").filter((l) => l.trim());
+    const parsed = lines.flatMap((l) => {
+      try {
+        return [JSON.parse(l) as { runId: string }];
+      } catch {
+        return [];
+      }
+    });
+    // Every cell is on disk again, the re-run one included.
+    expect(new Set(parsed.map((p) => p.runId)).size).toBe(first.length);
+    expect([...completedScores(paths).keys()].sort()).toEqual(first.map((s) => s.runId).sort());
+  });
+
+  it("sets the old rows aside on --force, so a later resume cannot mix two settings", async () => {
+    const paths = sweepPaths(dir);
+    await runSweep(config({ turnBudget: 1 }));
+    // A forced sweep under new settings that only reaches one task.
+    await runSweep(config({ turnBudget: 5, force: true, taskIds: ["fit.long-headline"] }));
+
+    const kept = [...completedScores(paths).values()];
+    expect(kept.every((s) => s.taskId === "fit.long-headline")).toBe(true);
+    // Nothing paid for was deleted.
+    expect(readdirSync(dir).some((name) => name.includes("superseded"))).toBe(true);
   });
 });

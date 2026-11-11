@@ -53,7 +53,7 @@ import { buildRatingSheet, computeAgreement, sampleForRating } from "./eval/huma
 import { SURFACE_IDS, type SurfaceId } from "./surfaces/types.js";
 import { isHarnessFailure } from "./agent/events.js";
 import type { RunScore } from "./eval/score.js";
-import { bool, list, num, parseArgs, positiveInt, str, type Args } from "./cli-args.js";
+import { assertKnownFlags, bool, list, num, parseArgs, positiveInt, str, type Args } from "./cli-args.js";
 
 
 /**
@@ -73,8 +73,9 @@ function axis<T extends string>(
   fallback: T[],
 ): T[] {
   const raw = flags[key];
-  if (typeof raw !== "string") return fallback;
-  const expand = shorthands[raw.trim()];
+  if (typeof raw !== "string") return list(flags, key, fallback) as T[];
+  // Own keys only: `--models constructor` is not a shorthand.
+  const expand = Object.hasOwn(shorthands, raw.trim()) ? shorthands[raw.trim()] : undefined;
   if (!expand) return list(flags, key, fallback) as T[];
   const expanded = expand();
   if (expanded.length === 0) {
@@ -167,6 +168,7 @@ compare options
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  assertKnownFlags(args.flags);
 
   switch (args.command) {
     case "tasks":
@@ -724,7 +726,7 @@ async function cmdCompare(args: Args): Promise<void> {
     surface: (s) => s.surfaceId,
     feedback: (s) => s.feedbackMode,
   };
-  const groupOf = axis[by];
+  const groupOf = Object.hasOwn(axis, by) ? axis[by] : undefined;
   if (!groupOf) throw new Error(`--by takes model, surface or feedback, not '${by}'.`);
   const perTask = positiveInt(args.flags, "pairs", 6);
   const judgeModel = str(args.flags, "judge-model", DEFAULT_JUDGE_MODEL);

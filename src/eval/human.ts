@@ -13,6 +13,7 @@
  * would quietly manufacture the headline result.
  */
 
+import { isHarnessFailure } from "../agent/events.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunScore } from "./score.js";
@@ -51,8 +52,11 @@ export const SAMPLE_SEED = 481625;
  * validation set, then filled out at random up to `n`.
  */
 export function sampleForRating(scores: RunScore[], n = 40): RatingItem[] {
-  const judged = scores.filter((s) => s.judgeOverallScore !== null);
-  const pool = judged.length > 0 ? judged : scores;
+  // A run something outside it cut short is not a result (see the report),
+  // and its half-finished page is not one to spend a human rating on.
+  const finished = scores.filter((s) => !isHarnessFailure(s.stopReason));
+  const judged = finished.filter((s) => s.judgeOverallScore !== null);
+  const pool = judged.length > 0 ? judged : finished;
   if (pool.length === 0) return [];
 
   const rand = mulberry32(SAMPLE_SEED);
@@ -289,7 +293,7 @@ export function computeAgreement(scores: RunScore[], humanRatings: Record<string
 
   for (const [runId, human] of Object.entries(humanRatings)) {
     const score = byId.get(runId);
-    if (!score || score.judgeOverallScore === null) continue;
+    if (!score || score.judgeOverallScore === null || isHarnessFailure(score.stopReason)) continue;
     pairs.push({
       runId,
       surface: score.surfaceId,

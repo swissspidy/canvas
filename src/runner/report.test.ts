@@ -744,3 +744,64 @@ describe("cost to pass", () => {
     expect(Object.keys(json.costToPass.bySurface).sort()).toEqual(["coordinate", "relational"]);
   });
 });
+
+describe("statistics on a grid that is not full", () => {
+  it("puts the point estimate inside its own interval when tasks have unequal run counts", () => {
+    const rows = [
+      ...Array.from({ length: 30 }, () => score({ taskId: "big", surfaceId: "a", normalizedScore: 1 })),
+      score({ taskId: "t1", surfaceId: "a", normalizedScore: 0 }),
+      score({ taskId: "t2", surfaceId: "a", normalizedScore: 0.1 }),
+      score({ taskId: "t3", surfaceId: "a", normalizedScore: 0.05 }),
+    ];
+    const ci = clusterBootstrapCI(rows, (s) => s.normalizedScore);
+    expect(ci.low).toBeLessThanOrEqual(ci.mean);
+    expect(ci.high).toBeGreaterThanOrEqual(ci.mean);
+  });
+
+  it("does not find a difference between identical surfaces when one is missing cells", () => {
+    // Feedback is worth +0.4 on both surfaces. Surface `a` lost its screenshot
+    // cells on half the tasks; pooled, that reads as `a` being worse.
+    const rows: RunScore[] = [];
+    for (let t = 0; t < 12; t++) {
+      for (const surfaceId of ["a", "b"]) {
+        for (const feedbackMode of ["none", "screenshot"]) {
+          if (surfaceId === "a" && feedbackMode === "screenshot" && t % 2 === 0) continue;
+          rows.push(score({ taskId: `t${t}`, surfaceId, feedbackMode, normalizedScore: 0.3 + (feedbackMode === "screenshot" ? 0.4 : 0) + t * 0.01 }));
+        }
+      }
+    }
+    const diff = pairedDifference(rows, (s) => s.surfaceId, "a", "b");
+    expect(diff.difference).toBeCloseTo(0, 9);
+    expect(diff.resolved).toBe(false);
+  });
+});
+
+describe("cost to pass, at its edges", () => {
+  const run = (taskId: string, surfaceId: string, cost: number, pass: boolean, model = "m"): RunScore => {
+    const base = score({ taskId, surfaceId, constraintScore: pass ? 1 : 0.9, model });
+    return { ...base, efficiency: { ...base.efficiency, costUsd: cost, agentCostUsd: cost, toolCalls: 10 } };
+  };
+
+  it("leaves a cell that spent nothing out of the ratio rather than flooring it", () => {
+    const rows = [
+      ...["t1", "t2", "t3"].flatMap((t) => [run(t, "a", 0.1, true), run(t, "b", 0.2, true)]),
+      run("t4", "a", 0, true),
+      run("t4", "b", 0.2, true),
+    ];
+    const cmp = compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost");
+    expect(cmp.ratio).toBeCloseTo(0.5, 9);
+    expect(cmp.clusters).toBe(3);
+  });
+
+  it("counts a task once however many models ran it", () => {
+    const rows = ["t1", "t2", "t3"].flatMap((t) => ["m1", "m2"].flatMap((m) => [run(t, "a", 0.1, true, m), run(t, "b", 0.2, true, m)]));
+    expect(compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost").clusters).toBe(3);
+  });
+
+  it("gives the same verdict whichever way round the pair is written", () => {
+    const rows = ["t1", "t2", "t3", "t4"].flatMap((t) => [run(t, "a", 0.86, true), run(t, "b", 1, true)]);
+    const ab = compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost");
+    const ba = compareCostToPass(rows, (s) => s.surfaceId, "b", "a", "cost");
+    expect(ab.meaningful).toBe(ba.meaningful);
+  });
+});
