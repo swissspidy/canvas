@@ -14,6 +14,8 @@ import { relationalSurface, relationalTools } from "./relational.js";
 import { documentSurface } from "./document.js";
 import { deleteTool, setBackgroundTool, setStyleTool } from "./common.js";
 import type { SurfaceId, ToolSurface } from "./types.js";
+import { withMotion } from "./motion.js";
+import { withPaint } from "./paint.js";
 
 const hybridSurface: ToolSurface = {
   id: "hybrid",
@@ -51,6 +53,18 @@ export function isSurfaceId(id: string): id is SurfaceId {
 export function getSurface(id: SurfaceId): ToolSurface {
   if (!isSurfaceId(id)) throw new Error(`Unknown surface '${id}'. Known: ${Object.keys(SURFACES).join(", ")}`);
   return SURFACES[id];
+}
+
+/**
+ * The surface a task runs on: the registered one, plus whatever tools the
+ * task's kind calls for. The one place that decides it, so the sweep, the
+ * live page and the WebMCP host cannot hand the same task different tools.
+ */
+export function surfaceFor(id: SurfaceId, needs: { motion?: boolean; paint?: boolean } = {}): ToolSurface {
+  let surface = getSurface(id);
+  if (needs.motion) surface = withMotion(surface);
+  if (needs.paint) surface = withPaint(surface);
+  return surface;
 }
 
 export { coordinateSurface, relationalSurface, documentSurface, hybridSurface, setStyleTool, setBackgroundTool, deleteTool };

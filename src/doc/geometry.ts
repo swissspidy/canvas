@@ -9,6 +9,7 @@
  */
 
 import type { Element, Point, Polygon, Rect } from "./types.js";
+import { pathPieces } from "./path.js";
 
 /** Floating point slack, in canvas units. Positions are O(1000), so 1e-6 is generous. */
 export const EPS = 1e-6;
@@ -191,6 +192,10 @@ function lineIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | n
  * and turned with it, first point straight up before rotation.
  */
 export function shapePolygons(el: Element): Polygon[] {
+  if (el.type === "path") {
+    const pieces = pathPieces(el);
+    return [...pieces.fill, ...pieces.stroke];
+  }
   const shape = el.type === "rect" ? (el.style.shape ?? "rect") : "rect";
   if (shape === "rect") return [corners(el)];
   const c = center(el);

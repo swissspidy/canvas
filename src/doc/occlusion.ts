@@ -29,6 +29,7 @@ import type { Doc, Element, Point, Polygon, Rect } from "./types.js";
 import { corners, degToRad, EPS, polygonArea, shapePolygons, visibleAreaAfterSubtracting, convexClip } from "./geometry.js";
 import { layoutTextElement } from "../text/layout.js";
 import { rectToPolygon, center } from "./geometry.js";
+import { pathFill, pathPieces, pathStroke } from "./path.js";
 
 function rotatePolygon(poly: Polygon, about: Point, deg: number): Polygon {
   if (!deg) return poly;
@@ -162,6 +163,19 @@ export function occluderPolygons(el: Element, minOpacity = 0.5): Polygon[] {
 
   if (el.type === "image") return [corners(el)];
 
+  if (el.type === "path") {
+    // A line hides what its stroke covers and a filled outline what it
+    // encloses, each judged on its own colour: a translucent wash under a
+    // solid outline hides only where the outline runs.
+    const pieces = pathPieces(el);
+    const fill = pathFill(el);
+    const stroke = pathStroke(el);
+    return [
+      ...(fill !== null && fillAlphaRange(fill, el).min >= minOpacity ? pieces.fill : []),
+      ...(stroke && effectiveAlpha(stroke.color, el) >= minOpacity ? pieces.stroke : []),
+    ];
+  }
+
   if (el.type === "rect") {
     // A rect with no fill (or a transparent one) paints only its stroke.
     return fillAlphaRange(el.style.fill ?? "#cccccc", el).min >= minOpacity ? shapePolygons(el) : [];
@@ -203,6 +217,15 @@ export function paintedPolygons(el: Element): Polygon[] {
   const filled = el.style.fill !== undefined && fillAlphaRange(el.style.fill, el).max >= VISIBLE_ALPHA;
 
   if (el.type === "image") return [corners(el)];
+  if (el.type === "path") {
+    const pieces = pathPieces(el);
+    const fill = pathFill(el);
+    const stroke = pathStroke(el);
+    return [
+      ...(fill !== null && fillAlphaRange(fill, el).max >= VISIBLE_ALPHA ? pieces.fill : []),
+      ...(stroke && effectiveAlpha(stroke.color, el) >= VISIBLE_ALPHA ? pieces.stroke : []),
+    ];
+  }
   // An undeclared fill is not no fill: the renderer paints a rect grey.
   if (el.type === "rect") {
     return el.style.fill === undefined || filled || stroked ? shapePolygons(el) : [];

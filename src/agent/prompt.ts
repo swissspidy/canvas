@@ -51,7 +51,8 @@ export const BASE_SYSTEM = [
 ].join("\n");
 
 export function systemPrompt(surface: ToolSurface): string {
-  return [BASE_SYSTEM, "", `--- Your tools: ${surface.title} ---`, surface.briefing].join("\n");
+  const notes = (surface.notes ?? []).flatMap((note) => ["", note]);
+  return [BASE_SYSTEM, ...notes, "", `--- Your tools: ${surface.title} ---`, surface.briefing].join("\n");
 }
 
 /**

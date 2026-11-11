@@ -1,14 +1,34 @@
 /**
  * The document model.
  *
- * Deliberately tiny, and deliberately close to the Web Stories model: a
- * fixed-size canvas holding a flat list of absolutely-positioned elements.
- * No nesting, no groups, no rich text, no multi-page. Every sharp edge in
- * this project should come from the research question, not from the model.
+ * Small, and close to the Web Stories model: a fixed-size canvas holding a
+ * flat list of absolutely-positioned elements. No nesting, no groups, no rich
+ * text, no multi-page. Every sharp edge in this project should come from the
+ * research question, not from the model.
+ *
+ * It is no longer only boxes. A `path` is a line drawn through points — open
+ * or closed, straight or smooth, stroked or filled — which is what makes this
+ * a canvas one can draw on rather than only lay out. See `src/doc/path.ts`.
  */
 
-export const ELEMENT_TYPES = ["text", "rect", "image"] as const;
+export const ELEMENT_TYPES = ["text", "rect", "image", "path"] as const;
 export type ElementType = (typeof ELEMENT_TYPES)[number];
+
+/** The kinds `create` makes. A path is drawn, with `draw`, not created in a box. */
+export const BOX_ELEMENT_TYPES = ["text", "rect", "image"] as const;
+export type BoxElementType = (typeof BOX_ELEMENT_TYPES)[number];
+
+export const CURVES = ["straight", "smooth"] as const;
+export type Curve = (typeof CURVES)[number];
+
+export const LINE_CAPS = ["butt", "round"] as const;
+export type LineCap = (typeof LINE_CAPS)[number];
+
+export const ARROWS = ["none", "end", "start", "both"] as const;
+export type Arrow = (typeof ARROWS)[number];
+
+/** How many points one path may hold. */
+export const MAX_PATH_POINTS = 400;
 
 export const FONT_WEIGHTS = ["regular", "bold"] as const;
 export type FontWeight = (typeof FONT_WEIGHTS)[number];
@@ -70,6 +90,18 @@ export interface Style {
   fillTo?: string;
   /** Direction of the gradient in degrees: 0 runs left to right, 90 top to bottom. Default 90. */
   gradientAngle?: number;
+  /**
+   * `path` only: how the line runs between its points. `straight` joins them
+   * with segments; `smooth` passes a curve through every one of them. Default
+   * `straight`.
+   */
+  curve?: Curve;
+  /** `path` only: the shape of a stroke's ends and corners. Default `round`. */
+  lineCap?: LineCap;
+  /** `path` only: dash length in canvas units, with gaps of the same length. Absent means a solid line. */
+  dash?: number;
+  /** `path` only: arrowheads on an open path's ends. Default `none`. */
+  arrow?: Arrow;
 }
 
 export const ANIMATION_EFFECTS = ["fade", "fly"] as const;
@@ -116,6 +148,14 @@ export interface Element {
   src?: string;
   /** `image` only. Description, used by the structured-feedback channel. */
   alt?: string;
+  /**
+   * `path` only. The points the line runs through, as `[x, y]` pairs in canvas
+   * units before rotation. Their bounding box is always the element's box:
+   * moving or resizing the element carries the points with it.
+   */
+  points?: [number, number][];
+  /** `path` only. Joins the last point back to the first, making a shape that can be filled. */
+  closed?: boolean;
   style: Style;
   /** An entrance animation. Absent means the element is there from the start. */
   animation?: Animation;

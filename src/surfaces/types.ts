@@ -46,6 +46,12 @@ export interface ToolSurface {
   title: string;
   /** One paragraph, appended to the system prompt. */
   briefing: string;
+  /**
+   * Further paragraphs about the document itself, the same on every surface,
+   * for what only some tasks use (paths, for tasks that draw). Kept out of
+   * the base prompt so a task that does not use them is told nothing new.
+   */
+  notes?: string[];
   tools: ToolDef<any>[];
 }
 

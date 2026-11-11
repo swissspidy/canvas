@@ -11,7 +11,7 @@
 import type { Doc } from "../doc/types.js";
 import type { Check } from "../eval/checks.js";
 
-export const TASK_FAMILIES = ["compose", "repair", "fit", "restyle", "arrange", "measure"] as const;
+export const TASK_FAMILIES = ["compose", "repair", "fit", "restyle", "arrange", "measure", "paint"] as const;
 export type TaskFamily = (typeof TASK_FAMILIES)[number];
 
 export interface Task {
@@ -38,6 +38,11 @@ export interface Task {
    * exactly the tool list it always has.
    */
   motion?: boolean;
+  /**
+   * The task draws, so each surface gets its drawing tools and the note that
+   * explains a path (`withPaint`). Unset everywhere else, for the same reason.
+   */
+  paint?: boolean;
 }
 
 export function defineTask(task: Task): Task {

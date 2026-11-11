@@ -17,8 +17,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } fr
 import { join } from "node:path";
 import type { Task } from "../tasks/types.js";
 import { getTask } from "../tasks/index.js";
-import { getSurface } from "../surfaces/index.js";
-import { withMotion } from "../surfaces/motion.js";
+import { surfaceFor } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { runAgent } from "../agent/loop.js";
@@ -379,7 +378,7 @@ async function runCell(
   const run = await runAgent({
     runId: cell.runId,
     task: cell.task,
-    surface: cell.task.motion ? withMotion(getSurface(cell.surface)) : getSurface(cell.surface),
+    surface: surfaceFor(cell.surface, cell.task),
     feedback: createFeedbackChannel(cell.feedback),
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),

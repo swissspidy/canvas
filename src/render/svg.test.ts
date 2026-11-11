@@ -23,7 +23,7 @@ describe("renderSvg gradients", () => {
       style: { fontSize: 40, fill: "transparent", fillTo: "#000000" },
     };
     const svg = renderSvg(doc(text));
-    expect(svg).toContain('<linearGradient id="grad-t"');
-    expect(svg).toContain('fill="url(#grad-t)"');
+    expect(svg).toContain('<linearGradient id="fill_0"');
+    expect(svg).toContain('fill="url(#fill_0)"');
   });
 });

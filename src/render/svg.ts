@@ -18,6 +18,7 @@ import { layoutTextElement } from "../text/layout.js";
 import { FONT_FAMILY, getFontBytes } from "../text/font-registry.js";
 import { round, shapePolygons } from "../doc/geometry.js";
 import { toBase64 } from "./rasterizer.js";
+import { localDrawing, pathFill, pathStroke } from "../doc/path.js";
 
 export interface RenderOptions {
   /** Clip each text element to its box, so overflow is visibly truncated. */
@@ -71,12 +72,15 @@ function openGroup(el: Element): string {
  * Rects and text block fills both go through here, so the two draw the same
  * gradient that `layerColor` in eval/color.ts scores.
  */
-function fillPaint(el: Element, fill: string): { defs: string; fill: string } {
+function fillPaint(el: Element, fill: string, idx: number): { defs: string; fill: string } {
   if (!el.style.fillTo) return { defs: "", fill };
   // objectBoundingBox units, so the gradient spans the element's own box and
   // turns with it; `gradientPosition` in eval/color.ts reads the same vector.
   const a = ((el.style.gradientAngle ?? 90) * Math.PI) / 180;
-  const id = `grad-${escapeXml(el.id)}`;
+  // Numbered by paint position, not by element id: an id is whatever a
+  // document says it is, and one holding a space or a bracket made a
+  // `url(#...)` that pointed at nothing, so the shape painted no fill at all.
+  const id = `fill_${idx}`;
   return {
     defs:
       `<defs><linearGradient id="${id}" x1="${n(0.5 - Math.cos(a) / 2)}" y1="${n(0.5 - Math.sin(a) / 2)}" ` +
@@ -87,8 +91,8 @@ function fillPaint(el: Element, fill: string): { defs: string; fill: string } {
   };
 }
 
-function renderRect(el: Element): string {
-  const { defs, fill } = fillPaint(el, el.style.fill ?? "#cccccc");
+function renderRect(el: Element, idx: number): string {
+  const { defs, fill } = fillPaint(el, el.style.fill ?? "#cccccc", idx);
   const paint = {
     fill,
     stroke: el.style.strokeColor,
@@ -243,7 +247,7 @@ function renderText(el: Element, defs: string[], idx: number, clip: boolean): st
 
   // A transparent fill still paints when it fades into a fillTo.
   if (el.style.fill && (el.style.fill !== "transparent" || el.style.fillTo)) {
-    const paint = fillPaint(el, el.style.fill);
+    const paint = fillPaint(el, el.style.fill, idx);
     parts.push(
       paint.defs +
       `<rect ${styleAttrs({
@@ -309,6 +313,43 @@ function renderText(el: Element, defs: string[], idx: number, clip: boolean): st
   return parts.join("");
 }
 
+/**
+ * A path, drawn from the same flattened outline the checks measure: straight
+ * segments only, so a smooth curve on screen is the curve that was scored.
+ */
+function renderPath(el: Element, idx: number): string {
+  const drawing = localDrawing(el);
+  const d = (pts: { x: number; y: number }[], closed: boolean) =>
+    pts.map((p, i) => `${i === 0 ? "M" : "L"}${n(p.x)} ${n(p.y)}`).join(" ") + (closed ? " Z" : "");
+  const parts: string[] = [];
+  const fill = pathFill(el);
+  if (drawing.fill && fill !== null) {
+    const paint = fillPaint(el, fill, idx);
+    parts.push(paint.defs + `<path ${styleAttrs({ d: d(drawing.fill, true), fill: paint.fill })} />`);
+  }
+  const stroke = pathStroke(el);
+  if (drawing.stroke && stroke) {
+    const round = drawing.stroke.round;
+    // A lone point has no segment to stroke; with a round cap it is a dot.
+    const pts = drawing.stroke.points.length === 1 ? [drawing.stroke.points[0]!, drawing.stroke.points[0]!] : drawing.stroke.points;
+    parts.push(
+      `<path ${styleAttrs({
+        d: d(pts, drawing.stroke.closed),
+        fill: "none",
+        stroke: stroke.color,
+        "stroke-width": stroke.width,
+        "stroke-linecap": round ? "round" : "butt",
+        "stroke-linejoin": round ? "round" : "miter",
+        "stroke-dasharray": el.style.dash ? `${n(el.style.dash)} ${n(el.style.dash)}` : undefined,
+      })} />`,
+    );
+    for (const head of drawing.arrows) {
+      parts.push(`<polygon ${styleAttrs({ points: head.map((p) => `${n(p.x)},${n(p.y)}`).join(" "), fill: stroke.color })} />`);
+    }
+  }
+  return parts.join("");
+}
+
 export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
   const clipText = opts.clipText !== false;
   const scale = opts.scale ?? 1;
@@ -317,7 +358,8 @@ export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
 
   doc.elements.forEach((el, i) => {
     let inner: string;
-    if (el.type === "rect") inner = renderRect(el);
+    if (el.type === "rect") inner = renderRect(el, i);
+    else if (el.type === "path") inner = renderPath(el, i);
     else if (el.type === "image") inner = renderImage(el, defs, i);
     else inner = renderText(el, defs, i, clipText);
 

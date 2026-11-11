@@ -12,6 +12,8 @@
 import type { Doc, Element } from "../doc/types.js";
 import { center, degToRad, shapeContainsPoint } from "../doc/geometry.js";
 import { getAsset } from "../doc/assets.js";
+import { pathFill, pathPieces, pathStroke } from "../doc/path.js";
+import { polygonContainsPoint } from "../doc/geometry.js";
 
 export interface Rgba {
   r: number;
@@ -101,9 +103,20 @@ function layerColor(el: Element, at?: { x: number; y: number }): Rgba | null {
     const avg = assetAverageColor(el);
     return avg ? parseColor(avg) : null;
   }
-  // A rect with no declared fill still paints: the renderer defaults it to
-  // #cccccc, so the scorer has to see the same grey the reader does.
-  const fill = el.type === "rect" ? (el.style.fill ?? "#cccccc") : el.style.fill;
+  let fill: string | undefined;
+  if (el.type === "path") {
+    // The stroke is painted over the fill, so a point on the line takes the
+    // line's colour and any other point inside the outline takes the fill's.
+    const stroke = pathStroke(el);
+    const pieces = pathPieces(el);
+    if (stroke && at && pieces.stroke.some((poly) => polygonContainsPoint(poly, at))) return parseColor(stroke.color);
+    fill = pathFill(el) ?? undefined;
+    if (fill !== undefined && at && !pieces.fill.some((poly) => polygonContainsPoint(poly, at))) return null;
+  } else {
+    // A rect with no declared fill still paints: the renderer defaults it to
+    // #cccccc, so the scorer has to see the same grey the reader does.
+    fill = el.type === "rect" ? (el.style.fill ?? "#cccccc") : el.style.fill;
+  }
   if (!fill) return null;
   const from = parseColor(fill);
   const to = el.style.fillTo ? parseColor(el.style.fillTo) : null;
@@ -193,7 +206,10 @@ export function effectiveBackdrop(doc: Doc, el: Element): string {
   // Nearest layer first. A text element's own fill is painted behind its own
   // glyphs, so it joins the stack above everything else.
   const stack: Rgba[] = [];
-  const own = parseColor(el.style.fill ?? "transparent");
+  // Through `layerColor`, so a block fill that is a gradient is read where the
+  // glyphs sit rather than at its first stop — a fill fading in from
+  // `transparent` used to count as no fill at all.
+  const own = el.type === "text" ? layerColor(el, point) : null;
   if (own && own.a > 0) stack.push(withOpacity(own, el.style.opacity));
 
   // Paint order is bottom-first; walk down from just below `el`.

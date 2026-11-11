@@ -194,13 +194,13 @@ function visible(els: Element[]): Element[] {
  * Turn a defect size into a score. `tolerance` is the amount treated as
  * negligible; `budget` is where the score bottoms out.
  */
-function gradeDefect(amount: number, tolerance: number, budget: number): number {
+export function gradeDefect(amount: number, tolerance: number, budget: number): number {
   if (amount <= tolerance) return 1;
   if (amount >= budget) return 0;
   return 1 - (amount - tolerance) / (budget - tolerance);
 }
 
-function check(id: string, label: string, weight: number, run: (doc: Doc) => CheckOutcome): Check {
+export function check(id: string, label: string, weight: number, run: (doc: Doc) => CheckOutcome): Check {
   return { id, label, weight, run };
 }
 
@@ -2221,7 +2221,10 @@ export function paintedReach(
 export function runChecks(doc: Doc, checks: Check[]): { results: CheckResult[]; score: number } {
   const results: CheckResult[] = checks.map((c) => {
     const outcome = c.run(doc);
-    const score = Math.max(0, Math.min(1, outcome.score));
+    // A check that divides by nothing must not poison the whole score: NaN
+    // survives `Math.min` and `Math.max`, and one of them made every weighted
+    // mean NaN, which then compared false against the pass threshold.
+    const score = Number.isFinite(outcome.score) ? Math.max(0, Math.min(1, outcome.score)) : 0;
     return { ...outcome, score, id: c.id, label: c.label, weight: c.weight, passed: score >= PASS_THRESHOLD };
   });
   const totalWeight = results.reduce((s, r) => s + r.weight, 0);

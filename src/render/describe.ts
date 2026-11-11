@@ -21,7 +21,8 @@ import { aabb, outOfBoundsArea, round } from "../doc/geometry.js";
 import { occlusions, paintsAnything } from "../doc/occlusion.js";
 import { layoutTextElement } from "../text/layout.js";
 import { getAsset } from "../doc/assets.js";
-import { contrastRatio, effectiveBackdrop } from "../eval/color.js";
+import { contrastRatio, effectiveBackdrop, effectiveTextColor } from "../eval/color.js";
+import { pathLength, PATH_DEFAULT_STROKE_WIDTH } from "../doc/path.js";
 
 export type DescribeLevel = "geometry" | "analysis";
 
@@ -48,13 +49,18 @@ function styleSummary(el: Element): string {
   if (s.padding) bits.push(`padding=${fmt(s.padding)}`);
   if (s.radius) bits.push(`radius=${fmt(s.radius)}`);
   if (s.opacity !== undefined && s.opacity < 1) bits.push(`opacity=${s.opacity}`);
-  if (s.strokeColor) bits.push(`stroke=${s.strokeColor}/${fmt(s.strokeWidth ?? 1)}`);
+  if (s.strokeColor) bits.push(`stroke=${s.strokeColor}/${fmt(s.strokeWidth ?? (el.type === "path" ? PATH_DEFAULT_STROKE_WIDTH : 1))}`);
+  else if (s.strokeWidth !== undefined) bits.push(`strokeWidth=${fmt(s.strokeWidth)}`);
   if (s.objectFit) bits.push(`objectFit=${s.objectFit}`);
   if (s.shape && s.shape !== "rect") {
     bits.push(`shape=${s.shape}` + (s.shape !== "ellipse" ? ` sides=${s.sides ?? (s.shape === "star" ? 5 : 6)}` : ""));
     if (s.shape === "star") bits.push(`innerRatio=${s.innerRatio ?? 0.5}`);
   }
   if (s.fillTo) bits.push(`gradient to ${s.fillTo} at ${fmt(s.gradientAngle ?? 90)}deg`);
+  if (s.curve) bits.push(`curve=${s.curve}`);
+  if (s.lineCap) bits.push(`lineCap=${s.lineCap}`);
+  if (s.dash !== undefined) bits.push(`dash=${fmt(s.dash)}`);
+  if (s.arrow && s.arrow !== "none") bits.push(`arrow=${s.arrow}`);
   return bits.length ? bits.join(" ") : "(no style set)";
 }
 
@@ -65,6 +71,9 @@ function animationSummary(a: Animation): string {
     ? `animation fly from ${a.from} distance=${fmt(a.distance ?? 0)} ${when}`
     : `animation fade ${when}`;
 }
+
+/** Points of a path echoed back before the rest are counted rather than listed. */
+const MAX_POINTS_SHOWN = 48;
 
 function elementBlock(el: Element, maxTextChars: number): string[] {
   const lines: string[] = [];
@@ -81,6 +90,14 @@ function elementBlock(el: Element, maxTextChars: number): string[] {
   );
   lines.push(`  style ${styleSummary(el)}`);
   if (el.animation) lines.push(`  ${animationSummary(el.animation)}`);
+  if (el.type === "path") {
+    const pts = el.points ?? [];
+    const shown = pts.slice(0, MAX_POINTS_SHOWN).map(([x, y]) => `(${fmt(x)},${fmt(y)})`).join(" ");
+    lines.push(
+      `  ${el.closed ? "closed" : "open"} path through ${pts.length} point(s), ${fmt(pathLength(el))} units long: ${shown}` +
+        (pts.length > MAX_POINTS_SHOWN ? ` … and ${pts.length - MAX_POINTS_SHOWN} more` : ""),
+    );
+  }
 
   if (el.type === "text") {
     const raw = el.text ?? "";
@@ -155,9 +172,11 @@ function analysisNotes(doc: Doc): string[] {
   }
 
   for (const el of doc.elements) {
-    if (el.type !== "text" || !el.text) continue;
+    if (el.type !== "text" || !el.text || !paintsAnything(el)) continue;
     const backdrop = effectiveBackdrop(doc, el);
-    const ratio = contrastRatio(el.style.color ?? "#111111", backdrop);
+    // The colour as painted, the way `minContrast` reads it: the note and the
+    // check it warns about must not disagree over faded type.
+    const ratio = contrastRatio(effectiveTextColor(el), backdrop);
     if (ratio < 4.5) {
       notes.push(
         `${el.id} text contrast is ${ratio.toFixed(2)}:1 against ${backdrop}` +
