@@ -1407,27 +1407,34 @@ finishes every one (`src/surfaces/paint.test.ts`).
 
 - *Design.* `paint.diagram`, `paint.cycle`, `paint.orgchart`,
   `paint.network`; surfaces `coordinate`, `relational`, `document`; feedback
-  `none` and `both`; GPT-5.6 Luna and GPT-5.6 Terra at effort `high`,
-  `maxOutputTokens` 32,000; no turn budget; three repeats; no judge, since
-  it is no part of either outcome. 144 runs, about $8 priced from the pilots.
-  Fresh runs into a new directory: no pilot run enters this analysis.
-- *D1.* For each model, relational's pass rate is higher than coordinate's and
+  `none` and `both`; Gemini 3.8 Flash (`google:gemini-3.8-flash`) at effort
+  `high`, `maxOutputTokens` 32,000; no turn budget; three repeats; no judge,
+  since it is no part of either outcome. 72 runs, about $4 priced from the
+  pilots at its token rates. Fresh runs into a new directory: no pilot run
+  enters this analysis.
+- *Amended before any run.* The first draft of this entry named GPT-5.6
+  Luna and Terra. At the author's request the confirmation runs on Gemini
+  3.8 Flash instead, a decision made before any Gemini run on any paint
+  task. It is the stronger test: every pilot was on OpenAI models, so a
+  confirmation on another provider's model, which played no part in
+  designing the tasks, cannot be the pilot's selection repeating itself.
+- *D1.* Relational's pass rate is higher than coordinate's and
   than document-as-code's, paired within task: the mean within-task
   difference, with the task-clustered bootstrap of §4, excludes zero.
-- *D2.* For each model, relational's cost per pass (§13, eighth entry) is at
+- *D2.* Relational's cost per pass (§13, eighth entry) is at
   most 0.85 times coordinate's and document-as-code's, the paired ratio's
   interval excluding 1.
-- *Reading it.* Both hold, or the effect is not confirmed for that model.
-  Four tasks is a thin basis for a task-clustered interval, as it was for the
+- *Reading it.* Both hold, or the effect is not confirmed. Four tasks is a thin basis for a task-clustered interval, as it was for the
   measurement confirmation; a result that holds is a result about these four
   diagrams. `paint.diagram` was designed after a pilot and then piloted
   itself, so D1 and D2 are also reported on the three new diagrams alone, as
   a sensitivity check that cannot rescue a failed test: if the four-task
   result holds and the three-task one does not, both are reported and the
   effect is called confirmed only on the four.
-- *Exploratory, and labelled so if run.* GPT-5.6 Sol on the same grid (72
-  runs, about $12): whether the gap narrows on the strongest model, which on
-  the measurement family it did and on the pilot here it did not. And the
+- *Exploratory, and labelled so if run.* The same grid on other models —
+  GPT-5.6 Luna and Terra, as first drafted, or the strongest available —
+  for whether the gap narrows as the model gets stronger, which on the
+  measurement family it did and on the pilot here it did not. And the
   surface-by-feedback cells: both of document-as-code's pilot passes had the
   screenshot.
 
