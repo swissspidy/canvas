@@ -11,9 +11,9 @@
  * all, only a better and a worse one, which is what the judge and the pairwise
  * comparison are for.
  *
- * Prototypes, like `proto` and `anim`: resolvable by id or all together as
- * `paint`, and in no default sweep or grid until a pilot says they separate
- * something. Each carries `paint: true`, which attaches the drawing tools and
+ * Prototypes, like `proto` and `anim`: resolvable by id or together as
+ * `paint` (see `paintTasks` for which), and in no default sweep or grid until
+ * a pilot says they separate something. Each carries `paint: true`, which attaches the drawing tools and
  * the paragraph explaining a path.
  */
 
@@ -563,4 +563,20 @@ const lighthouse = defineTask({
   maxTurns: 30,
 });
 
-export const paintTasks = [route, mazeTask, flow, chartTask, pieTask, lighthouse];
+/**
+ * What `--tasks paint` runs: the tasks where a surface has a tool the others
+ * lack. `connect` finds the maze's way through, routes the board and ends an
+ * arrow on an oval's curve; on the other surfaces the agent works each out
+ * itself. That is the shape of the one confirmed result (`fit_text` on the
+ * measurement family), so it is where a gap is most likely.
+ */
+export const paintTasks = [route, mazeTask, flow, lighthouse];
+
+/**
+ * Kept, resolvable by id, and out of `--tasks paint`. Both are arithmetic from
+ * numbers in the brief — the chart maps twelve values onto a frame, the pie is
+ * trigonometry — and no surface has a tool for either, so there is nothing for
+ * the surfaces to differ on. Every pilot so far has a strong model doing exact
+ * arithmetic exactly.
+ */
+export const shelvedPaintTasks = [chartTask, pieTask];

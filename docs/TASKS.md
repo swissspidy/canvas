@@ -319,8 +319,11 @@ marks for it before anything had been done.
 
 ### `paint` — drawn, not laid out (6 prototypes)
 
-Not in the registered set or any default grid. Run them by id or all together
-with `--tasks paint`. Each sets `paint: true`, which attaches the drawing tools
+Not in the registered set or any default grid. Run them by id, or with
+`--tasks paint` for the four that `--tasks paint` selects: route, maze,
+flowchart and lighthouse. The chart and the pie are shelved — arithmetic from
+numbers in the brief, with no tool on any surface to make a difference — and
+run only by id. Each sets `paint: true`, which attaches the drawing tools
 and the paragraph that explains a path.
 
 | Task | What has to be found | What scores it |

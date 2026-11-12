@@ -1326,3 +1326,25 @@ reject — turning a malformed-call run into an `api_error`, excluded and
 retried, and so removing from the data exactly the runs the malformed-call
 rate is counted on. Whether that happened in any recorded sweep is unknown.
 
+**2026-11-12 — the paint family's first pilot, on the cheapest model.** Run
+on GPT-5.6 Luna rather than Opus 5.5, because the one confirmed result came
+from cheaper models, and a family has to separate surfaces there before it is
+worth pricing higher up. Before it ran, `paint.chart` and `paint.pie` were
+taken out of `--tasks paint` (still runnable by id): both are arithmetic from
+numbers in the brief, and no surface has a tool for either.
+
+*Pilot.* `paint.maze`, `paint.route` and `paint.flowchart`, three surfaces,
+`none` and `both`, one repeat, no judge: 18 runs, $0.20. **15 of 18 passed.**
+The maze passed on every surface in one call, the exact way through read off
+24 wall rectangles with no feedback. The three misses were one each: a
+flowchart arrow 7.8 units off an oval (coordinate, `none`), a trace 80 units
+over the length cap (coordinate, `none`), and two traces crossing (relational,
+`none`). Relational agents used `connect` on the flowchart — every arrow, at
+the lowest cost of any cell — and never on the maze or the board: they drew
+through points given as offsets from the canvas's corner, which is
+coordinates by another name.
+
+*Read.* As built, none of the three separates surfaces even on the cheapest
+model, so by the stopping rule set before the run nothing goes to Sonnet 5.5
+or Opus 5.5. No adjustment is made on this result.
+

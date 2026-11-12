@@ -16,7 +16,7 @@ import { arrangeTasks } from "./arrange.js";
 import { prototypeTasks } from "./prototype.js";
 import { measureTasks } from "./measure.js";
 import { animationTasks } from "./animation.js";
-import { paintTasks } from "./paint.js";
+import { paintTasks, shelvedPaintTasks } from "./paint.js";
 
 export const TASKS: Task[] = [
   ...composeTasks,
@@ -32,7 +32,7 @@ export const TASKS: Task[] = [
  * `anim` and `paint`, and never
  * part of `TASKS` — so no default sweep, grid or registry test includes them.
  */
-export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks, ...paintTasks];
+export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks, ...paintTasks, ...shelvedPaintTasks];
 
 export const TASKS_BY_ID: Map<string, Task> = new Map([...TASKS, ...PROTOTYPE_TASKS].map((t) => [t.id, t]));
 
