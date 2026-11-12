@@ -1363,3 +1363,28 @@ of a polygon's corner.
 One repeat per cell is not a result: this decides only that the task is
 worth repeating, and on which models. No adjustment is made on it.
 
+*Third pilot, the same day: repeats, and up the model ladder.* `paint.diagram`,
+three surfaces, `none` and `both`, no judge. Luna at three repeats (the six
+runs above plus twelve), and GPT-5.6 Terra and Sol at one — Sonnet 5.5 and
+Opus 5.5 were planned, but no Anthropic key was available, and the OpenAI
+ladder is priced the same and is the family the confirmation used. 30 runs,
+$1.74.
+
+| Model | Relational | Coordinate | Document-as-code | Cost a run, relational / others |
+|---|---|---|---|---|
+| Luna | 6 of 6 | 0 of 6 | 1 of 6 | $0.002 / $0.016–0.023 |
+| Terra | 2 of 2 | 0 of 2 | 0 of 2 | $0.018–0.022 / $0.11–0.15 |
+| Sol | 2 of 2 | 0 of 2 | 1 of 2 | $0.028–0.032 / $0.17–0.32 |
+
+Every relational run called `connect` twenty times and passed. Both
+document-as-code passes had the screenshot. Unlike the measurement family,
+the strongest model tried does not close the gap: Sol misses the outline on
+coordinate as Luna does, at ten times the price.
+
+*Read.* This is one task, and every interval here is task-clustered, so the
+report resolves nothing and should not: three repeats of one layout are not
+three independent observations (§4). What it decides is that the paint
+family is worth building into a confirmatory set — several diagrams with
+different shapes and layouts — and pre-registering before any of them is
+run. No adjustment is made on it.
+
