@@ -1505,3 +1505,26 @@ client that waits thirty minutes (`REQUEST_TIMEOUT_MS`, tested per
 provider). The confirmation above did not depend on it: at a 32,000-token
 ceiling it recorded no harness failure.
 
+*Result, at one repeat.* Cut from three repeats to one, at the author's
+request, before the remaining runs started, since the question was only
+whether the surface ever passes uncapped. Eight runs (the pricing run and
+seven more), $2.59, about 35 minutes. **None passed.** Six finished and
+scored 0.93 to 0.96: every diagram had arrows ending 10 to 17 units from
+their outlines, the coordinate surface's miss. Two still ended `max_tokens`
+at the model's own 65,536-token maximum. So document-as-code's zero in the
+confirmation was not the 32,000-token ceiling alone: uncapped, it reaches a
+finished page and makes the same measurement error coordinate does. The
+confirmation's result stands as tested, and relational against
+document-as-code reads as cleanly as against coordinate.
+
+**2026-11-12 (fourth entry) — pricing `paint.revise`.** Exploratory. One run
+per surface on Gemini 3.8 Flash, feedback `none`, at a 65,536-token ceiling so
+the large document cannot meet the confirmation's: 3 runs, $0.33. Every
+surface passed. Coordinate made the edits in 70 calls and 2 turns for $0.059;
+relational in 71 calls and 5 turns for $0.115; document-as-code in 3 calls
+(one rejected write) and 4 turns for $0.153, re-sending the 140-element
+painting with each. The task does not separate surfaces on passing, as
+expected of edits that need no measurement; whether cost grows differently
+with the size of the document is the question it was built for, and one
+painting at one size cannot answer it.
+
