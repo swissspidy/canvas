@@ -1438,3 +1438,46 @@ finishes every one (`src/surfaces/paint.test.ts`).
   surface-by-feedback cells: both of document-as-code's pilot passes had the
   screenshot.
 
+*Result.* 72 runs, $18.53, no harness failures, nothing read before the
+grid finished but the stop reasons of the first three runs.
+
+| | Relational | Coordinate | Document-as-code |
+|---|---|---|---|
+| Passes, four diagrams | 23/24 | 0/24 | 0/24 |
+| Passes, three new diagrams | 18/18 | 0/18 | 0/18 |
+| Cost per pass, pooled | $0.15 | $19.99 | $10.38 |
+
+| | D1, relational minus coordinate · minus document | D2, relational's cost per pass over coordinate's · document's |
+|---|---|---|
+| Four diagrams | +0.96 [0.88, 1.00] · +0.96 [0.88, 1.00] | 0.027 [0.018, 0.045] · 0.051 [0.037, 0.089] |
+| Three new only | +1.00 [1.00, 1.00] · +1.00 [1.00, 1.00] | 0.020 [0.018, 0.025] · 0.038 [0.037, 0.041] |
+
+D1 and D2 hold, on the four diagrams and on the three new ones alone: **the
+effect is confirmed on Gemini 3.8 Flash, on these four diagrams.** Every
+relational run used `connect`; no coordinate or document-as-code run passed.
+(With no pass, a cell's cost per pass is twice its spend, per the eighth
+entry, so the D2 ratios are bounded by that rule rather than measured against
+a real pass.)
+
+Three things the numbers alone do not say.
+
+- *Document-as-code mostly lost to the output ceiling.* 22 of its 24 runs
+  ended `max_tokens`: Gemini spent much of the 32,000-token ceiling reasoning
+  and then could not finish writing the whole document in one call. That is
+  an outcome under §5 and is counted as a failure, as pre-registered, but
+  relational against document-as-code here is largely a measure of that
+  ceiling, not of drawing. Relational against coordinate is the clean
+  comparison: coordinate ended `max_tokens` 3 times in 24 and otherwise
+  finished, scoring 0.70 to 0.96 — arrows that missed their outlines.
+- *Coordinate worked long.* 16.4 turns and 1.29 million input tokens a run on
+  average, against relational's 8.7 and 0.38 million. That, not the price
+  list, is most of the cost.
+- *The estimate was off by four and a half times* — about $4 forecast,
+  $18.53 spent — because it was priced from OpenAI runs that took two or
+  three turns, and Gemini's coordinate runs took sixteen. Pricing a new model
+  from another model's turn counts is not a forecast; the next one is priced
+  from a single cell of the model itself.
+
+Exploratory, not run: document-as-code without the ceiling, to separate the
+ceiling from the surface; and the same grid on other models.
+
