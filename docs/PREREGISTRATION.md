@@ -1549,3 +1549,35 @@ scenery grows, from about 6,000 to 52,000 tokens of JSON.
   not an interval. A rise in document-as-code's cost that coordinate and
   relational do not share is the effect; anything else is reported as found.
 
+*Result.* 12 runs, $1.69, every one passed.
+
+| Elements | Coordinate | Relational | Document-as-code |
+|---|---|---|---|
+| 70 | $0.041 | $0.093 | $0.085 |
+| 140 | $0.053 | $0.102 | $0.165 |
+| 280 | $0.074 | $0.109 | $0.205 |
+| 560 | $0.125 | $0.245 | $0.397 |
+| Rise, 70 to 560 | 3.0× | 2.6× | 4.7× |
+
+Half of what was expected. Document-as-code's cost rose the most, as
+predicted, and for the predicted reason: its output grew with the document
+(11,700 tokens at 70 elements, 50,300 at 560), because it writes the whole of
+it, and output is the dearer kind of token and is never read from a cache.
+At 560 elements its single write took 49,500 of the model's 65,536 tokens;
+it finished, with less margin than any other run.
+
+Coordinate's cost did not stay flat: it tripled, with its output the same at
+every size (about 5,000 tokens, 28 calls, two turns). What grew was input —
+45,000 tokens to 249,000 — because every surface's opening message carries
+the whole document, as JSON and as a description (the equal-information rule
+of `docs/DESIGN.md`), and each turn re-sends it, mostly from cache at a tenth
+of the price. Relational grew the same way, less evenly: its turn count fell
+from seven at 70 elements to two at 560, so its curve mixes size with how
+the run happened to go.
+
+So the size of a document costs every surface, through what it reads; it
+costs document-as-code twice, because it must also write it. At one repeat
+this is a shape, not an estimate: the per-element slope here is about $0.17
+per thousand elements on coordinate and $0.64 on document-as-code, and
+nothing in this entry is an interval.
+
