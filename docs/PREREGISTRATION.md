@@ -1528,3 +1528,24 @@ expected of edits that need no measurement; whether cost grows differently
 with the size of the document is the question it was built for, and one
 painting at one size cannot answer it.
 
+**2026-11-12 (fifth entry) — how cost grows with the document.** Exploratory,
+written before any run of the scaling set.
+
+`paint.revise-70`, `-140`, `-280` and `-560`: one revision — 12 crowns
+recoloured, a sun and its 8 rays moved, 6 birds removed, a retitle, 28
+elements in all — in paintings of 70, 140, 280 and 560 elements. The edited
+elements are identical at every size (a test holds them so); only untouched
+scenery grows, from about 6,000 to 52,000 tokens of JSON.
+
+- *Design.* The four sizes, three surfaces, feedback `none`, Gemini 3.8 Flash
+  at effort `high` and a 65,536-token ceiling, one repeat: 12 runs, priced
+  from the 560-element document-as-code run before the rest start.
+- *Expected.* Coordinate's and relational's cost per run roughly flat across
+  sizes, since they touch only the 28 edited elements. Document-as-code's
+  rising with size, since each write re-sends the whole document; at 560
+  elements a single write is about 52,000 tokens, which leaves Gemini little
+  of its 65,536-token maximum to think in, so it may not finish at all.
+- *Read as.* Cost per run against size, per surface, at one repeat: a shape,
+  not an interval. A rise in document-as-code's cost that coordinate and
+  relational do not share is the effect; anything else is reported as found.
+

@@ -17,6 +17,7 @@ import { prototypeTasks } from "./prototype.js";
 import { measureTasks } from "./measure.js";
 import { animationTasks } from "./animation.js";
 import { paintTasks, shelvedPaintTasks } from "./paint.js";
+import { scaleTasks } from "./paint-revise.js";
 
 export const TASKS: Task[] = [
   ...composeTasks,
@@ -32,7 +33,7 @@ export const TASKS: Task[] = [
  * `anim` and `paint`, and never
  * part of `TASKS` — so no default sweep, grid or registry test includes them.
  */
-export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks, ...paintTasks, ...shelvedPaintTasks];
+export const PROTOTYPE_TASKS: Task[] = [...prototypeTasks, ...animationTasks, ...paintTasks, ...shelvedPaintTasks, ...scaleTasks];
 
 export const TASKS_BY_ID: Map<string, Task> = new Map([...TASKS, ...PROTOTYPE_TASKS].map((t) => [t.id, t]));
 
@@ -72,6 +73,11 @@ export function resolveTasks(selector: string): Task[] {
     // Prototypes, so not in `TASKS` and not found by the family lookup below.
     if (part === "paint") {
       out.push(...paintTasks);
+      continue;
+    }
+    // The revision at four sizes, edits fixed and scenery growing.
+    if (part === "scale") {
+      out.push(...scaleTasks);
       continue;
     }
     const family = tasksInFamily(part as TaskFamily);

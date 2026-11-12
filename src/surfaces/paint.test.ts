@@ -358,3 +358,41 @@ describe("revising a large painting", () => {
     expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(rebuilt))), task).score).toBeLessThan(0.85);
   });
 });
+
+describe("the revision at four sizes", () => {
+  it("holds the edits fixed and grows only the untouched scenery", async () => {
+    const { SCALE_SIZES, REVISE_SOLUTIONS, SUN, SUN_MOVED } = await import("../tasks/paint-revise.js");
+    const edited = (d: Doc) =>
+      JSON.stringify(d.elements.filter((e) => /^(sun|ray_|crown_|bird_|title)/.test(e.id)).map(({ z: _z, ...rest }) => rest));
+    const tasks = SCALE_SIZES.map((n) => getTask(`paint.revise-${n}`));
+    const first = edited(tasks[0]!.initial());
+    expect(JSON.parse(first)).toHaveLength(1 + 8 + 12 + 6 + 1);
+    tasks.forEach((task, i) => {
+      const start = task.initial();
+      expect(start.elements, task.id).toHaveLength(SCALE_SIZES[i]!);
+      expect(edited(start), task.id).toBe(first);
+      expect(scoreDocument(REVISE_SOLUTIONS[task.id]!(), task).score, task.id).toBeGreaterThanOrEqual(0.999);
+    });
+
+    // The largest, reached incrementally on both edit surfaces.
+    const task = getTask("paint.revise-560");
+    const dx = SUN_MOVED.cx - SUN.cx;
+    const dy = SUN_MOVED.cy - SUN.cy;
+    for (const surface of [coordinate, relational]) {
+      const s = new DocSession(task.initial());
+      for (let i = 1; i <= 12; i++) call(s, surface, "set_style", { id: `crown_${i}`, style: { fill: "#d9822b" } });
+      for (const id of ["sun", ...Array.from({ length: 8 }, (_, i) => `ray_${i + 1}`)]) {
+        const el = s.doc.elements.find((e) => e.id === id)!;
+        if (surface === coordinate) call(s, surface, "move", { id, x: el.x + dx, y: el.y + dy });
+      }
+      if (surface === relational) {
+        call(s, surface, "align", { ids: ["sun"], edge: "left", to: "canvas", margin: SUN_MOVED.cx - SUN.r });
+        call(s, surface, "align", { ids: ["sun"], edge: "top", to: "canvas", margin: SUN_MOVED.cy - SUN.r });
+        for (let i = 0; i < 8; i++) call(s, surface, "place", { id: `ray_${i + 1}`, relation: "around", target: "sun", gap: 160, angle: i * 45 });
+      }
+      for (let i = 1; i <= 6; i++) call(s, surface, "delete", { id: `bird_${i}` });
+      call(s, surface, "set_style", { id: "title", text: "Autumn in the Valley" });
+      expect(scoreDocument(s.doc, task).score, surface.id).toBeGreaterThanOrEqual(0.999);
+    }
+  });
+});
