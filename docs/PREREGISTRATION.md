@@ -1481,3 +1481,15 @@ Three things the numbers alone do not say.
 Exploratory, not run: document-as-code without the ceiling, to separate the
 ceiling from the surface; and the same grid on other models.
 
+**2026-11-12 (third entry) — document-as-code without the ceiling.**
+Exploratory, and written before its first run. The confirmation above lost
+22 of document-as-code's 24 runs to the 32,000-token output ceiling, so
+relational against document-as-code there measured the ceiling as much as
+the surface. This re-runs only that surface with the ceiling at Gemini 3.8
+Flash's own maximum, 65,536 tokens — no limit but the model's — on the same
+four diagrams, `none` and `both`, three repeats: 24 runs, priced from its
+first one before the rest are started. It is compared with the confirmation's
+relational runs as they stand. It cannot change the confirmed result, which
+was tested as pre-registered; it says whether document-as-code's zero was
+the surface or the ceiling.
+
