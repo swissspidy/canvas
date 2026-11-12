@@ -320,7 +320,7 @@ marks for it before anything had been done.
 ### `paint` — drawn, not laid out (6 prototypes)
 
 Not in the registered set or any default grid. `--tasks paint` selects the
-diagram and the lighthouse; the rest are shelved and run only by id. The chart
+four diagrams and the lighthouse; the rest are shelved and run only by id. The chart
 and the pie are arithmetic from numbers in the brief with no tool on any
 surface to make a difference; the maze, the board and the first flowchart did
 not separate surfaces on GPT-5.6 Luna (`docs/PREREGISTRATION.md`, 2026-11-12). Each sets `paint: true`, which attaches the drawing tools
@@ -332,11 +332,20 @@ and the paragraph that explains a path.
 | `paint.maze` | The one way through an 8 by 6 maze, from the walls' coordinates. | `pathClearOf` against every wall, `pathEnds`, a length cap |
 | `paint.flowchart` | Seven arrows that start and end *on the outline* of a box, an oval or a diamond, along the line joining centres. | `connects`, one per arrow |
 | `paint.diagram` | The flowchart built out: twelve shapes, nearly all ovals and polygons turned at an angle, and twenty arrows — three of them diagonals meeting their shape at a shallow angle — each ending on the outline as drawn, to within 2 units. | `connects`, one per arrow |
+| `paint.cycle` | The same brief on a hub and a ring of eight: sixteen arrows, at every angle. | `connects`, one per arrow |
+| `paint.orgchart` | A tree, one shape fanning out to four and each of those to two: fourteen arrows, several leaving one shape at shallow angles. | `connects`, one per arrow |
+| `paint.network` | Sixteen small shapes in a four-by-four grid: twenty-four arrows across, down and diagonally, over short gaps. | `connects`, one per arrow |
 | `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
 | `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
 | `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |
 
-Asserted in `src/surfaces/paint.test.ts`: a straight line through the maze's
+The four diagrams are built by one function, `diagramTask`, from a layout:
+same brief, same checks, different geometry. Every layout is tested for the
+same things — no arrow's centre line passes within 25 units of another shape
+or label, every label sits inside its shape, `connect` alone finishes it, and
+arrows ended on the bounding box instead of the outline score below 90%.
+
+Also asserted in `src/surfaces/paint.test.ts`: a straight line through the maze's
 walls scores zero on clearance; an invisible path earns nothing on any of them;
 a pie of straight-edged triangles fails every slice while one drawn as smooth
 curves through a few points passes; an arrow drawn the wrong way round, or to a

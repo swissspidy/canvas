@@ -1388,3 +1388,46 @@ family is worth building into a confirmatory set — several diagrams with
 different shapes and layouts — and pre-registering before any of them is
 run. No adjustment is made on it.
 
+**2026-11-12 (second entry) — a confirmation of the paint pilot's effect.**
+Written before any run of `paint.cycle`, `paint.orgchart` or
+`paint.network`, and before the first confirmatory run. It mirrors the
+2026-10-09 confirmation of the measurement effect, so that the two results
+are read the same way.
+
+The pilots above show one effect on one task: on `paint.diagram`, relational
+passed every run on three models and coordinate none. Three more diagrams
+were built to test it, each a different structure — a hub with a ring of
+eight around it (arrows at every angle), a tree that fans out (several arrows
+leave one shape at shallow angles), and a four-by-four grid of small shapes
+with diagonals (short gaps, outlines close together). All four share one
+brief, one set of checks and one operation only relational has, `connect`.
+Each has a reference solution at full marks; arrows ended on each shape's box
+rather than its outline score below 90% on every one; and `connect` alone
+finishes every one (`src/surfaces/paint.test.ts`).
+
+- *Design.* `paint.diagram`, `paint.cycle`, `paint.orgchart`,
+  `paint.network`; surfaces `coordinate`, `relational`, `document`; feedback
+  `none` and `both`; GPT-5.6 Luna and GPT-5.6 Terra at effort `high`,
+  `maxOutputTokens` 32,000; no turn budget; three repeats; no judge, since
+  it is no part of either outcome. 144 runs, about $8 priced from the pilots.
+  Fresh runs into a new directory: no pilot run enters this analysis.
+- *D1.* For each model, relational's pass rate is higher than coordinate's and
+  than document-as-code's, paired within task: the mean within-task
+  difference, with the task-clustered bootstrap of §4, excludes zero.
+- *D2.* For each model, relational's cost per pass (§13, eighth entry) is at
+  most 0.85 times coordinate's and document-as-code's, the paired ratio's
+  interval excluding 1.
+- *Reading it.* Both hold, or the effect is not confirmed for that model.
+  Four tasks is a thin basis for a task-clustered interval, as it was for the
+  measurement confirmation; a result that holds is a result about these four
+  diagrams. `paint.diagram` was designed after a pilot and then piloted
+  itself, so D1 and D2 are also reported on the three new diagrams alone, as
+  a sensitivity check that cannot rescue a failed test: if the four-task
+  result holds and the three-task one does not, both are reported and the
+  effect is called confirmed only on the four.
+- *Exploratory, and labelled so if run.* GPT-5.6 Sol on the same grid (72
+  runs, about $12): whether the gap narrows on the strongest model, which on
+  the measurement family it did and on the pilot here it did not. And the
+  surface-by-feedback cells: both of document-as-code's pilot passes had the
+  screenshot.
+

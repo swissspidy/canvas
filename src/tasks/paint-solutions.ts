@@ -15,7 +15,7 @@ import { boxOfPoints, type Pt } from "../doc/path.js";
 import { routeAround } from "../surfaces/paint.js";
 import { getTask } from "./index.js";
 import {
-  AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DIAGRAM_EDGES, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
+  AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DIAGRAM_SPECS, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
   NETS, PEAK_DOT, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH, VISITORS, mazeCellCentre,
 } from "./paint.js";
 
@@ -92,7 +92,7 @@ const FIRST_SOLUTIONS: Record<string, () => Doc> = {
     withAdded("paint.maze", [path("thread", MAZE_PLAN.solution.map(mazeCellCentre), { strokeColor: "#e63946", strokeWidth: MAZE_LINE })]),
 
   "paint.flowchart": () => arrowsBetween("paint.flowchart", EDGES),
-  "paint.diagram": () => arrowsBetween("paint.diagram", DIAGRAM_EDGES),
+  ...Object.fromEntries(DIAGRAM_SPECS.map((spec) => [spec.id, () => arrowsBetween(spec.id, spec.edges)])),
 };
 
 /** Straight arrows from outline to outline along the line joining box centres. */

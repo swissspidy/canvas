@@ -412,10 +412,32 @@ export const DIAGRAM_EDGES: [string, string][] = [
   ["triage", "escalate"],
 ];
 
-const diagram = (): Doc =>
-  doc(
+const NUMBER_WORDS = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+  "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one",
+  "twenty-two", "twenty-three", "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight",
+  "twenty-nine", "thirty",
+];
+const say = (n: number) => NUMBER_WORDS[n] ?? String(n);
+
+export interface DiagramSpec {
+  id: string;
+  title: string;
+  /** What the brief calls it: "process diagram", "org chart". */
+  noun: string;
+  /** The shapes in a phrase, for the brief's opening line. */
+  shapes: string;
+  canvas: { width: number; height: number };
+  nodes: DiagramNode[];
+  edges: [string, string][];
+  fontSize?: number;
+}
+
+/** The starting document of a diagram: its shapes, each with its label laid over it. */
+export function diagramDoc(spec: DiagramSpec): Doc {
+  return doc(
     [
-      ...DIAGRAM_NODES.map((n) =>
+      ...spec.nodes.map((n) =>
         rect({
           id: n.id,
           x: n.x,
@@ -426,7 +448,7 @@ const diagram = (): Doc =>
           style: { fill: n.fill, ...(n.shape === "rect" ? {} : { shape: n.shape }), ...(n.sides ? { sides: n.sides } : {}) },
         }),
       ),
-      ...DIAGRAM_NODES.map((n) =>
+      ...spec.nodes.map((n) =>
         text({
           id: `${n.id}_label`,
           x: n.x,
@@ -434,43 +456,193 @@ const diagram = (): Doc =>
           w: n.w,
           h: n.h,
           text: n.label,
-          style: { fontSize: 28, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
+          style: { fontSize: spec.fontSize ?? 28, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
         }),
       ),
     ],
-    { ...DIAGRAM, background: "#f7f4ee" },
+    { ...spec.canvas, background: "#f7f4ee" },
   );
+}
 
-const diagramIds = DIAGRAM_NODES.flatMap((n) => [n.id, `${n.id}_label`]);
-const sayShape = (id: string) => `'${DIAGRAM_NODES.find((n) => n.id === id)!.label}'`;
+/**
+ * A diagram task: draw every listed arrow from outline to outline. One brief,
+ * one set of checks, for every layout, so the diagrams differ only in the
+ * geometry the agent has to work out.
+ */
+export function diagramTask(spec: DiagramSpec) {
+  const ids = spec.nodes.flatMap((n) => [n.id, `${n.id}_label`]);
+  const label = (id: string) => `'${spec.nodes.find((n) => n.id === id)!.label}'`;
+  const arrows = say(spec.edges.length);
+  return defineTask({
+    id: spec.id,
+    title: spec.title,
+    family: "paint",
+    paint: true,
+    brief: [
+      `This ${spec.noun} has ${say(spec.nodes.length)} shapes — ${spec.shapes} — each with a label on it, and no connectors yet. Draw these ${arrows} arrows:`,
+      "",
+      ...spec.edges.map(([a, b]) => `- from ${label(a)} to ${label(b)}`),
+      "",
+      `Each arrow is an open path of exactly two points, stroked in ${FLOW_STROKE} at strokeWidth ${FLOW_WIDTH}, with an arrowhead at its end (style.arrow 'end').`,
+      "It runs along the straight line joining the centres of the two shapes — a shape's centre is the centre of its box, the point its rotation turns it about — but covers only the gap between them: it starts exactly on the outline of the shape it comes from and ends exactly on the outline of the shape it goes to, to within 2 units.",
+      "The outline is the shape as drawn: an oval's curve and a polygon's sides, stretched to fill the box and turned with it — not the box around them.",
+      `Do not move, restyle or delete the shapes or their labels, and add nothing but the ${arrows} arrows.`,
+    ].join("\n"),
+    initial: () => diagramDoc(spec),
+    checks: [
+      ...spec.edges.map(([a, b]) => connects(a, b, 3, { arrow: true, label: `An arrow runs from ${label(a)} to ${label(b)}, outline to outline` })),
+      pathCount((el) => el.type === "path" && paintsAnything(el), spec.edges.length, 2, `Exactly ${arrows} paths`),
+      styleIs(connector, { strokeColor: FLOW_STROKE, strokeWidth: FLOW_WIDTH }, 2, "Arrows are drawn in the stated stroke"),
+      geometryUnchanged(diagramDoc(spec), ids, 2),
+      preservesElements(ids, 2),
+      styleUnchanged(diagramDoc(spec), ids, 1),
+    ],
+    judgeCriteria: [`Reads as a clear ${spec.noun}: every arrow visibly joins the two shapes it is meant to.`],
+    maxTurns: 30,
+  });
+}
 
-const diagramTask = defineTask({
+export const DIAGRAM_SPEC: DiagramSpec = {
   id: "paint.diagram",
   title: "Connect a process diagram's shapes with arrows",
-  family: "paint",
-  paint: true,
-  brief: [
-    "This process diagram has twelve shapes — ovals, diamonds, hexagons, pentagons and an octagon, several of them turned — each with a label on it, and no connectors yet. Draw these twenty arrows:",
-    "",
-    ...DIAGRAM_EDGES.map(([a, b]) => `- from ${sayShape(a)} to ${sayShape(b)}`),
-    "",
-    `Each arrow is an open path of exactly two points, stroked in ${FLOW_STROKE} at strokeWidth ${FLOW_WIDTH}, with an arrowhead at its end (style.arrow 'end').`,
-    "It runs along the straight line joining the centres of the two shapes — a shape's centre is the centre of its box, the point its rotation turns it about — but covers only the gap between them: it starts exactly on the outline of the shape it comes from and ends exactly on the outline of the shape it goes to, to within 2 units.",
-    "The outline is the shape as drawn: an oval's curve and a polygon's sides, stretched to fill the box and turned with it — not the box around them.",
-    "Do not move, restyle or delete the shapes or their labels, and add nothing but the twenty arrows.",
-  ].join("\n"),
-  initial: diagram,
-  checks: [
-    ...DIAGRAM_EDGES.map(([a, b]) => connects(a, b, 3, { arrow: true, label: `An arrow runs from ${sayShape(a)} to ${sayShape(b)}, outline to outline` })),
-    pathCount((el) => el.type === "path" && paintsAnything(el), DIAGRAM_EDGES.length, 2, "Exactly twenty paths"),
-    styleIs(connector, { strokeColor: FLOW_STROKE, strokeWidth: FLOW_WIDTH }, 2, "Arrows are drawn in the stated stroke"),
-    geometryUnchanged(diagram(), diagramIds, 2),
-    preservesElements(diagramIds, 2),
-    styleUnchanged(diagram(), diagramIds, 1),
-  ],
-  judgeCriteria: ["Reads as a clear process diagram: every arrow visibly joins the two shapes it is meant to."],
-  maxTurns: 30,
-});
+  noun: "process diagram",
+  shapes: "ovals, diamonds, hexagons, pentagons and an octagon, several of them turned",
+  canvas: DIAGRAM,
+  nodes: DIAGRAM_NODES,
+  edges: DIAGRAM_EDGES,
+};
+
+const diagramTask1 = diagramTask(DIAGRAM_SPEC);
+
+// --- the confirmatory diagrams -------------------------------------------------
+//
+// Three more layouts for the confirmatory set (`docs/PREREGISTRATION.md`,
+// 2026-11-12), each a different structure: a hub with a ring around it, so
+// arrows run at every angle; a tree that fans out, so several arrows leave one
+// shape at shallow angles; and a dense grid of small shapes with diagonals,
+// so the gaps are short and the outlines close together. Built by rule
+// rather than by hand, and checked by `paint.test.ts` for the same things the
+// first diagram was: no arrow passes over another shape or label, and the
+// reference solution scores full marks.
+
+const FILLS = ["#264653", "#a63d2a", "#1f6f66", "#3d405b", "#6d597a", "#7a4419"];
+
+type Kind = Pick<DiagramNode, "shape" | "sides">;
+const OVAL: Kind = { shape: "ellipse" };
+const DIAMOND: Kind = { shape: "polygon", sides: 4 };
+const PENTAGON: Kind = { shape: "polygon", sides: 5 };
+const HEXAGON: Kind = { shape: "polygon", sides: 6 };
+const OCTAGON: Kind = { shape: "polygon", sides: 8 };
+const BOX: Kind = { shape: "rect" };
+
+/** A node centred on (cx, cy). */
+function node(id: string, label: string, cx: number, cy: number, w: number, h: number, kind: Kind, rot: number, fill: string): DiagramNode {
+  return { id, label, x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h, ...kind, rot, fill };
+}
+
+/** The hub and ring: one shape in the middle, eight around it. */
+export const CYCLE_SPEC: DiagramSpec = (() => {
+  const labels = ["Plan", "Build", "Measure", "Learn", "Adapt", "Release", "Support", "Retire"];
+  const kinds = [OVAL, HEXAGON, DIAMOND, PENTAGON, BOX, OCTAGON, OVAL, HEXAGON];
+  const rots = [-20, 0, 18, 0, 25, 12, 35, -15];
+  const sizes: [number, number][] = [[200, 120], [190, 150], [200, 160], [180, 160], [190, 110], [170, 170], [210, 120], [190, 140]];
+  const cx = 600;
+  const cy = 600;
+  const r = 420;
+  const ring = labels.map((label, i) => {
+    const a = (i * Math.PI * 2) / labels.length;
+    return node(label.toLowerCase(), label, cx + Math.sin(a) * r, cy - Math.cos(a) * r, sizes[i]![0], sizes[i]![1], kinds[i]!, rots[i]!, FILLS[i % FILLS.length]!);
+  });
+  const hub = node("core", "Core", cx, cy, 230, 150, HEXAGON, 15, "#264653");
+  const ids = ring.map((n) => n.id);
+  const edges: [string, string][] = [
+    ...ids.map((id, i): [string, string] => [id, ids[(i + 1) % ids.length]!]),
+    ...ids.map((id, i): [string, string] => (i % 2 === 0 ? ["core", id] : [id, "core"])),
+  ];
+  return {
+    id: "paint.cycle",
+    title: "Connect a cycle diagram's shapes with arrows",
+    noun: "cycle diagram",
+    shapes: "one in the middle and eight in a ring around it: ovals, hexagons, a diamond, a pentagon, an octagon and a box, most of them turned",
+    canvas: { width: 1200, height: 1200 },
+    nodes: [hub, ...ring],
+    edges,
+  };
+})();
+
+/** The tree: one shape at the top, four below it, two below each of those. */
+export const ORG_SPEC: DiagramSpec = (() => {
+  const W = 1400;
+  const mids = ["Design", "Product", "Sales", "Support"];
+  const leaves = ["Brand", "Web", "Mobile", "Data", "North", "South", "Help", "Docs"];
+  const midKinds = [OVAL, DIAMOND, OCTAGON, PENTAGON];
+  const midRots = [15, 0, 20, -10];
+  const leafKinds = [HEXAGON, OVAL, DIAMOND, BOX, OVAL, PENTAGON, HEXAGON, OCTAGON];
+  const leafRots = [0, -25, 15, 20, 30, 0, -15, 10];
+  const root = node("board", "Board", W / 2, 120, 240, 150, HEXAGON, 10, "#3d405b");
+  const midNodes = mids.map((label, i) =>
+    node(label.toLowerCase(), label, 175 + i * 350, 450, 210, 140, midKinds[i]!, midRots[i]!, FILLS[(i + 1) % FILLS.length]!),
+  );
+  const leafNodes = leaves.map((label, i) =>
+    node(label.toLowerCase(), label, 87.5 + i * 175, 830, 140, 100, leafKinds[i]!, leafRots[i]!, FILLS[(i + 3) % FILLS.length]!),
+  );
+  const edges: [string, string][] = [
+    ...midNodes.map((m): [string, string] => ["board", m.id]),
+    ...leafNodes.map((l, i): [string, string] => [midNodes[Math.floor(i / 2)]!.id, l.id]),
+    [midNodes[0]!.id, midNodes[1]!.id],
+    [midNodes[3]!.id, midNodes[2]!.id],
+  ];
+  return {
+    id: "paint.orgchart",
+    title: "Connect an org chart's shapes with arrows",
+    noun: "org chart",
+    shapes: "one at the top, four below it and eight below those: ovals, hexagons, diamonds, pentagons, octagons and a box, many of them turned",
+    canvas: { width: W, height: 960 },
+    nodes: [root, ...midNodes, ...leafNodes],
+    edges,
+    fontSize: 24,
+  };
+})();
+
+/** The grid: sixteen small shapes, four by four, with arrows across, down and diagonally. */
+export const NETWORK_SPEC: DiagramSpec = (() => {
+  const kinds = [OVAL, DIAMOND, HEXAGON, PENTAGON, OCTAGON, BOX, OVAL, HEXAGON];
+  const rots = [0, 20, -15, 10, 25, -30, 15, 0, -20, 30, 0, 12, -10, 18, 35, -25];
+  const id = (r: number, c: number) => `n${r}${c}`;
+  const nodes: DiagramNode[] = [];
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      const i = r * 4 + c;
+      nodes.push(node(id(r, c), `${"ABCD"[r]}${c + 1}`, 160 + c * 330, 130 + r * 280, 150, 100, kinds[(i * 3) % kinds.length]!, rots[i]!, FILLS[(i * 5) % FILLS.length]!));
+    }
+  }
+  const edges: [string, string][] = [];
+  for (const r of [0, 2]) for (let c = 0; c < 3; c++) edges.push([id(r, c), id(r, c + 1)]);
+  for (const r of [1, 3]) for (let c = 0; c < 2; c++) edges.push([id(r, c + 1), id(r, c)]);
+  for (const c of [0, 3]) for (let r = 0; r < 3; r++) edges.push([id(r, c), id(r + 1, c)]);
+  edges.push([id(0, 1), id(1, 1)], [id(3, 2), id(2, 2)]);
+  edges.push(
+    [id(0, 0), id(1, 1)],
+    [id(0, 3), id(1, 2)],
+    [id(1, 1), id(2, 2)],
+    [id(2, 1), id(3, 0)],
+    [id(2, 2), id(3, 3)],
+    [id(1, 3), id(2, 2)],
+  );
+  return {
+    id: "paint.network",
+    title: "Connect a network diagram's shapes with arrows",
+    noun: "network diagram",
+    shapes: "small ones in a four by four grid: ovals, diamonds, hexagons, pentagons, octagons and boxes, most of them turned",
+    canvas: { width: 1400, height: 1100 },
+    nodes,
+    edges,
+    fontSize: 24,
+  };
+})();
+
+export const DIAGRAM_SPECS: DiagramSpec[] = [DIAGRAM_SPEC, CYCLE_SPEC, ORG_SPEC, NETWORK_SPEC];
+const confirmatoryDiagrams = [CYCLE_SPEC, ORG_SPEC, NETWORK_SPEC].map(diagramTask);
 
 // --- paint.chart ---------------------------------------------------------------
 
@@ -696,7 +868,7 @@ const lighthouse = defineTask({
  * curve — so the diagram is the flowchart built out around that, and the rest
  * are shelved. The lighthouse stays for head-to-head judging.
  */
-export const paintTasks = [diagramTask, lighthouse];
+export const paintTasks = [diagramTask1, ...confirmatoryDiagrams, lighthouse];
 
 /**
  * Kept, resolvable by id, and out of `--tasks paint`. The chart and the pie

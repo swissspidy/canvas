@@ -5,15 +5,16 @@ import { surfaceFor } from "./index.js";
 import { systemPrompt } from "../agent/prompt.js";
 import { PAINT_NOTE } from "./paint.js";
 import { parseDoc } from "../doc/schema.js";
-import { boxOfPoints, pathLength, pathPieces, pointsBounds, triangulate } from "../doc/path.js";
+import { boxOfPoints, pathLength, pathPieces, pointsBounds, segmentPolygonDistance, triangulate } from "../doc/path.js";
 import { outOfBoundsArea, polygonArea } from "../doc/geometry.js";
 import { renderSvg } from "../render/svg.js";
 import { describeDoc } from "../render/describe.js";
 import { getTask } from "../tasks/index.js";
 import { scoreDocument } from "../eval/score.js";
 import { PAINT_SOLUTIONS } from "../tasks/paint-solutions.js";
-import { DIAGRAM_EDGES, MAZE_CLEARANCE, MAZE_LINE, NETS, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH } from "../tasks/paint.js";
-import { aabb } from "../doc/geometry.js";
+import { DIAGRAM_SPECS, MAZE_CLEARANCE, MAZE_LINE, NETS, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH } from "../tasks/paint.js";
+import { aabb, polygonContainsPoint, shapePolygons } from "../doc/geometry.js";
+import { inkPolygons } from "../doc/occlusion.js";
 import type { Doc, Element } from "../doc/types.js";
 
 const coordinate = surfaceFor("coordinate", { paint: true });
@@ -205,30 +206,50 @@ describe("the paint tasks, drawn with the relational tools", () => {
   });
 });
 
-describe("the process diagram", () => {
+describe.each(DIAGRAM_SPECS.map((spec) => [spec.id, spec] as const))("the diagram %s", (_id, spec) => {
+  const task = getTask(spec.id);
+  const start = task.initial();
+  const byId = new Map(start.elements.map((e) => [e.id, e]));
+  const centre = (e: Element) => ({ x: e.x + e.width / 2, y: e.y + e.height / 2 });
+
+  it("has no arrow whose centre line passes near another shape or label, and every label sits inside its shape", () => {
+    for (const [a, b] of spec.edges) {
+      const p = centre(byId.get(a)!);
+      const q = centre(byId.get(b)!);
+      for (const el of start.elements) {
+        const owner = el.id.replace(/_label$/, "");
+        if (owner === a || owner === b) continue;
+        for (const poly of el.type === "text" ? inkPolygons(el) : shapePolygons(el)) {
+          expect(segmentPolygonDistance(p, q, poly), `${a} to ${b} passes ${el.id}`).toBeGreaterThanOrEqual(25);
+        }
+      }
+    }
+    for (const n of spec.nodes) {
+      const shape = shapePolygons(byId.get(n.id)!);
+      for (const ink of inkPolygons(byId.get(`${n.id}_label`)!)) {
+        for (const pt of ink) expect(shape.some((poly) => polygonContainsPoint(poly, pt)), `${n.id}'s label`).toBe(true);
+      }
+    }
+  });
+
   it("is finished by connect alone, one call per arrow", () => {
-    const task = getTask("paint.diagram");
-    const s = new DocSession(task.initial());
-    for (const [from, to] of DIAGRAM_EDGES) call(s, relational, "connect", { from, to, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } });
+    const s = new DocSession(start);
+    for (const [from, to] of spec.edges) call(s, relational, "connect", { from, to, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } });
     expect(scoreDocument(s.doc, task).score).toBeGreaterThanOrEqual(0.999);
   });
 
   it("does not pass with arrows ended on each shape's box rather than its outline", () => {
     // The approximation an agent reaches for when it does not derive the
     // outline: where the centre line leaves the bounding box.
-    const task = getTask("paint.diagram");
-    const start = task.initial();
-    const byId = new Map(start.elements.map((e) => [e.id, e]));
-    const exitBox = (from: Element, toward: { x: number; y: number }) => {
+    const exitBox = (from: Element, toward: { x: number; y: number }): [number, number] => {
       const b = aabb(from);
       const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
       const dx = toward.x - c.x;
       const dy = toward.y - c.y;
       const t = Math.min(dx ? b.width / 2 / Math.abs(dx) : Infinity, dy ? b.height / 2 / Math.abs(dy) : Infinity);
-      return [c.x + dx * t, c.y + dy * t] as [number, number];
+      return [c.x + dx * t, c.y + dy * t];
     };
-    const centre = (e: Element) => ({ x: e.x + e.width / 2, y: e.y + e.height / 2 });
-    const arrows = DIAGRAM_EDGES.map(([a, b], i): Element => {
+    const arrows = spec.edges.map(([a, b], i): Element => {
       const pts: [number, number][] = [exitBox(byId.get(a)!, centre(byId.get(b)!)), exitBox(byId.get(b)!, centre(byId.get(a)!))];
       return { id: `p${i}`, type: "path", ...boxOfPoints(pts), rotation: 0, z: 500 + i, points: pts, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } };
     });
