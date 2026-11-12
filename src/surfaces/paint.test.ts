@@ -315,3 +315,46 @@ describe("the paint tasks cannot be satisfied cheaply", () => {
     expect(scoreOf("paint.flowchart", backwards).results.find((r) => r.id === "connects")!.score).toBeLessThan(0.5);
   });
 });
+
+describe("revising a large painting", () => {
+  // The edits touch 70 elements; every surface must be able to make them in
+  // its own vocabulary, or the task measures a missing verb.
+  it("can be done on every surface, and scores full marks each way", async () => {
+    const { reviseSolution, crownIds, rayIds, birdIds, SUN, SUN_MOVED, RAY_DISTANCE, RAY_COUNT, AUTUMN, NEW_TITLE } = await import("../tasks/paint-revise.js");
+    const task = getTask("paint.revise");
+    const dx = SUN_MOVED.cx - SUN.cx;
+    const dy = SUN_MOVED.cy - SUN.cy;
+
+    const coord = new DocSession(task.initial());
+    for (const id of crownIds) call(coord, coordinate, "set_style", { id, style: { fill: AUTUMN } });
+    for (const id of ["sun", ...rayIds]) {
+      const el = coord.doc.elements.find((e) => e.id === id)!;
+      call(coord, coordinate, "move", { id, x: el.x + dx, y: el.y + dy });
+    }
+    for (const id of birdIds) call(coord, coordinate, "delete", { id });
+    call(coord, coordinate, "set_style", { id: "title", text: NEW_TITLE });
+
+    const rel = new DocSession(task.initial());
+    for (const id of crownIds) call(rel, relational, "set_style", { id, style: { fill: AUTUMN } });
+    call(rel, relational, "align", { ids: ["sun"], edge: "left", to: "canvas", margin: SUN_MOVED.cx - SUN.r });
+    call(rel, relational, "align", { ids: ["sun"], edge: "top", to: "canvas", margin: SUN_MOVED.cy - SUN.r });
+    rayIds.forEach((id, i) => call(rel, relational, "place", { id, relation: "around", target: "sun", gap: RAY_DISTANCE, angle: (i * 360) / RAY_COUNT }));
+    for (const id of birdIds) call(rel, relational, "delete", { id });
+    call(rel, relational, "set_style", { id: "title", text: NEW_TITLE });
+
+    const docs = new DocSession(task.initial());
+    call(docs, document, "write_document", { document: JSON.parse(JSON.stringify(reviseSolution())) });
+
+    for (const [name, s] of [["coordinate", coord], ["relational", rel], ["document", docs]] as const) {
+      expect(scoreDocument(s.doc, task).score, name).toBeGreaterThanOrEqual(0.999);
+    }
+  });
+
+  it("does not pay for rebuilding the trees instead of recolouring them", async () => {
+    const { crownIds, reviseSolution } = await import("../tasks/paint-revise.js");
+    const task = getTask("paint.revise");
+    const solved = reviseSolution();
+    const rebuilt = { ...solved, elements: solved.elements.map((e) => (crownIds.includes(e.id) ? { ...e, id: `new_${e.id}` } : e)) };
+    expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(rebuilt))), task).score).toBeLessThan(0.85);
+  });
+});

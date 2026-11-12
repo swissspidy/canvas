@@ -320,7 +320,7 @@ marks for it before anything had been done.
 ### `paint` — drawn, not laid out (6 prototypes)
 
 Not in the registered set or any default grid. `--tasks paint` selects the
-four diagrams and the lighthouse; the rest are shelved and run only by id. The chart
+four diagrams, the revision and the lighthouse; the rest are shelved and run only by id. The chart
 and the pie are arithmetic from numbers in the brief with no tool on any
 surface to make a difference; the maze, the board and the first flowchart did
 not separate surfaces on GPT-5.6 Luna (`docs/PREREGISTRATION.md`, 2026-11-12). Each sets `paint: true`, which attaches the drawing tools
@@ -335,6 +335,7 @@ and the paragraph that explains a path.
 | `paint.cycle` | The same brief on a hub and a ring of eight: sixteen arrows, at every angle. | `connects`, one per arrow |
 | `paint.orgchart` | A tree, one shape fanning out to four and each of those to two: fourteen arrows, several leaving one shape at shallow angles. | `connects`, one per arrow |
 | `paint.network` | Sixteen small shapes in a four-by-four grid: twenty-four arrows across, down and diagonally, over short gaps. | `connects`, one per arrow |
+| `paint.revise` | A 140-element landscape revised in four edits that each reach many elements — 40 crowns recoloured, the sun moved with its 16 rays, 12 birds removed, a retitle — with every other element held exactly. The first task where the document is big enough for the surfaces' cost to scale differently. | Per-edit checks, plus geometry, style, outline and identity held on everything untouched |
 | `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
 | `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
 | `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |

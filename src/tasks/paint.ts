@@ -36,6 +36,7 @@ import {
   sectorRing,
   styleIs,
 } from "../eval/paint.js";
+import { reviseTasks } from "./paint-revise.js";
 import { paintsAnything } from "../doc/occlusion.js";
 
 // --- paint.route ---------------------------------------------------------------
@@ -868,7 +869,7 @@ const lighthouse = defineTask({
  * curve — so the diagram is the flowchart built out around that, and the rest
  * are shelved. The lighthouse stays for head-to-head judging.
  */
-export const paintTasks = [diagramTask1, ...confirmatoryDiagrams, lighthouse];
+export const paintTasks = [diagramTask1, ...confirmatoryDiagrams, ...reviseTasks, lighthouse];
 
 /**
  * Kept, resolvable by id, and out of `--tasks paint`. The chart and the pie

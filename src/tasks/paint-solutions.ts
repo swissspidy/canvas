@@ -14,6 +14,7 @@ import { aabb, shapePolygons } from "../doc/geometry.js";
 import { boxOfPoints, type Pt } from "../doc/path.js";
 import { routeAround } from "../surfaces/paint.js";
 import { getTask } from "./index.js";
+import { reviseSolution } from "./paint-revise.js";
 import {
   AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DIAGRAM_SPECS, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
   NETS, PEAK_DOT, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH, VISITORS, mazeCellCentre,
@@ -174,4 +175,4 @@ const MORE_SOLUTIONS: Record<string, () => Doc> = {
   },
 };
 
-export const PAINT_SOLUTIONS: Record<string, () => Doc> = { ...FIRST_SOLUTIONS, ...MORE_SOLUTIONS };
+export const PAINT_SOLUTIONS: Record<string, () => Doc> = { ...FIRST_SOLUTIONS, ...MORE_SOLUTIONS, "paint.revise": reviseSolution };
