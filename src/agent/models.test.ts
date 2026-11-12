@@ -15,6 +15,7 @@ import {
   resolveLanguageModel,
   tokenUsage,
   ZERO_USAGE,
+  REQUEST_TIMEOUT_MS,
 } from "./models.js";
 
 describe("model specs", () => {
@@ -300,5 +301,33 @@ describe("operator-named models", () => {
     await expect(reload("gemini-2.5-pro")).rejects.toThrow(
       /CANVAS_EXTRA_MODELS lists 'gemini-2.5-pro'.*missing a provider/s,
     );
+  });
+});
+
+describe("a turn that takes longer than five minutes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  // Node's fetch cuts off a response whose headers take more than five
+  // minutes, and a turn sends nothing back until the model has finished. Every
+  // adapter has to send its requests through the patient client, or a long
+  // turn is retried into an `api_error` that the provider still bills for.
+  it("sends every provider's requests through a client that waits thirty minutes", async () => {
+    for (const provider of PROVIDER_IDS) {
+      onlySet(PROVIDER_ENV[provider], "k");
+      let dispatcher: unknown;
+      vi.stubGlobal("fetch", async (_url: string, init?: RequestInit & { dispatcher?: unknown }) => {
+        dispatcher = init?.dispatcher;
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), { status: 401, headers: { "content-type": "application/json" } });
+      });
+      const spec = `${provider}:${Object.keys(MODELS).find((id) => id.startsWith(`${provider}:`))?.slice(provider.length + 1) ?? "any-model"}`;
+      await generateText({ model: resolveLanguageModel(spec), prompt: "hi" }).catch(() => {});
+      expect(dispatcher, provider).toBeDefined();
+      const options = (dispatcher as { [k: symbol]: unknown });
+      const opts = Object.getOwnPropertySymbols(options).map((s) => options[s]).find((v) => v && typeof v === "object" && "headersTimeout" in (v as object)) as { headersTimeout?: number } | undefined;
+      expect(opts?.headersTimeout, provider).toBe(REQUEST_TIMEOUT_MS);
+    }
   });
 });

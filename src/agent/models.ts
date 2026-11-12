@@ -20,12 +20,13 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
-import { togetherai } from "@ai-sdk/togetherai";
-import { xai } from "@ai-sdk/xai";
-import { zai } from "@ai-sdk/zai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogle } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createTogetherAI } from "@ai-sdk/togetherai";
+import { createXai } from "@ai-sdk/xai";
+import { createZai } from "@ai-sdk/zai";
+import { Agent } from "undici";
 import type { LanguageModel } from "ai";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -337,21 +338,54 @@ export function getModel(id: string): ModelSpec {
  * `PROVIDER_ENV`'s variable itself and raises its own missing-key error
  * naming it.
  */
+/**
+ * How long a request may wait for its response, at most.
+ *
+ * Node's fetch gives up on a response whose headers have not arrived within
+ * five minutes, and a turn is one request that sends nothing back until the
+ * model has finished thinking and writing. At a 65,536-token ceiling, Gemini
+ * 3.8 Flash writing a whole document took longer than that: the request was
+ * cut off, retried, cut off again, and after seven attempts and 37 minutes
+ * the cell was an `api_error` — paid for at the provider, invisible in the
+ * cost, and excluded from the analysis. Thirty minutes is longer than any
+ * turn this project has seen; a hung connection still ends.
+ */
+export const REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+
+const patient = new Agent({ headersTimeout: REQUEST_TIMEOUT_MS, bodyTimeout: REQUEST_TIMEOUT_MS });
+
+/**
+ * The global `fetch`, read at call time so a test can still stub it, sent
+ * through a client that waits as long as a turn takes. The `dispatcher`
+ * option is honoured by Node's own fetch; `models.test.ts` drives a request
+ * through every adapter to check nothing else about it changes.
+ */
+const patientFetch: typeof fetch = (input, init) => globalThis.fetch(input, { ...init, dispatcher: patient } as RequestInit);
+
+const providers = {
+  anthropic: createAnthropic({ fetch: patientFetch }),
+  google: createGoogle({ fetch: patientFetch }),
+  openai: createOpenAI({ fetch: patientFetch }),
+  xai: createXai({ fetch: patientFetch }),
+  zai: createZai({ fetch: patientFetch }),
+  togetherai: createTogetherAI({ fetch: patientFetch }),
+};
+
 export function resolveLanguageModel(spec: string): LanguageModel {
   const { provider, modelId } = parseModelSpec(spec);
   switch (provider) {
     case "anthropic":
-      return anthropic(modelId);
+      return providers.anthropic(modelId);
     case "google":
-      return google(modelId);
+      return providers.google(modelId);
     case "openai":
-      return openai(modelId);
+      return providers.openai(modelId);
     case "xai":
-      return xai(modelId);
+      return providers.xai(modelId);
     case "zai":
-      return zai(modelId);
+      return providers.zai(modelId);
     case "togetherai":
-      return togetherai(modelId);
+      return providers.togetherai(modelId);
   }
 }
 

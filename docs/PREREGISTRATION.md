@@ -1493,3 +1493,15 @@ relational runs as they stand. It cannot change the confirmed result, which
 was tested as pre-registered; it says whether document-as-code's zero was
 the surface or the ceiling.
 
+*First attempt: a harness failure, and its cause.* The pricing run ended
+`api_error` after 43 minutes, having made one tool call: every request after
+the first was cut off by Node's fetch, which abandons a response whose
+headers take more than five minutes, and a turn sends nothing back until the
+model has finished. Uncapped, Gemini's whole-document turns ran past that,
+and each retry failed the same way. Excluded as a harness failure under §5;
+the provider likely billed the abandoned attempts, which the run's recorded
+cost ($0.02) cannot show. Every adapter now sends its requests through a
+client that waits thirty minutes (`REQUEST_TIMEOUT_MS`, tested per
+provider). The confirmation above did not depend on it: at a 32,000-token
+ceiling it recorded no harness failure.
+
