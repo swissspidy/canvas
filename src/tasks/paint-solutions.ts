@@ -15,7 +15,7 @@ import { boxOfPoints, type Pt } from "../doc/path.js";
 import { routeAround } from "../surfaces/paint.js";
 import { getTask } from "./index.js";
 import {
-  AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
+  AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DIAGRAM_EDGES, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
   NETS, PEAK_DOT, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH, VISITORS, mazeCellCentre,
 } from "./paint.js";
 
@@ -54,7 +54,7 @@ function crossings(a: Point, b: Point, el: Element): number[] {
   return out;
 }
 
-export const PAINT_SOLUTIONS: Record<string, () => Doc> = {
+const FIRST_SOLUTIONS: Record<string, () => Doc> = {
   "paint.route": () => {
     const doc = getTask("paint.route").initial();
     const reach = TRACE_CLEARANCE + TRACE_WIDTH / 2;
@@ -91,11 +91,17 @@ export const PAINT_SOLUTIONS: Record<string, () => Doc> = {
   "paint.maze": () =>
     withAdded("paint.maze", [path("thread", MAZE_PLAN.solution.map(mazeCellCentre), { strokeColor: "#e63946", strokeWidth: MAZE_LINE })]),
 
-  "paint.flowchart": () => {
-    const doc = getTask("paint.flowchart").initial();
+  "paint.flowchart": () => arrowsBetween("paint.flowchart", EDGES),
+  "paint.diagram": () => arrowsBetween("paint.diagram", DIAGRAM_EDGES),
+};
+
+/** Straight arrows from outline to outline along the line joining box centres. */
+function arrowsBetween(taskId: string, edges: [string, string][]): Doc {
+  {
+    const doc = getTask(taskId).initial();
     const byId = new Map(doc.elements.map((e) => [e.id, e]));
     const mid = (e: Element): Point => ({ x: e.x + e.width / 2, y: e.y + e.height / 2 });
-    const arrows = EDGES.map(([from, to]) => {
+    const arrows = edges.map(([from, to]) => {
       const a = mid(byId.get(from)!);
       const b = mid(byId.get(to)!);
       const leave = Math.max(...crossings(a, b, byId.get(from)!));
@@ -104,8 +110,10 @@ export const PAINT_SOLUTIONS: Record<string, () => Doc> = {
       return path(`${from}_to_${to}`, [at(leave), at(meet)], { strokeColor: FLOW_STROKE, strokeWidth: FLOW_WIDTH, arrow: "end" });
     });
     return normalizeDoc({ ...doc, elements: [...doc.elements, ...arrows] });
-  },
+  }
+}
 
+const MORE_SOLUTIONS: Record<string, () => Doc> = {
   "paint.chart": () => {
     const peak = VISITORS.indexOf(Math.max(...VISITORS));
     return withAdded("paint.chart", [
@@ -165,3 +173,5 @@ export const PAINT_SOLUTIONS: Record<string, () => Doc> = {
     return normalizeDoc({ width: W, height: H, background: "#ffffff", elements: els });
   },
 };
+
+export const PAINT_SOLUTIONS: Record<string, () => Doc> = { ...FIRST_SOLUTIONS, ...MORE_SOLUTIONS };

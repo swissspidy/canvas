@@ -319,11 +319,11 @@ marks for it before anything had been done.
 
 ### `paint` — drawn, not laid out (6 prototypes)
 
-Not in the registered set or any default grid. Run them by id, or with
-`--tasks paint` for the four that `--tasks paint` selects: route, maze,
-flowchart and lighthouse. The chart and the pie are shelved — arithmetic from
-numbers in the brief, with no tool on any surface to make a difference — and
-run only by id. Each sets `paint: true`, which attaches the drawing tools
+Not in the registered set or any default grid. `--tasks paint` selects the
+diagram and the lighthouse; the rest are shelved and run only by id. The chart
+and the pie are arithmetic from numbers in the brief with no tool on any
+surface to make a difference; the maze, the board and the first flowchart did
+not separate surfaces on GPT-5.6 Luna (`docs/PREREGISTRATION.md`, 2026-11-12). Each sets `paint: true`, which attaches the drawing tools
 and the paragraph that explains a path.
 
 | Task | What has to be found | What scores it |
@@ -331,6 +331,7 @@ and the paragraph that explains a path.
 | `paint.route` | Three traces across a board of ten chips, square-cornered, 12 units clear of every chip and of each other. Lay them in the wrong order and one pad is walled in. | `pathClearOf`, `pathsApart`, `pathEnds`, `pathOrthogonal`, `pathLengthAtMost` |
 | `paint.maze` | The one way through an 8 by 6 maze, from the walls' coordinates. | `pathClearOf` against every wall, `pathEnds`, a length cap |
 | `paint.flowchart` | Seven arrows that start and end *on the outline* of a box, an oval or a diamond, along the line joining centres. | `connects`, one per arrow |
+| `paint.diagram` | The flowchart built out: twelve shapes, nearly all ovals and polygons turned at an angle, and twenty arrows — three of them diagonals meeting their shape at a shallow angle — each ending on the outline as drawn, to within 2 units. | `connects`, one per arrow |
 | `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
 | `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
 | `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |

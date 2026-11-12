@@ -1348,3 +1348,18 @@ coordinates by another name.
 model, so by the stopping rule set before the run nothing goes to Sonnet 5.5
 or Opus 5.5. No adjustment is made on this result.
 
+*Second pilot, the same day.* The flowchart's one slip — an arrow ending
+off an oval — is the kind a tool prevents, so it was built out into
+`paint.diagram`: twelve shapes, nearly all ovals and polygons at an angle,
+and twenty arrows, three of them diagonal. The maze, the board and the first
+flowchart were shelved. Luna, three surfaces, `none` and `both`, one repeat,
+no judge: 6 runs, $0.08. **Relational passed both runs; coordinate passed
+neither; document-as-code passed with feedback and not without.** Relational
+called `connect` for all twenty arrows and spent $0.002–0.003 a run, against
+$0.014–0.022 on the other two. The misses were arrows ending 3 to 100 units
+from the outline — typically on the bounding box of a turned shape, or short
+of a polygon's corner.
+
+One repeat per cell is not a result: this decides only that the task is
+worth repeating, and on which models. No adjustment is made on it.
+

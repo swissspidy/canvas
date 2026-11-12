@@ -346,6 +346,132 @@ const flow = defineTask({
   maxTurns: 30,
 });
 
+// --- paint.diagram -------------------------------------------------------------
+
+/**
+ * The flowchart, built out around the one miss the Luna pilot found: an arrow
+ * landing a few units off an oval's curve. Twelve shapes and twenty arrows, nearly all of the shapes
+ * curved, slanted or turned, so every one of forty endpoints is a line
+ * meeting an outline that is not a box — an ellipse at an angle, a pentagon
+ * stretched to its box, a rotated octagon — and several arrows meet their
+ * shape at a shallow angle, where a small error across the line is a large
+ * one along it. `connect` works each end out; on the other surfaces the agent
+ * derives the outline from the box, the rotation and the stretching rule.
+ */
+export const DIAGRAM = { width: 1400, height: 1000 };
+
+export interface DiagramNode {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  shape: "rect" | "ellipse" | "polygon";
+  sides?: number;
+  rot?: number;
+  fill: string;
+}
+
+export const DIAGRAM_NODES: DiagramNode[] = [
+  { id: "start", label: "Start", x: 70, y: 70, w: 210, h: 110, shape: "ellipse", rot: 0, fill: "#1f6f66" },
+  { id: "intake", label: "Intake", x: 420, y: 50, w: 210, h: 150, shape: "polygon", sides: 6, fill: "#264653" },
+  { id: "triage", label: "Triage", x: 770, y: 40, w: 220, h: 180, shape: "polygon", sides: 4, fill: "#a63d2a" },
+  { id: "assess", label: "Assess", x: 1110, y: 70, w: 210, h: 180, shape: "polygon", sides: 5, rot: 10, fill: "#3d405b" },
+  { id: "queue", label: "Queue", x: 80, y: 390, w: 230, h: 120, shape: "ellipse", rot: -20, fill: "#6d597a" },
+  { id: "review", label: "Review", x: 450, y: 360, w: 190, h: 190, shape: "polygon", sides: 8, rot: 22, fill: "#264653" },
+  { id: "decide", label: "Decide", x: 800, y: 370, w: 240, h: 180, shape: "polygon", sides: 4, rot: 15, fill: "#a63d2a" },
+  { id: "escalate", label: "Escalate", x: 1120, y: 400, w: 230, h: 150, shape: "polygon", sides: 6, rot: -12, fill: "#7a4419" },
+  { id: "fix", label: "Fix", x: 110, y: 730, w: 200, h: 180, shape: "polygon", sides: 5, fill: "#3d405b" },
+  { id: "test", label: "Test", x: 460, y: 770, w: 240, h: 120, shape: "ellipse", rot: 30, fill: "#1f6f66" },
+  { id: "ship", label: "Ship", x: 830, y: 740, w: 200, h: 200, shape: "polygon", sides: 4, fill: "#a63d2a" },
+  { id: "close", label: "Close", x: 1150, y: 770, w: 190, h: 130, shape: "ellipse", fill: "#6d597a" },
+];
+
+export const DIAGRAM_EDGES: [string, string][] = [
+  ["start", "intake"],
+  ["intake", "triage"],
+  ["triage", "assess"],
+  ["start", "queue"],
+  ["intake", "review"],
+  ["triage", "decide"],
+  ["assess", "escalate"],
+  ["queue", "review"],
+  ["review", "decide"],
+  ["decide", "escalate"],
+  ["queue", "fix"],
+  ["review", "test"],
+  ["decide", "ship"],
+  ["escalate", "close"],
+  ["fix", "test"],
+  ["test", "ship"],
+  ["ship", "close"],
+  // Diagonals, which meet their shapes at shallow angles.
+  ["intake", "decide"],
+  ["queue", "test"],
+  ["triage", "escalate"],
+];
+
+const diagram = (): Doc =>
+  doc(
+    [
+      ...DIAGRAM_NODES.map((n) =>
+        rect({
+          id: n.id,
+          x: n.x,
+          y: n.y,
+          w: n.w,
+          h: n.h,
+          rot: n.rot ?? 0,
+          style: { fill: n.fill, ...(n.shape === "rect" ? {} : { shape: n.shape }), ...(n.sides ? { sides: n.sides } : {}) },
+        }),
+      ),
+      ...DIAGRAM_NODES.map((n) =>
+        text({
+          id: `${n.id}_label`,
+          x: n.x,
+          y: n.y,
+          w: n.w,
+          h: n.h,
+          text: n.label,
+          style: { fontSize: 28, fontWeight: "bold", color: "#ffffff", align: "center", valign: "middle" },
+        }),
+      ),
+    ],
+    { ...DIAGRAM, background: "#f7f4ee" },
+  );
+
+const diagramIds = DIAGRAM_NODES.flatMap((n) => [n.id, `${n.id}_label`]);
+const sayShape = (id: string) => `'${DIAGRAM_NODES.find((n) => n.id === id)!.label}'`;
+
+const diagramTask = defineTask({
+  id: "paint.diagram",
+  title: "Connect a process diagram's shapes with arrows",
+  family: "paint",
+  paint: true,
+  brief: [
+    "This process diagram has twelve shapes — ovals, diamonds, hexagons, pentagons and an octagon, several of them turned — each with a label on it, and no connectors yet. Draw these twenty arrows:",
+    "",
+    ...DIAGRAM_EDGES.map(([a, b]) => `- from ${sayShape(a)} to ${sayShape(b)}`),
+    "",
+    `Each arrow is an open path of exactly two points, stroked in ${FLOW_STROKE} at strokeWidth ${FLOW_WIDTH}, with an arrowhead at its end (style.arrow 'end').`,
+    "It runs along the straight line joining the centres of the two shapes — a shape's centre is the centre of its box, the point its rotation turns it about — but covers only the gap between them: it starts exactly on the outline of the shape it comes from and ends exactly on the outline of the shape it goes to, to within 2 units.",
+    "The outline is the shape as drawn: an oval's curve and a polygon's sides, stretched to fill the box and turned with it — not the box around them.",
+    "Do not move, restyle or delete the shapes or their labels, and add nothing but the twenty arrows.",
+  ].join("\n"),
+  initial: diagram,
+  checks: [
+    ...DIAGRAM_EDGES.map(([a, b]) => connects(a, b, 3, { arrow: true, label: `An arrow runs from ${sayShape(a)} to ${sayShape(b)}, outline to outline` })),
+    pathCount((el) => el.type === "path" && paintsAnything(el), DIAGRAM_EDGES.length, 2, "Exactly twenty paths"),
+    styleIs(connector, { strokeColor: FLOW_STROKE, strokeWidth: FLOW_WIDTH }, 2, "Arrows are drawn in the stated stroke"),
+    geometryUnchanged(diagram(), diagramIds, 2),
+    preservesElements(diagramIds, 2),
+    styleUnchanged(diagram(), diagramIds, 1),
+  ],
+  judgeCriteria: ["Reads as a clear process diagram: every arrow visibly joins the two shapes it is meant to."],
+  maxTurns: 30,
+});
+
 // --- paint.chart ---------------------------------------------------------------
 
 export const PLOT = { x: 140, y: 150, w: 960, h: 480 };
@@ -564,19 +690,18 @@ const lighthouse = defineTask({
 });
 
 /**
- * What `--tasks paint` runs: the tasks where a surface has a tool the others
- * lack. `connect` finds the maze's way through, routes the board and ends an
- * arrow on an oval's curve; on the other surfaces the agent works each out
- * itself. That is the shape of the one confirmed result (`fit_text` on the
- * measurement family), so it is where a gap is most likely.
+ * What `--tasks paint` runs. The 2026-11-12 Luna pilot passed the maze, the
+ * board and the flowchart on every surface but for three slips, and the only
+ * one of those a tool would have prevented was an arrow landing off an oval's
+ * curve — so the diagram is the flowchart built out around that, and the rest
+ * are shelved. The lighthouse stays for head-to-head judging.
  */
-export const paintTasks = [route, mazeTask, flow, lighthouse];
+export const paintTasks = [diagramTask, lighthouse];
 
 /**
- * Kept, resolvable by id, and out of `--tasks paint`. Both are arithmetic from
- * numbers in the brief — the chart maps twelve values onto a frame, the pie is
- * trigonometry — and no surface has a tool for either, so there is nothing for
- * the surfaces to differ on. Every pilot so far has a strong model doing exact
- * arithmetic exactly.
+ * Kept, resolvable by id, and out of `--tasks paint`. The chart and the pie
+ * are arithmetic from numbers in the brief with no tool on any surface for
+ * either. The maze, the board and the first flowchart did not separate
+ * surfaces on GPT-5.6 Luna (`docs/PREREGISTRATION.md`, 2026-11-12).
  */
-export const shelvedPaintTasks = [chartTask, pieTask];
+export const shelvedPaintTasks = [route, mazeTask, flow, chartTask, pieTask];

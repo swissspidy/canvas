@@ -12,7 +12,8 @@ import { describeDoc } from "../render/describe.js";
 import { getTask } from "../tasks/index.js";
 import { scoreDocument } from "../eval/score.js";
 import { PAINT_SOLUTIONS } from "../tasks/paint-solutions.js";
-import { MAZE_CLEARANCE, MAZE_LINE, NETS, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH } from "../tasks/paint.js";
+import { DIAGRAM_EDGES, MAZE_CLEARANCE, MAZE_LINE, NETS, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH } from "../tasks/paint.js";
+import { aabb } from "../doc/geometry.js";
 import type { Doc, Element } from "../doc/types.js";
 
 const coordinate = surfaceFor("coordinate", { paint: true });
@@ -201,6 +202,38 @@ describe("the paint tasks, drawn with the relational tools", () => {
       call(s, relational, "connect", { from, to, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } });
     }
     expect(scoreDocument(s.doc, task).score).toBeGreaterThanOrEqual(0.999);
+  });
+});
+
+describe("the process diagram", () => {
+  it("is finished by connect alone, one call per arrow", () => {
+    const task = getTask("paint.diagram");
+    const s = new DocSession(task.initial());
+    for (const [from, to] of DIAGRAM_EDGES) call(s, relational, "connect", { from, to, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } });
+    expect(scoreDocument(s.doc, task).score).toBeGreaterThanOrEqual(0.999);
+  });
+
+  it("does not pass with arrows ended on each shape's box rather than its outline", () => {
+    // The approximation an agent reaches for when it does not derive the
+    // outline: where the centre line leaves the bounding box.
+    const task = getTask("paint.diagram");
+    const start = task.initial();
+    const byId = new Map(start.elements.map((e) => [e.id, e]));
+    const exitBox = (from: Element, toward: { x: number; y: number }) => {
+      const b = aabb(from);
+      const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      const dx = toward.x - c.x;
+      const dy = toward.y - c.y;
+      const t = Math.min(dx ? b.width / 2 / Math.abs(dx) : Infinity, dy ? b.height / 2 / Math.abs(dy) : Infinity);
+      return [c.x + dx * t, c.y + dy * t] as [number, number];
+    };
+    const centre = (e: Element) => ({ x: e.x + e.width / 2, y: e.y + e.height / 2 });
+    const arrows = DIAGRAM_EDGES.map(([a, b], i): Element => {
+      const pts: [number, number][] = [exitBox(byId.get(a)!, centre(byId.get(b)!)), exitBox(byId.get(b)!, centre(byId.get(a)!))];
+      return { id: `p${i}`, type: "path", ...boxOfPoints(pts), rotation: 0, z: 500 + i, points: pts, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } };
+    });
+    const doc = parseDoc(JSON.parse(JSON.stringify({ ...start, elements: [...start.elements, ...arrows] })));
+    expect(scoreDocument(doc, task).score).toBeLessThan(0.9);
   });
 });
 
