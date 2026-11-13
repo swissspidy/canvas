@@ -81,12 +81,23 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <div class="status sans"><strong>What is confirmed.</strong> Two results, each <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on four text-measurement tasks with GPT-5.6 Luna and Terra, and on four diagram-drawing tasks with Gemini 3.8 Flash, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots and exploratory runs, one to three repeats per cell.</div>
 
+<h2 id="found" style="margin-top:32px">What we found</h2>
+<ol class="sans" style="font-size:0.95rem">
+  <li><strong>A tool that computes beats estimating, feedback and a bigger model.</strong> Where the agent must know how wide a line of type is or where a line meets a curve, the surface with a measuring tool passed far more often at a fraction of the cost — confirmed, pre-registered, on two task families and three models from two providers.</li>
+  <li><strong>The tool does the work; the vocabulary decides whether it is used.</strong> Coordinate plus the measuring tool matched relational on text. On drawing, a small model offered the tool beside typed coordinates chose the numbers more often than not — and passed exactly when it chose the tool.</li>
+  <li><strong>Rewriting the document costs more the bigger it is, and the more often you edit it.</strong> Document-as-code's cost rose fastest with size, hit a wall at the model's output limit, and cost five times coordinate for a four-round editing session on Sonnet.</li>
+  <li><strong>Strong models close every exact gap, and harder tasks only delay it.</strong> Each geometry family that separated the surfaces stopped separating them one model generation up. Open-ended illustration did not separate them either: every vocabulary drew a good picture.</li>
+  <li><strong>Cost keeps separating the surfaces after pass rates stop.</strong> It is the outcome that held at every model strength, which is why this bench now reads cost per correct page first.</li>
+</ol>
+
 <nav>
   <a href="#measure">A measuring tool beats a bigger model</a>
   <a href="#cost">When the model can measure</a>
   <a href="#draw">Drawing: the same effect, a third provider</a>
   <a href="#size">What a big document costs</a>
   <a href="#tool">The tool, or the vocabulary?</a>
+  <a href="#rounds">Editing in rounds</a>
+  <a href="#judged">Quality, judged</a>
   <a href="#hard">Hard tasks are hard to write</a>
   <a href="#lessons">Lessons for tool design</a>
   <a href="#try">Try it</a>
@@ -167,6 +178,23 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <tr><td>Sonnet, diagrams (1 repeat)</td><td class="n md">4 / 8</td><td class="n hi">7 / 8</td><td class="n hi">8 / 8</td></tr>
 </tbody></table></div>
 <p>For text, the tool is enough: given <code>fit_text</code> beside its numbers, coordinate passed as often as relational, at under half its own cost per pass. For drawing, the tool works every time it is used — every one of Haiku's ten <em>measured</em> passes used <code>connect</code>, and every one of its fourteen failures drew the arrows with typed coordinates instead. Offered numbers beside the tool, the smaller model chose the numbers more often than not. Relational has no numbers to fall back on, and used <code>connect</code> in every run. Take the typed coordinates away from <em>measured</em> as a way to draw — <code>connect</code> as the only line tool, everything else unchanged — and Haiku passed 24 of 24 as well.</p>
+
+<h2 id="rounds">Editing in rounds</h2>
+<p>Real editing is a series of notes on the same page. Two sessions hand over their instructions one round at a time — the next note arrives when the agent signs off the last — and end at exactly the page, and the checks, of a single-brief task. So the difference between the two is the price of being told in rounds.</p>
+<div class="scroll"><table>
+<thead><tr><th>Session cost ÷ single-brief cost</th><th class="n">Coordinate</th><th class="n">Relational</th><th class="n">Document-as-code</th></tr></thead>
+<tbody>
+<tr><td>Haiku 5.5, 280-element revision in 4 rounds</td><td class="n">3.7×</td><td class="n">2.2×</td><td class="n lo">4.7×</td></tr>
+<tr><td>Sonnet 5.5, the same</td><td class="n">2.6×</td><td class="n">2.6×</td><td class="n lo">3.9×</td></tr>
+<tr><td>Haiku 5.5, diagram in 3 rounds</td><td class="n">1.2×</td><td class="n">1.7×</td><td class="n">1.2×</td></tr>
+<tr><td>Sonnet 5.5, the same</td><td class="n">1.3×</td><td class="n">1.5×</td><td class="n">1.5×</td></tr>
+</tbody></table></div>
+<p>Every surface pays for the extra round-trips; document-as-code pays most on a big page, because it rewrites all 280 elements for every note. A Sonnet revision session cost $1.76 that way against $0.34 on coordinate — 104,000 output tokens against 2,700. On the diagram the rounds cost little, and relational stayed the only surface that reliably got it right.</p>
+
+<h2 id="judged">Quality, judged</h2>
+<p>The lighthouse task has no exact answer — only a better and a worse picture. Sonnet 5.5 drew it three times on each surface, and a judge from another provider, GPT-5.6 Terra, compared every cross-surface pair in both orders: coordinate won 64% of pairs, document-as-code 58%, relational 28%.</p>
+<figure><img src="img/sonnet-lighthouse-grid.png" alt="Nine lighthouse illustrations, three per surface, all similar in quality" loading="lazy"><figcaption><b>The nine pages: coordinate, relational, document-as-code, top to bottom</b>All competent, all much alike. Nine pages make 27 pairs that are far from independent, and the judge is not yet validated against human ratings — so the split is the judge's preference, not a finding.</figcaption></figure>
+<p>What the pages do show is the same ceiling from another side: on a strong model, free illustration does not separate the surfaces. Each vocabulary drew a good lighthouse.</p>
 
 <h2 id="hard">Hard tasks are hard to write</h2>
 <p>The tasks were built to leave room — a target of about 30% passes on the strongest model — so that differences between surfaces could show. Three rounds of making them harder all ended the same way.</p>

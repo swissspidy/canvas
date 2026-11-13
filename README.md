@@ -24,14 +24,6 @@ shapes, a pie chart — add a `draw` tool to coordinate and relational, and a
 `connect` to relational that works out where a line leaves one shape, meets
 another, and gets round what is between them.
 
-Two results are confirmed, each pre-registered before its runs: on text that
-must be measured (`fit_text`) and on diagrams whose arrows must meet curved
-and turned outlines (`connect`), the relational surface passes far more
-often, at a small fraction of the cost per pass, on three models from two
-providers. And at scale, document-as-code pays to write the whole document
-for any edit: past about 1,000 elements of a painting it cannot finish one at
-all. The [results site](site/index.html) has the numbers.
-
 Crossed with what the agent sees after each action: **nothing**, a **structured
 description**, a **rendered screenshot**, or **both**. That axis is a
 first-class variable rather than a flag, because the most interesting result
@@ -39,6 +31,34 @@ this study could produce is that it dominates the tool-surface choice.
 
 What counts as a result is written down in
 **[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md)**, before any run.
+
+## What we found
+
+1. **A tool that computes beats estimating, feedback and a bigger model.**
+   Where the agent must know how wide type is or where a line meets a curve,
+   the relational surface — with `fit_text` and `connect` — passed far more
+   often at a fraction of the cost per pass. Pre-registered and confirmed on
+   text measurement (GPT-5.6 Luna and Terra: 22/24 against 5/24 at best) and
+   on diagram drawing (Gemini 3.8 Flash: 23/24 against 0/24).
+2. **The tool does the work; the vocabulary decides whether it is used.** An
+   ablation, coordinate plus only the measuring tools, matched relational on
+   text. On drawing, Haiku 5.5 offered the tool beside typed coordinates used
+   it in 10 of 24 runs and passed exactly those; with `connect` as the only
+   line tool it passed 24 of 24.
+3. **Rewriting the document costs more the bigger it is and the more often
+   it is edited.** Document-as-code's cost rose 4.5× from 70 to 560 elements
+   against 2.5× for coordinate, hit a wall at the model's output limit
+   (past 1,000 elements on Gemini), and cost 5× coordinate over a four-round
+   editing session on Sonnet 5.5.
+4. **Strong models close every exact gap.** Each geometry family that
+   separated the surfaces stopped separating them a model generation up, and
+   open-ended illustration did not separate them on Sonnet either.
+5. **Cost keeps separating the surfaces after pass rates stop**, which is why
+   the bench reads cost per correct page first.
+
+The [results site](site/index.html) has the evidence, and
+[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md) every plan, written before
+its runs, and every result against it.
 
 ---
 
