@@ -1733,3 +1733,11 @@ and $0.262 (`measure.menu`), which prices its three-repeat grid at $43.33 —
 over the $30 line. Sonnet runs one repeat: 64 runs, about $14. Haiku runs
 three, as planned.
 
+*A correction, made before its runs.* E2's ceiling of 65,536 tokens was
+carried over from the Gemini runs, where it was the model's own maximum.
+Sonnet 5.5 and Haiku 5.5 can output 128,000, so a document-as-code failure at
+1,120 elements under 65,536 would be the configured ceiling, not the model's.
+Two exploratory runs — document-as-code, `paint.revise-1120`, feedback
+`both`, each model at a 128,000-token ceiling, into their own directory —
+settle which.
+
