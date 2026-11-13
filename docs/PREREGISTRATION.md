@@ -1866,3 +1866,36 @@ they make a good picture.
   for the author to rate; until that is done, E4 is reported as the judge's
   preference, labelled so.
 
+*E3 result.* 96 runs, $9.70, no harness failures.
+
+| Session cost / single-brief cost | Coordinate | Relational | Document-as-code |
+|---|---|---|---|
+| Haiku, revision, 4 rounds (3 repeats) | 3.7× | 2.2× | 4.7× |
+| Sonnet, revision, 4 rounds (1 repeat) | 2.6× | 2.6× | 3.9× |
+| Haiku, diagram, 3 rounds (3 repeats) | 1.2× | 1.7× | 1.2× |
+| Sonnet, diagram, 3 rounds (1 repeat) | 1.3× | 1.5× | 1.5× |
+
+As expected, every surface paid more to be told in rounds, and
+document-as-code paid the most on the revision: it wrote 104,000 output tokens
+over a Sonnet session against 24,000 for the single brief — the 280-element
+page once per round — and the session cost $1.76 against coordinate's $0.34.
+On the diagram the premium was small everywhere, and not smallest for the
+incremental surfaces as expected: their single-brief runs were already cheap,
+so the extra round-trips weigh more in proportion. Pass rates held from single
+brief to session (revision: every surface passed nearly every run; diagram:
+relational 6/6 on Haiku in both forms, coordinate and document-as-code 0 or
+1 of 6). One repeat on Sonnet: its ratios are read as a direction.
+
+*E4 result.* Sonnet drew nine pages for $1.58; GPT-5.6 Terra judged all 27
+cross-surface pairs in both orders for $0.24. Win rate, ties as half:
+coordinate 64% (10 wins, 3 ties, 5 losses), document-as-code 58% (8, 5, 5),
+relational 28% (3, 4, 11).
+
+Read with care. Looked at side by side, the nine pages are all competent and
+much alike — a striped tower, a beam, a headland, a sea, a dusk sky — and none
+of relational's is visibly worse. Nine pages, three per surface, make the 27
+pairs far from independent, and the judge has no human validation. So this is
+the judge's preference, not a finding about the surfaces. What the pages do
+show plainly is that on a strong model, open-ended illustration does not
+separate the surfaces either: each vocabulary produced a good picture.
+
