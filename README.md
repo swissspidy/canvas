@@ -20,6 +20,14 @@ shapes, a pie chart — add a `draw` tool to coordinate and relational, and a
 `connect` to relational that works out where a line leaves one shape, meets
 another, and gets round what is between them.
 
+Two results are confirmed, each pre-registered before its runs: on text that
+must be measured (`fit_text`) and on diagrams whose arrows must meet curved
+and turned outlines (`connect`), the relational surface passes far more
+often, at a small fraction of the cost per pass, on three models from two
+providers. And at scale, document-as-code pays to write the whole document
+for any edit: past about 1,000 elements of a painting it cannot finish one at
+all. The [results site](site/index.html) has the numbers.
+
 Crossed with what the agent sees after each action: **nothing**, a **structured
 description**, a **rendered screenshot**, or **both**. That axis is a
 first-class variable rather than a flag, because the most interesting result
@@ -83,7 +91,8 @@ npm run cli -- render fit.long-headline     # render a starting document to PNG
 npm run cli -- run --estimate               # matrix size, no key needed, no spending
 npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted model, no API calls
 npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot: 60 runs
-npm run cli -- run --tasks paint --repeats 1 --out runs/paint # the drawing prototypes
+npm run cli -- run --tasks paint --repeats 1 --out runs/paint # the drawing tasks
+npm run cli -- run --tasks scale --repeats 1 --out runs/scale # one revision, five sizes
 ```
 
 ### The whole grid

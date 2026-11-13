@@ -79,11 +79,13 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <p>The bench hands one agent loop a 2D canvas document and a brief — set this menu so every dish name fills two lines, fix this clipped headline, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets either no feedback or a rendered screenshot plus a structured description. Deterministic checks score the result; a <strong>pass</strong> satisfies every one of them.</p>
 
-<div class="status sans"><strong>What is confirmed.</strong> One result, <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on the four text-measurement tasks, with GPT-5.6 Luna and Terra, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots, one repeat per cell, and is exploratory.</div>
+<div class="status sans"><strong>What is confirmed.</strong> Two results, each <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on four text-measurement tasks with GPT-5.6 Luna and Terra, and on four diagram-drawing tasks with Gemini 3.8 Flash, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots, one or two repeats per cell, and is exploratory.</div>
 
 <nav>
   <a href="#measure">A measuring tool beats a bigger model</a>
   <a href="#cost">When the model can measure</a>
+  <a href="#draw">Drawing: the same effect, a third provider</a>
+  <a href="#size">What a big document costs</a>
   <a href="#hard">Hard tasks are hard to write</a>
   <a href="#lessons">Lessons for tool design</a>
   <a href="#try">Try it</a>
@@ -120,6 +122,37 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <h2 id="cost">When the model can measure, the tool only changes the cost</h2>
 <p>Opus 5.5 passes the measurement tasks on every surface: it estimates, checks the feedback and corrects, or reaches for <code>fit_text</code> on its own. There the surface no longer decides whether the page gets made, only what it costs. Under a five-turn budget, coordinate cost 1.39 times as much per pass as relational (interval 1.15–1.66), document-as-code 1.18 times (not resolved).</p>
 <p>On twelve other tasks — composing, repairing, restyling and arranging pages, and the animation prototypes — no surface was resolved cheaper in dollars than another (119 runs). The surfaces did differ in shape: document-as-code needed about a quarter of the tool calls, relational took the most turns (5.1, against 3.0 and 3.2), and the totals came out even. Feedback mattered for passing rather than for cost: 88.9% of runs passed with no feedback, 100% with any.</p>
+
+<h2 id="draw">Drawing: the same effect, on another provider's model</h2>
+<p>The canvas can now be drawn on: a <em>path</em> is a line through points, straight or smooth, stroked, filled or tipped with arrowheads. The drawing task that held up is a diagram — a dozen ovals, diamonds, hexagons and pentagons, several turned at an angle, and a list of arrows that must each start and end exactly on a shape's drawn outline, to within 2 units. An oval's curve or a rotated pentagon's side is somewhere a model has to work out, not read off the document.</p>
+<p>The relational surface has <code>connect</code>: name two shapes, and it finds where the line between their centres leaves one outline and meets the other. Coordinate and document-as-code can draw exactly the same arrows, and have to compute the ends themselves. Gemini 3.8 Flash, no feedback, the same diagram:</p>
+<div class="grid g2">
+  <figure><img src="img/gemini-diagram-coordinate.png" alt="Flowchart whose arrows overshoot into some shapes and stop short of others" loading="lazy"><figcaption><b>Coordinate: computes each end</b>93%: seven of twenty arrows off their outline, into Intake and Decide, short of Assess. Fail.</figcaption></figure>
+  <figure><img src="img/gemini-diagram-relational.png" alt="Flowchart whose arrows all meet the shapes' outlines exactly" loading="lazy"><figcaption><b>Relational: calls connect</b>100%: every arrow outline to outline. Pass.</figcaption></figure>
+</div>
+<p>The confirmation ran four diagrams of different structure — a process chart, a hub and ring, a tree, a dense grid — on every surface, with and without feedback, three times: 72 runs, $18.53. The model was one that played no part in designing the tasks; every pilot had been on OpenAI models.</p>
+<div class="scroll"><table>
+<thead><tr><th>Gemini 3.8 Flash</th><th class="n">Relational</th><th class="n">Coordinate</th><th class="n">Document-as-code</th></tr></thead>
+<tbody>
+<tr><td>Passes, four diagrams</td><td class="n hi">23 / 24</td><td class="n lo">0 / 24</td><td class="n lo">0 / 24</td></tr>
+<tr><td>Passes, the three not piloted</td><td class="n hi">18 / 18</td><td class="n lo">0 / 18</td><td class="n lo">0 / 18</td></tr>
+<tr><td>Cost per pass</td><td class="n hi">$0.15</td><td class="n">$19.99</td><td class="n">$10.38</td></tr>
+</tbody></table></div>
+<p class="note">Relational's lead in pass rate: +0.96, interval 0.88–1.00, against both. Its cost per pass: 0.027 and 0.051 times the others', intervals well clear of the 0.85 required. A cell with no pass is charged twice its spend per pass, so those two ratios rest on that rule. Most of document-as-code's runs hit the 32,000-token output ceiling; re-run with no ceiling but the model's own, it finished six of eight and passed none, missing the outlines by 10 to 17 units as coordinate does.</p>
+<p>Unlike text measurement, a stronger model did not close the gap in the pilots: GPT-5.6 Sol missed outlines on coordinate as Luna did, at ten times the price. Seeing the page did not close it either — a screenshot plus a description passed two of thirty-four coordinate and document-as-code runs across the pilots and the confirmation, against every relational run but one.</p>
+
+<h2 id="size">What a big document costs</h2>
+<p>Every other task is a page of a few dozen elements, where the three surfaces cost about the same to change one thing. The scaling set makes the same 28 edits — recolour twelve trees for autumn, move the sun and its rays, remove six birds, retitle it — in a landscape of 70 to 1,120 elements, growing only scenery nobody touches. Every run of every surface made every edit correctly, so what differs is the bill.</p>
+<div class="scroll"><table>
+<thead><tr><th>Elements</th><th class="n">70</th><th class="n">140</th><th class="n">280</th><th class="n">560</th><th class="n">1,120</th></tr></thead>
+<tbody>
+<tr><td>Coordinate</td><td class="n">$0.040</td><td class="n">$0.044</td><td class="n">$0.066</td><td class="n">$0.100</td><td class="n">$0.166</td></tr>
+<tr><td>Relational</td><td class="n">$0.071</td><td class="n">$0.085</td><td class="n">$0.114</td><td class="n">$0.139</td><td class="n">$0.200</td></tr>
+<tr><td>Document-as-code</td><td class="n">$0.075</td><td class="n">$0.100</td><td class="n">$0.205</td><td class="n">$0.341</td><td class="n lo">fails</td></tr>
+</tbody></table></div>
+<p class="note">Gemini 3.8 Flash, no feedback, a 65,536-token ceiling (the model's own); two repeats averaged up to 560 elements, one at 1,120.</p>
+<p>Document-as-code writes the whole document to change any of it, and output is the dearer token and is never served from a cache: its cost rose 4.5 times from 70 to 560 elements, against 2.5 and 2.0 for the surfaces that touch only what changes. At 1,120 elements one write of the document no longer fits in what the model can output with room to think: it spent 28 minutes and every token it had on a write that never closed, and left the painting as it found it. That wall is set by the model's output limit, not by the edit — a one-word change costs the same.</p>
+<p>Coordinate and relational rise too, more slowly, because every surface is handed the whole document and re-reads it each turn. Showing it one element to a line instead of fully indented halved those tokens and took 18% off the scaling set's bill without changing what any surface was told.</p>
 
 <h2 id="hard">Hard tasks are hard to write</h2>
 <p>The tasks were built to leave room — a target of about 30% passes on the strongest model — so that differences between surfaces could show. Three rounds of making them harder all ended the same way.</p>
@@ -174,6 +207,12 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <h3>A cheap way to satisfy a check is a bug in the check</h3>
 <p>Shrink the type until it fits. Fade the shape covering the text. Carry the missing copy in a text element at <code>opacity: 0</code>. Each of these once satisfied a task without doing what its brief asked. Every one now has a test asserting it scores below the honest fix, and the honest fix has to reach 100%. Checks read glyph ink from the font rather than line boxes, and overlap is measured as hidden ink rather than raw area, because a headline sitting on a card is good design, not a defect.</p>
+
+<h3>Tell the agent what the harness already guarantees</h3>
+<p>The loop has always run a reply's tool calls in order, each seeing what the one before it did. Nothing said so, and the relational agent sent its calls one or two to a reply to watch each land — two to eight turns for identical edits, every extra turn re-sending the conversation. One sentence in the shared prompt took it to two turns in seven runs of eight.</p>
+
+<h3>Formatting is a tax on every turn</h3>
+<p>A document shown fully indented costs about twice the tokens of the same JSON one element to a line, and it is shown in the opening message and re-sent on every turn after. Nothing a model needs is in the indentation.</p>
 
 <h2 id="try">Try it</h2>
 <p>The <strong>live page</strong> lets you type a brief, watch the agent build it, and switch the tool surface mid-run: the document and conversation carry over, only the vocabulary changes. It runs a recorded replay without an API key. Six providers work through one agent loop on the Vercel AI SDK.</p>
