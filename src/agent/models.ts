@@ -188,7 +188,13 @@ export const MODELS: Record<string, ModelSpec> = {
   ...extraModels(),
   ...table({
     "anthropic:claude-opus-5-5": { label: "Opus 5.5", inputPerMTok: 4, cachedInputPerMTok: 0.2, outputPerMTok: 20 },
-    "anthropic:claude-sonnet-5-5": { label: "Sonnet 5.5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
+    // Sonnet 5.5 kept Sonnet 5's prices except cache reads, which fell to $0.10.
+    "anthropic:claude-sonnet-5-5": { label: "Sonnet 5.5", inputPerMTok: 2, cachedInputPerMTok: 0.1, outputPerMTok: 10 },
+    // Prompts up to 100K tokens; beyond that Haiku 5.5 charges $0.50 / $2.50, which
+    // this flat table does not model, so a turn past 100K is under-costed. The
+    // cache-read rate is not published beside it: a tenth of input, as on every
+    // other Anthropic model here, is assumed.
+    "anthropic:claude-haiku-5-5": { label: "Haiku 5.5", inputPerMTok: 0.1, cachedInputPerMTok: 0.01, outputPerMTok: 0.5 },
     "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, cachedInputPerMTok: 0.5, outputPerMTok: 25 },
     "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
     "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 5 },
@@ -251,6 +257,7 @@ export const DEFAULT_MODEL = "anthropic:claude-opus-5-5";
 export const MODEL_SWEEP = [
   "anthropic:claude-opus-5-5",
   "anthropic:claude-sonnet-5-5",
+  "anthropic:claude-haiku-5-5",
 ];
 
 /** Every model in the registry, in table order. What `--models all` expands to. */
