@@ -79,13 +79,14 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <p>The bench hands one agent loop a 2D canvas document and a brief — set this menu so every dish name fills two lines, fix this clipped headline, put this page in dark mode — through one of three <strong>tool surfaces</strong>: <em>coordinate</em> (move and resize by numbers), <em>relational</em> (place this below that, fit this text to its box) and <em>document-as-code</em> (read and rewrite the JSON). Each run gets either no feedback or a rendered screenshot plus a structured description. Deterministic checks score the result; a <strong>pass</strong> satisfies every one of them.</p>
 
-<div class="status sans"><strong>What is confirmed.</strong> Two results, each <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on four text-measurement tasks with GPT-5.6 Luna and Terra, and on four diagram-drawing tasks with Gemini 3.8 Flash, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots, one or two repeats per cell, and is exploratory.</div>
+<div class="status sans"><strong>What is confirmed.</strong> Two results, each <a href="https://github.com/swissspidy/canvas/blob/main/docs/PREREGISTRATION.md">pre-registered</a> before its runs: on four text-measurement tasks with GPT-5.6 Luna and Terra, and on four diagram-drawing tasks with Gemini 3.8 Flash, the relational surface passes far more often and costs far less per pass than either other surface. Everything else on this page comes from pilots and exploratory runs, one to three repeats per cell.</div>
 
 <nav>
   <a href="#measure">A measuring tool beats a bigger model</a>
   <a href="#cost">When the model can measure</a>
   <a href="#draw">Drawing: the same effect, a third provider</a>
   <a href="#size">What a big document costs</a>
+  <a href="#tool">The tool, or the vocabulary?</a>
   <a href="#hard">Hard tasks are hard to write</a>
   <a href="#lessons">Lessons for tool design</a>
   <a href="#try">Try it</a>
@@ -152,7 +153,20 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 </tbody></table></div>
 <p class="note">Gemini 3.8 Flash, no feedback, a 65,536-token ceiling (the model's own); two repeats averaged up to 560 elements, one at 1,120.</p>
 <p>Document-as-code writes the whole document to change any of it, and output is the dearer token and is never served from a cache: its cost rose 4.5 times from 70 to 560 elements, against 2.5 and 2.0 for the surfaces that touch only what changes. At 1,120 elements one write of the document no longer fits in what the model can output with room to think: it spent 28 minutes and every token it had on a write that never closed, and left the painting as it found it. That wall is set by the model's output limit, not by the edit — a one-word change costs the same.</p>
-<p>Coordinate and relational rise too, more slowly, because every surface is handed the whole document and re-reads it each turn. Showing it one element to a line instead of fully indented halved those tokens and took 18% off the scaling set's bill without changing what any surface was told.</p>
+<p>On Claude the wall sits further out: Sonnet 5.5 and Haiku 5.5 can output 128,000 tokens, and both finished the 1,120-element revision by rewriting it — writing about 100,000 tokens, at 2.6 to 3.3 times coordinate's cost. The next doubling is past every current model's limit.</p>
+<p>Coordinate and relational rise too, more slowly, because every surface is handed the whole document and re-reads it each turn. A structured description after every turn makes that steeper for everyone — with one, coordinate's cost on Sonnet roughly doubled with each doubling of the painting. Showing it one element to a line instead of fully indented halved those tokens and took 18% off the scaling set's bill without changing what any surface was told.</p>
+
+<h2 id="tool">The tool, or the vocabulary around it?</h2>
+<p>Relational wins both confirmed results through one tool — <code>fit_text</code>, <code>connect</code> — but it also has no x or y anywhere, so those results cannot say which did the work. An ablation surface, <em>measured</em>, keeps coordinate's vocabulary and adds only the two measuring tools, the very same objects relational uses. On Claude Sonnet 5.5 and Haiku 5.5:</p>
+<div class="scroll"><table>
+<thead><tr><th>Passes</th><th class="n">Coordinate</th><th class="n">Measured</th><th class="n">Relational</th></tr></thead>
+<tbody>
+<tr><td>Haiku, text fitting (3 repeats)</td><td class="n">18 / 24</td><td class="n hi">23 / 24</td><td class="n hi">24 / 24</td></tr>
+<tr><td>Haiku, diagrams (3 repeats)</td><td class="n lo">3 / 24</td><td class="n md">10 / 24</td><td class="n hi">24 / 24</td></tr>
+<tr><td>Sonnet, text fitting (1 repeat)</td><td class="n">7 / 8</td><td class="n hi">8 / 8</td><td class="n hi">8 / 8</td></tr>
+<tr><td>Sonnet, diagrams (1 repeat)</td><td class="n md">4 / 8</td><td class="n hi">7 / 8</td><td class="n hi">8 / 8</td></tr>
+</tbody></table></div>
+<p>For text, the tool is enough: given <code>fit_text</code> beside its numbers, coordinate passed as often as relational, at under half its own cost per pass. For drawing, the tool works every time it is used — every one of Haiku's ten <em>measured</em> passes used <code>connect</code>, and every one of its fourteen failures drew the arrows with typed coordinates instead. Offered numbers beside the tool, the smaller model chose the numbers more often than not. Relational has no numbers to fall back on, and used <code>connect</code> in every run.</p>
 
 <h2 id="hard">Hard tasks are hard to write</h2>
 <p>The tasks were built to leave room — a target of about 30% passes on the strongest model — so that differences between surfaces could show. Three rounds of making them harder all ended the same way.</p>
@@ -207,6 +221,9 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 
 <h3>A cheap way to satisfy a check is a bug in the check</h3>
 <p>Shrink the type until it fits. Fade the shape covering the text. Carry the missing copy in a text element at <code>opacity: 0</code>. Each of these once satisfied a task without doing what its brief asked. Every one now has a test asserting it scores below the honest fix, and the honest fix has to reach 100%. Checks read glyph ink from the font rather than line boxes, and overlap is measured as hidden ink rather than raw area, because a headline sitting on a card is good design, not a defect.</p>
+
+<h3>Give the measuring tool, and take away the guess</h3>
+<p>A measuring tool only helps if it is used, and a weaker model given both a tool and the raw numbers will often type the numbers. Where a computed answer matters, the more reliable interface is the one that offers no way to guess.</p>
 
 <h3>Tell the agent what the harness already guarantees</h3>
 <p>The loop has always run a reply's tool calls in order, each seeing what the one before it did. Nothing said so, and the relational agent sent its calls one or two to a reply to watch each land — two to eight turns for identical edits, every extra turn re-sending the conversation. One sentence in the shared prompt took it to two turns in seven runs of eight.</p>
