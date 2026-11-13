@@ -407,7 +407,7 @@ describe("the opening message is the same for every condition except the screens
       const opening = JSON.stringify(messagesOf(model.doGenerateCalls[0]!).find((m) => m.role === "user")!.content);
       expect(opening).toContain("Quarterly Review");
       // The raw JSON is there too, not just the prose description.
-      expect(opening).toContain('\\"id\\": \\"headline\\"');
+      expect(opening).toContain('\\"id\\":\\"headline\\"');
       expect(opening).toContain(task.brief.slice(0, 40));
     }
   });

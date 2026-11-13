@@ -1581,3 +1581,29 @@ this is a shape, not an estimate: the per-element slope here is about $0.17
 per thousand elements on coordinate and $0.64 on document-as-code, and
 nothing in this entry is an interval.
 
+**2026-11-13 — the document is shown one element to a line.** A deviation,
+made before any run under it.
+
+The scaling set showed every surface paying for the size of a document
+through what it reads: the opening message carries the whole document, as a
+description and as JSON, to every surface (the equal-information rule of
+`docs/DESIGN.md`), and each turn re-sends it. The JSON was indented two
+spaces throughout, which put every key of every element on a line of its own
+and cost about twice the tokens of the same JSON one element to a line —
+51,600 against 26,100 at 560 elements.
+
+*Decided.* The rule stands: every surface still sees both views at turn
+zero. Dropping either for some surfaces would buy tokens with the comparison's
+fairness — the JSON carries exact values, and the description the one fact
+the JSON cannot, whether text fits its box. What changes is the waste: every
+document shown to a model (the opening message, `read_document`) is now
+serialized one element to a line. Same information, the same for every
+surface.
+
+*What it touches.* Every task's opening message, so runs before and after
+this entry are not pooled. The confirmed measurement and paint results were
+tested under the indented format and stand as tested. The change can move
+surfaces unequally in one known way: document-as-code reads the JSON it
+rewrites, and may copy its layout into what it writes. That is a reason to
+measure the scaling set again rather than to assume the saving.
+

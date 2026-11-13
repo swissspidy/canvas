@@ -396,3 +396,16 @@ describe("the revision at four sizes", () => {
     }
   });
 });
+
+describe("the document as a model reads it", () => {
+  it("is the same document, at about half the tokens of indented JSON", async () => {
+    const { documentJson } = await import("./document.js");
+    for (const id of ["paint.revise-560", "measure.menu", "repair.overlapping-stack"]) {
+      const d = getTask(id).initial();
+      const text = documentJson(d);
+      expect(JSON.parse(text), id).toEqual(JSON.parse(JSON.stringify(d)));
+      if (d.elements.length > 20) expect(text.length, id).toBeLessThan(JSON.stringify(d, null, 2).length * 0.65);
+    }
+    expect(JSON.parse(documentJson({ width: 10, height: 10, background: "#fff", elements: [] })).elements).toEqual([]);
+  });
+});
