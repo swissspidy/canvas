@@ -1815,3 +1815,9 @@ the right pairs passes — so what it can show is narrow: whether Haiku's
 `measured` failures were the choice of tool and nothing else. A shortfall
 would mean something else in coordinate's vocabulary costs it the page.
 
+*Result.* 24 runs, $0.35: **24 of 24 passed**, as relational did, against
+`measured`'s 10. With typed coordinates gone as a way to draw, Haiku called
+`connect` and passed every time. The `measured` failures were the choice of
+tool and nothing else in coordinate's vocabulary: its boxes and numbers,
+still there for everything but lines, cost it nothing on these tasks.
+
