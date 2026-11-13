@@ -442,7 +442,7 @@ export function withPaint(surface: ToolSurface): ToolSurface {
       ? [drawTool]
       : surface.id === "relational"
         ? [sketchTool, connectTool]
-        : surface.id === "hybrid"
+        : surface.id === "hybrid" || surface.id === "measured"
           ? [drawTool, connectTool]
           : [];
   return { ...surface, notes: [...(surface.notes ?? []), PAINT_NOTE], tools: [...surface.tools, ...tools] };

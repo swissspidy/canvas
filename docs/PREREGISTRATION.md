@@ -1662,3 +1662,67 @@ the task: on Gemini 3.8 Flash it lies between 560 and 1,120 elements of this
 painting. The incremental surfaces have no such wall — their output did not
 grow with the document — only a cost that rises with what they re-read.
 
+**2026-11-13 (second entry) — the next round, on Claude Sonnet 5.5 and Haiku
+5.5.** Written before any run on either model with the measured surface, the
+compact format or the call-order sentence. Two experiments; both exploratory.
+The confirmed results were tested on other models under the earlier prompt
+and format, and nothing here re-tests them as pre-registered.
+
+*E1 — is it the tool or the vocabulary?* Both confirmed results credit the
+relational surface, and both run through one tool that computes what the
+agent would otherwise estimate (`fit_text`, `connect`). Relational also
+differs from coordinate in its whole vocabulary, so they cannot say which did
+the work. A new ablation surface, `measured`, is coordinate with only the
+measuring tools added — the same tool objects relational uses (a test holds
+them identical) — so coordinate against `measured` is the tool, and
+`measured` against relational is the vocabulary.
+
+- *Design.* The four measurement tasks and the four diagrams; surfaces
+  `coordinate`, `measured`, `relational`, `document`; feedback `none` and
+  `both`; Sonnet 5.5 and Haiku 5.5 at effort `high`, `maxOutputTokens`
+  32,000; no turn budget; no judge. Haiku at three repeats (192 runs, about
+  $4). Sonnet priced from one cell of each family first; three repeats if the
+  priced grid is under $30, one if not (64 runs, about $16) — decided before
+  its second run and recorded here.
+- *Expected.* `measured` passes about as often as relational and far more
+  often than coordinate: the tool does the work. If instead `measured` sits
+  with coordinate, the vocabulary matters — an agent given a measuring tool
+  beside numbers it can type does not reach for it. Pass rates and cost per
+  pass are read per family and per model, paired within task as in §4, and
+  reported as intervals labelled exploratory.
+
+*E2 — does feedback change the size curve?* The scaling set ran with no
+feedback. A screenshot costs the same at every size, and a description grows
+with the document, so `both` may reshape the curve.
+
+- *Design.* `--tasks scale` (70 to 1,120 elements), surfaces `coordinate`,
+  `relational`, `document`, feedback `both`, Sonnet 5.5 and Haiku 5.5, one
+  repeat, a 65,536-token ceiling as before: 30 runs, about $5. Haiku's prompts
+  past 100,000 tokens cost more than the registry models, so its large-size
+  costs are under-reported and are marked so.
+- *Read as.* Cost against size per surface, beside the no-feedback curve on
+  Gemini; a shape, not an estimate.
+
+*Running it.* No Anthropic key reached the session that wrote this entry, so
+it runs in a session that has one. The bench reads `ANTHROPIC_BASE_URL`, and
+a Claude Code session sets that for its own use, so every command overrides
+it:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
+# E1, Haiku
+npm run cli -- run --tasks measure,paint.diagram,paint.cycle,paint.orgchart,paint.network \
+  --surfaces coordinate,measured,relational,document --feedback none,both \
+  --models anthropic:claude-haiku-5-5 --repeats 3 --no-judge --out runs/e1-haiku
+# E1, Sonnet: price one cell per family first, then the grid
+npm run cli -- run --tasks measure.menu,paint.diagram --surfaces coordinate --feedback none \
+  --models anthropic:claude-sonnet-5-5 --repeats 1 --no-judge --out runs/e1-sonnet
+npm run cli -- run --tasks measure,paint.diagram,paint.cycle,paint.orgchart,paint.network \
+  --surfaces coordinate,measured,relational,document --feedback none,both \
+  --models anthropic:claude-sonnet-5-5 --repeats 3 --no-judge --out runs/e1-sonnet --estimate
+# E2, both models
+npm run cli -- run --tasks scale --surfaces coordinate,relational,document --feedback both \
+  --models anthropic:claude-sonnet-5-5,anthropic:claude-haiku-5-5 --repeats 1 --no-judge \
+  --max-tokens 65536 --out runs/e2-scale-both
+```
+

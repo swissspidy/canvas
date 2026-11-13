@@ -409,3 +409,28 @@ describe("the document as a model reads it", () => {
     expect(JSON.parse(documentJson({ width: 10, height: 10, background: "#fff", elements: [] })).elements).toEqual([]);
   });
 });
+
+describe("the measured ablation", () => {
+  it("is coordinate plus the measuring tools, the same objects relational uses", () => {
+    const measured = surfaceFor("measured", { paint: true });
+    const coord = surfaceFor("coordinate", { paint: true });
+    const rel = surfaceFor("relational", { paint: true });
+    const names = measured.tools.map((t) => t.name);
+    expect(names).toEqual([...coord.tools.map((t) => t.name), "fit_text", "connect"].filter((n, i, a) => a.indexOf(n) === i).sort((a, b) => names.indexOf(a) - names.indexOf(b)));
+    for (const name of ["fit_text", "connect"]) {
+      expect(measured.tools.find((t) => t.name === name), name).toBe(rel.tools.find((t) => t.name === name));
+    }
+    expect(measured.tools.some((t) => t.name === "place" || t.name === "align")).toBe(false);
+    expect(surfaceFor("measured").tools.some((t) => t.name === "connect")).toBe(false);
+  });
+
+  it("finishes a diagram with connect alone", () => {
+    const task = getTask("paint.cycle");
+    const s = new DocSession(task.initial());
+    const measured = surfaceFor("measured", task);
+    for (const [from, to] of DIAGRAM_SPECS.find((d) => d.id === "paint.cycle")!.edges) {
+      call(s, measured, "connect", { from, to, style: { strokeColor: "#1d1d2b", strokeWidth: 5, arrow: "end" } });
+    }
+    expect(scoreDocument(s.doc, task).score).toBeGreaterThanOrEqual(0.999);
+  });
+});

@@ -150,7 +150,7 @@ export const animateTool: ToolDef<z.infer<typeof zAnimateInput>> = {
  */
 export function withMotion(surface: ToolSurface): ToolSurface {
   const tools =
-    surface.id === "coordinate"
+    surface.id === "coordinate" || surface.id === "measured"
       ? [setAnimationTool]
       : surface.id === "relational"
         ? [animateTool]

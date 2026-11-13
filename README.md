@@ -15,6 +15,10 @@ Three tool surfaces over one shared document model:
 | **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `rotate`, `align`, `distribute`, `fit_text`, `fit_within`, `set_size`, `avoid_overlap`, `set_style`, `set_background`, `delete` |
 | **Document-as-code** | here is the entire JSON, again | `read_document`, `write_document` |
 
+Two ablations sit beside them: `hybrid` (coordinate and relational together)
+and `measured` (coordinate plus only the measuring tools `fit_text` and
+`connect`), which separates the tool from the vocabulary around it.
+
 Tasks that *draw* — a route through a maze, arrows between a flowchart's
 shapes, a pie chart — add a `draw` tool to coordinate and relational, and a
 `connect` to relational that works out where a line leaves one shape, meets
