@@ -21,9 +21,10 @@ import { defineTask } from "./types.js";
 import { blank, doc, rect, text } from "./helpers.js";
 import type { Doc, Element, Point } from "../doc/types.js";
 import type { Check } from "../eval/checks.js";
-import { check, containsText, coverage, fontSizeAtLeast, geometryUnchanged, preservesElements, styleUnchanged } from "../eval/checks.js";
+import { check, containsText, coverage, fontSizeAtLeast, geometryUnchanged, preservesElements, styleUnchanged, textUnchanged } from "../eval/checks.js";
 import {
   connects,
+  onlyPathsAdded,
   pathClearOf,
   pathCount,
   pathEnds,
@@ -121,6 +122,8 @@ const route = defineTask({
     styleIs(anyTrace, { strokeWidth: TRACE_WIDTH }, 1, `Traces are ${TRACE_WIDTH} wide`),
     geometryUnchanged(board(), [...chipIds, ...padIds], 2),
     preservesElements([...chipIds, ...padIds], 2),
+    styleUnchanged(board(), [...chipIds, ...padIds], 2),
+    onlyPathsAdded(board(), 2),
     pathCount((el) => el.type === "path" && paintsAnything(el), 3, 1, "Nothing drawn but the three traces"),
   ],
   judgeCriteria: ["Reads as a tidy circuit board: traces take direct, deliberate routes rather than wandering."],
@@ -272,6 +275,8 @@ const mazeTask = defineTask({
     styleIs(thread, { strokeWidth: MAZE_LINE }, 1, `The path is ${MAZE_LINE} wide`),
     geometryUnchanged(maze(), [...wallIds, "start", "goal"], 2),
     preservesElements([...wallIds, "start", "goal"], 2),
+    styleUnchanged(maze(), [...wallIds, "start", "goal"], 2),
+    onlyPathsAdded(maze(), 2),
     pathCount((el) => el.type === "path" && paintsAnything(el), 1, 1, "Nothing drawn but the one path"),
   ],
   judgeCriteria: ["The route reads as one clean line through the corridors, not a scribble."],
@@ -342,6 +347,8 @@ const flow = defineTask({
     geometryUnchanged(flowchart(), nodeIds, 2),
     preservesElements(nodeIds, 2),
     styleUnchanged(flowchart(), nodeIds, 1),
+    textUnchanged(flowchart(), NODES.map((n) => `${n.id}_label`), 1),
+    onlyPathsAdded(flowchart(), 2),
   ],
   judgeCriteria: ["Reads as a clear flowchart: every arrow visibly joins the two shapes it is meant to."],
   maxTurns: 30,
@@ -497,6 +504,8 @@ export function diagramTask(spec: DiagramSpec) {
       geometryUnchanged(diagramDoc(spec), ids, 2),
       preservesElements(ids, 2),
       styleUnchanged(diagramDoc(spec), ids, 1),
+      textUnchanged(diagramDoc(spec), spec.nodes.map((n) => `${n.id}_label`), 1),
+      onlyPathsAdded(diagramDoc(spec), 2),
     ],
     judgeCriteria: [`Reads as a clear ${spec.noun}: every arrow visibly joins the two shapes it is meant to.`],
     maxTurns: 30,

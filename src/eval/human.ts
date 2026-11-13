@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunScore } from "./score.js";
 import { getTask } from "../tasks/index.js";
+import { fullBrief } from "../tasks/types.js";
 
 export interface RatingItem {
   runId: string;
@@ -99,7 +100,7 @@ export function sampleForRating(scores: RunScore[], n = 40): RatingItem[] {
       feedbackMode: score.feedbackMode,
       model: score.model,
       taskId: score.taskId,
-      brief: task.brief,
+      brief: fullBrief(task),
       criteria: task.judgeCriteria,
       judgeOverall: score.judgeOverallScore === null ? null : Math.round(score.judgeOverallScore * 4 + 1),
       renderPath: join("renders", `${score.runId}.png`),

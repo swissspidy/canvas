@@ -48,7 +48,7 @@ import { renderSvg } from "../render/svg.js";
 import { toBase64 } from "../render/rasterizer.js";
 import {
   addUsage,
-  costUsd,
+  costOfRequests,
   getModel,
   MAX_RETRIES,
   reasoningFor,
@@ -289,6 +289,8 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
   const emit: EventSink = config.onEvent ?? noopSink;
   const maxTurns = config.turnBudget ?? config.maxTurns ?? config.task.maxTurns;
   const rounds = config.task.rounds ?? [];
+  // One entry per request, so each is priced at its own tier (`costOfRequests`).
+  const requestUsages: TokenUsage[] = [];
   const roundEndCalls: number[] = [];
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
   const effort = config.effort ?? "high";
@@ -369,6 +371,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
       const turnUsage = tokenUsage(result.usage);
       usage = addUsage(usage, turnUsage);
+      requestUsages.push(turnUsage);
 
       if (result.reasoningText) emit({ type: "thinking", turn, text: result.reasoningText });
       if (result.text) emit({ type: "text", turn, text: result.text });
@@ -428,7 +431,14 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         // agent signs off the last one, in the same conversation, the way an
         // editor gets a second note on a page they have just finished.
         const next = rounds[roundEndCalls.length - 1];
-        if (next !== undefined && turn < maxTurns) {
+        if (next !== undefined) {
+          // A round still to deliver and no turn left to deliver it in is a
+          // run cut short, not a finished one: the page never got the later
+          // notes, and "completed" would score it as though it had.
+          if (turn >= maxTurns) {
+            stopReason = "max_turns";
+            break;
+          }
           messages.push({ role: "user", content: roundText(roundEndCalls.length + 1, rounds.length + 1, next) });
           continue;
         }
@@ -561,7 +571,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     // Priced from the table, not from what was actually called: a dry run or a
     // test injects its own model but still names a real one, and reporting
     // that as unpriced would be misleading.
-    costUsd: costUsd(usage, spec),
+    costUsd: costOfRequests(requestUsages, spec),
     pricingKnown: spec.priced,
     wallMs: Date.now() - startedAt,
     initialDoc,

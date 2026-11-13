@@ -463,3 +463,66 @@ describe("editing sessions", () => {
     }
   });
 });
+
+describe("a session's judge", () => {
+  it("is shown every round's instruction, while the agent gets only the first up front", async () => {
+    const { fullBrief } = await import("../tasks/types.js");
+    const session = getTask("session.revise-280");
+    const full = fullBrief(session);
+    for (const round of session.rounds!) expect(full).toContain(round);
+    expect(session.brief).not.toContain(session.rounds![0]!);
+    expect(fullBrief(getTask("paint.cycle"))).toBe(getTask("paint.cycle").brief);
+  });
+});
+
+describe("shortcuts a review found, each scoring below the honest page", () => {
+  const solved = (id: string) => PAINT_SOLUTIONS[id]!();
+  const below = (id: string, doc: Doc) => expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(doc))), getTask(id)).score, id).toBeLessThan(0.999);
+  const edit = (doc: Doc, id: string, fn: (el: Element) => Element): Doc => ({ ...doc, elements: doc.elements.map((e) => (e.id === id ? fn(e) : e)) });
+  const cover = (doc: Doc): Doc => ({
+    ...doc,
+    elements: [...doc.elements, { id: "cover", type: "rect", x: 0, y: 0, width: doc.width, height: doc.height, rotation: 0, z: 9999, style: { fill: "#000000" } }],
+  });
+
+  it("starts from pages that pass", () => {
+    for (const id of ["paint.revise", "paint.route", "paint.maze", "paint.diagram", "paint.flowchart"]) {
+      expect(scoreDocument(solved(id), getTask(id)).score, id).toBeGreaterThanOrEqual(0.999);
+    }
+  });
+
+  it("the revision: opening the lake, raising the sky, hiding the crowns or the title", () => {
+    below("paint.revise", edit(solved("paint.revise"), "lake", ({ closed: _closed, ...e }) => e));
+    below("paint.revise", edit(solved("paint.revise"), "sky", (e) => ({ ...e, z: 999 })));
+    below("paint.revise", edit(solved("paint.revise"), "crown_1", (e) => ({ ...e, style: { ...e.style, opacity: 0 } })));
+    below("paint.revise", edit(solved("paint.revise"), "crown_1", (e) => ({ ...e, style: { ...e.style, opacity: 0.02 } })));
+    below("paint.revise", edit(solved("paint.revise"), "title", (e) => ({ ...e, style: { ...e.style, opacity: 0 } })));
+  });
+
+  it("the board and the maze: hiding what the lines avoid, or covering the page", () => {
+    below("paint.route", edit(solved("paint.route"), "chip_1", (e) => ({ ...e, style: { ...e.style, opacity: 0 } })));
+    below("paint.maze", edit(solved("paint.maze"), "wall_1", (e) => ({ ...e, style: { ...e.style, opacity: 0 } })));
+    below("paint.route", cover(solved("paint.route")));
+    below("paint.maze", cover(solved("paint.maze")));
+  });
+
+  it("the diagrams: relabelling the shapes, or covering the page", () => {
+    for (const id of ["paint.diagram", "paint.flowchart"]) {
+      const doc = solved(id);
+      const label = doc.elements.find((e) => e.id.endsWith("_label"))!.id;
+      below(id, edit(doc, label, (e) => ({ ...e, text: "X" })));
+      below(id, cover(doc));
+    }
+  });
+});
+
+
+describe("a style written out at its defaults", () => {
+  it("counts as unchanged, so rewriting a document the same is not a restyle", () => {
+    const task = getTask("paint.maze");
+    const doc = PAINT_SOLUTIONS["paint.maze"]!();
+    const spelled = { ...doc, elements: doc.elements.map((e) => (e.id === "goal" ? { ...e, style: { ...e.style, sides: 5, innerRatio: 0.5, opacity: 1 } } : e)) };
+    expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(spelled))), task).score).toBeGreaterThanOrEqual(0.999);
+    const changed = { ...doc, elements: doc.elements.map((e) => (e.id === "goal" ? { ...e, style: { ...e.style, sides: 6 } } : e)) };
+    expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(changed))), task).score).toBeLessThan(0.999);
+  });
+});

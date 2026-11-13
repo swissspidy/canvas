@@ -8,6 +8,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TASKS, getTask, resolveTasks } from "./tasks/index.js";
+import { fullBrief } from "./tasks/types.js";
 import { SURFACES, getSurface } from "./surfaces/index.js";
 import {
   FEEDBACK_MODES,
@@ -223,7 +224,7 @@ function cmdShow(args: Args): void {
   const doc = task.initial();
   const { score, results } = scoreDocument(doc, task);
   console.log(`# ${task.title}  [${task.id}, family: ${task.family}]\n`);
-  console.log(task.brief);
+  console.log(fullBrief(task));
   console.log(`\n# Starting document\n`);
   console.log(describeDoc(doc));
   console.log(`\n# Baseline score: ${(score * 100).toFixed(1)}%\n`);
@@ -781,7 +782,7 @@ async function cmdCompare(args: Args): Promise<void> {
       const pair = todo[next++]!;
       const task = getTask(pair.taskId);
       const result = await judgePair({
-        brief: task.brief,
+        brief: fullBrief(task),
         initialDoc: task.initial(),
         a: finalDocs.get(pair.a.runId)!,
         b: finalDocs.get(pair.b.runId)!,

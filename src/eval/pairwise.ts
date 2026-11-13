@@ -101,6 +101,8 @@ export async function judgePair(input: PairInput): Promise<PairResult> {
   const model = input.model ?? DEFAULT_JUDGE_MODEL;
   const spec = getModel(model);
   let usage: TokenUsage = { ...ZERO_USAGE };
+  // Priced per request: the two orders are two requests.
+  let cost = 0;
 
   const ask = async (first: Doc, second: Doc) => {
     try {
@@ -117,9 +119,13 @@ export async function judgePair(input: PairInput): Promise<PairResult> {
         messages: [{ role: "user", content: content(input, first, second) }],
       });
       usage = addUsage(usage, tokenUsage(response.usage));
+      cost += costUsd(tokenUsage(response.usage), spec);
       return response.object;
     } catch (err) {
-      if (NoObjectGeneratedError.isInstance(err) && err.usage) usage = addUsage(usage, tokenUsage(err.usage));
+      if (NoObjectGeneratedError.isInstance(err) && err.usage) {
+        usage = addUsage(usage, tokenUsage(err.usage));
+        cost += costUsd(tokenUsage(err.usage), spec);
+      }
       throw err;
     }
   };
@@ -133,7 +139,7 @@ export async function judgePair(input: PairInput): Promise<PairResult> {
       reasons: [aFirst.differences, bFirst.differences],
       model,
       usage,
-      costUsd: costUsd(usage, spec),
+      costUsd: cost,
       pricingKnown: spec.priced,
     };
   } catch (err) {
@@ -143,7 +149,7 @@ export async function judgePair(input: PairInput): Promise<PairResult> {
       reasons: ["", ""],
       model,
       usage,
-      costUsd: costUsd(usage, spec),
+      costUsd: cost,
       pricingKnown: spec.priced,
       error: err instanceof Error ? err.message : String(err),
     };

@@ -725,3 +725,19 @@ describe("a task delivered in rounds", () => {
     expect(third).toContain("Now move it to x=40.");
   });
 });
+
+describe("a task delivered in rounds, out of turns", () => {
+  it("ends as max_turns, not completed, when the last turn signs off with a round still to come", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds-short", maxTurns: 2, rounds: ["Now move it to x=40."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+      ]),
+    );
+    const r = await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model });
+    expect(r.stopReason).toBe("max_turns");
+    expect(r.roundEndCalls).toEqual([1]);
+  });
+});
+

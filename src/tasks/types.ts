@@ -52,6 +52,22 @@ export interface Task {
   rounds?: string[];
 }
 
+/**
+ * Everything the task asks for, for whoever judges the result: the brief and,
+ * for a task delivered in rounds, every later instruction after it. The agent
+ * still receives the rounds one at a time; a judge, a human rater or a pairwise
+ * comparison shown only the first would fault a page for edits it was asked
+ * for later.
+ */
+export function fullBrief(task: Pick<Task, "brief" | "rounds">): string {
+  if (!task.rounds?.length) return task.brief;
+  const total = task.rounds.length + 1;
+  return [
+    `${task.brief}\n\n(This was round 1 of ${total}. The later instructions, each given once the one before was done:)`,
+    ...task.rounds.map((round, i) => `# Round ${i + 2} of ${total}\n\n${round}`),
+  ].join("\n\n");
+}
+
 export function defineTask(task: Task): Task {
   return task;
 }

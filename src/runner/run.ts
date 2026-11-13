@@ -15,7 +15,7 @@
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import type { Task } from "../tasks/types.js";
+import { fullBrief, type Task } from "../tasks/types.js";
 import { getTask } from "../tasks/index.js";
 import { surfaceFor } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
@@ -282,9 +282,12 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
     );
   }
 
-  writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
-
+  // Before the new settings are written, not after: if setting the old scores
+  // aside fails, the old fingerprint must still be on disk, or the next plain
+  // resume would read the old rows as runs made under the new settings.
   prepareScoresFile(paths, !!config.force);
+
+  writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
 
   const cells = expandMatrix(config);
   const existing = config.force ? new Map<string, RunScore>() : completedScores(paths);
@@ -432,7 +435,7 @@ async function runCell(
   if (config.judge && !config.dryRun) {
     try {
       judge = await judgeRun({
-        brief: cell.task.brief,
+        brief: fullBrief(cell.task),
         criteria: cell.task.judgeCriteria,
         finalDoc: run.finalDoc,
         initialDoc: run.initialDoc,
@@ -497,7 +500,7 @@ function writeArtifacts(
       JSON.stringify(
         {
           runId: cell.runId,
-          task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: cell.task.brief },
+          task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: fullBrief(cell.task) },
           surface: cell.surface,
           feedback: cell.feedback,
           model: cell.model,

@@ -180,17 +180,44 @@ export function reviseTaskFor(spec: ReviseSpec) {
       for (const [id, pts] of before) {
         const after = d.elements.find((e) => e.id === id);
         if (!after) continue;
-        const same = after.points?.length === pts.length && after.points.every(([x, y], i) => Math.abs(x - pts[i]![0]) <= 1 && Math.abs(y - pts[i]![1]) <= 1);
+        // Closure too: an outline opened up keeps its points and loses its fill.
+        const wasClosed = !!START.elements.find((e) => e.id === id)!.closed;
+        const same =
+          !!after.closed === wasClosed &&
+          after.points?.length === pts.length &&
+          after.points.every(([x, y], i) => Math.abs(x - pts[i]![0]) <= 1 && Math.abs(y - pts[i]![1]) <= 1);
         if (!same) drifted.push(id);
       }
       return { score: before.size ? 1 - drifted.length / before.size : 1, detail: drifted.length ? `Reshaped: ${drifted.join(", ")}` : "All as they were." };
     });
   }
 
+  /**
+   * The painting's layers in the order they were, among the elements kept: the
+   * sky raised over the sun hides it and moves nothing a geometry check reads.
+   */
+  function layersUnchanged(weight: number): Check {
+    const order = START.elements.map((e) => e.id);
+    return check("layers_unchanged", "Every element keeps its place in the paint order", weight, (d) => {
+      const kept = d.elements.map((e) => e.id).filter((id) => order.includes(id));
+      const expected = order.filter((id) => kept.includes(id));
+      const moved = kept.filter((id, i) => id !== expected[i]);
+      return {
+        score: moved.length === 0 ? 1 : Math.max(0, 1 - moved.length / 10),
+        detail: moved.length ? `Out of order: ${moved.slice(0, 6).join(", ")}${moved.length > 6 ? "…" : ""}` : "In order.",
+      };
+    });
+  }
+
   /** Every crown in autumn colour, and nothing else about them changed. */
   function autumnCrowns(weight: number): Check {
     return check("autumn", `Every tree's crown is filled ${AUTUMN}`, weight, (d) => {
-      const wrong = crownIds.filter((id) => d.elements.find((e) => e.id === id)?.style.fill?.toLowerCase() !== AUTUMN);
+      // Seen in autumn colour, not merely filled with it: a crown faded to
+      // nothing has the right fill and is no autumn tree.
+      const wrong = crownIds.filter((id) => {
+        const crown = d.elements.find((e) => e.id === id);
+        return !crown || crown.style.fill?.toLowerCase() !== AUTUMN || !paintsAnything(crown);
+      });
       return { score: 1 - wrong.length / crownIds.length, detail: wrong.length ? `${wrong.length} of ${crownIds.length} not recoloured.` : "All recoloured." };
     });
   }
@@ -276,7 +303,11 @@ export function reviseTaskFor(spec: ReviseSpec) {
       geometryUnchanged(START, [...untouched, ...crownIds, "title"], 3),
       styleUnchanged(START, untouched, 2),
       styleUnchanged(START, ["sun", ...rayIds], 1),
+      // The crowns may change their fill and nothing else; the title its text, not its look.
+      styleUnchanged(START, crownIds, 2, { except: ["fill"] }),
+      styleUnchanged(START, ["title"], 1),
       pointsUnchanged(untouched.filter((id) => START.elements.find((e) => e.id === id)?.type === "path"), 2),
+      layersUnchanged(2),
     ],
     judgeCriteria: ["Reads as the same painting in autumn, with nothing else disturbed."],
     maxTurns: 30,

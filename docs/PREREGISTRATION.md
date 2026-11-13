@@ -1899,3 +1899,29 @@ the judge's preference, not a finding about the surfaces. What the pages do
 show plainly is that on a strong model, open-ended illustration does not
 separate the surfaces either: each vocabulary produced a good picture.
 
+**2026-11-13 (fifth entry) — checks tightened after review, and every
+recorded run re-scored.** A review of the pull request found ways to satisfy
+the drawing tasks without doing what their briefs ask: rewriting a diagram's
+labels, covering the page with an opaque rectangle, hiding the shapes a line
+must avoid, opening the lake's outline, raising the sky over the sun, fading
+a crown to nothing. Each is now caught (`textUnchanged` and a no-additions
+check on every diagram, style checks on the board, the maze, the crowns and
+the title, closure and paint order on the revision), with a test that the
+shortcut scores below the honest page.
+
+This changes the check set of the four confirmed diagrams after the
+confirmation ran, so every recorded run was re-scored under the new checks:
+599 runs across every task, 0 changes of pass or fail. (Scores of failing
+runs move slightly, since total weights changed.) One maze pilot run did
+first flip, from pass to fail, because document-as-code had written a star's
+default `sides: 5` and `innerRatio: 0.5` out in full. That was a false
+positive in `styleUnchanged`, which now compares a key's value as drawn — a
+key spelled out at its default equals the key left out — and is tested.
+
+Also from the review: a round-based run that signs off its last allowed turn
+with a round undelivered now ends `max_turns`, not `completed`; Haiku 5.5's
+long-prompt rates are applied per request (so its reported costs above
+100,000 prompt tokens rise; the E2 1,120-element Haiku figures above were
+priced at the base rate); a forced sweep sets old scores aside before writing
+its new settings; and a judge of a session is shown every round's instruction.
+

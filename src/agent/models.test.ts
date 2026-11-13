@@ -16,6 +16,7 @@ import {
   tokenUsage,
   ZERO_USAGE,
   REQUEST_TIMEOUT_MS,
+  costOfRequests,
 } from "./models.js";
 
 describe("model specs", () => {
@@ -331,3 +332,25 @@ describe("a turn that takes longer than five minutes", () => {
     }
   });
 });
+
+describe("a long-prompt tier", () => {
+  const haiku = getModel("anthropic:claude-haiku-5-5");
+  const request = (prompt: number, output: number) => ({ input: prompt, output, cacheRead: 0, cacheWrite: 0 });
+
+  it("prices a request above the threshold at the dearer rates, and one below at the base rates", () => {
+    expect(costUsd(request(50_000, 1_000), haiku)).toBeCloseTo(50_000 * 0.1e-6 + 1_000 * 0.5e-6, 12);
+    expect(costUsd(request(150_000, 1_000), haiku)).toBeCloseTo(150_000 * 0.5e-6 + 1_000 * 2.5e-6, 12);
+  });
+
+  it("counts cached input toward the threshold", () => {
+    const cached = { input: 10_000, output: 0, cacheRead: 95_000, cacheWrite: 0 };
+    expect(costUsd(cached, haiku)).toBeCloseTo(10_000 * 0.5e-6 + 95_000 * 0.05e-6, 12);
+  });
+
+  it("prices each request on its own: two small requests stay cheap though their sum would not", () => {
+    const two = [request(60_000, 0), request(60_000, 0)];
+    expect(costOfRequests(two, haiku)).toBeCloseTo(120_000 * 0.1e-6, 12);
+    expect(costUsd(request(120_000, 0), haiku)).toBeGreaterThan(costOfRequests(two, haiku));
+  });
+});
+

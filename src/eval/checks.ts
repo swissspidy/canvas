@@ -1286,13 +1286,73 @@ export function paintOrder(ids: string[], weight = 1): Check {
  * a restyle task. An image's `src` counts as part of its appearance, because
  * swapping the photograph is not keeping it.
  */
+/**
+ * What a style key comes to when it is left out: the value the renderer and
+ * the layout use in its place. Shape-dependent where the renderer is — a star
+ * has five points by default and a polygon six.
+ */
+function styleDefault(el: Element, key: keyof Style): unknown {
+  switch (key) {
+    case "fontSize":
+      return el.type === "text" ? DEFAULT_FONT_SIZE : undefined;
+    case "fontWeight":
+      return "regular";
+    case "align":
+      return "left";
+    case "valign":
+      return "top";
+    case "lineHeight":
+      return 1.25;
+    case "opacity":
+      return 1;
+    case "radius":
+    case "padding":
+      return 0;
+    case "objectFit":
+      return "cover";
+    case "shape":
+      return el.type === "rect" ? "rect" : undefined;
+    case "sides": {
+      const shape = el.style.shape;
+      return shape === "star" ? 5 : shape === "polygon" ? 6 : undefined;
+    }
+    case "innerRatio":
+      return el.style.shape === "star" ? 0.5 : undefined;
+    case "gradientAngle":
+      return 90;
+    case "curve":
+      return el.type === "path" ? "straight" : undefined;
+    case "lineCap":
+      return el.type === "path" ? "round" : undefined;
+    case "arrow":
+      return el.type === "path" ? "none" : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Equal as drawn: a key spelled out at its default matches the same key left
+ * out. Document-as-code rewrites every element it keeps, and a model writing
+ * `sides: 5` on a star it did not change has not changed it — counting that
+ * as a restyle penalised the one surface that writes whole elements.
+ */
+function sameStyleValue(before: Element, after: Element, key: keyof Style): boolean {
+  const a = before.style[key] ?? styleDefault(before, key);
+  const b = after.style[key] ?? styleDefault(after, key);
+  return a === b;
+}
+
 export function styleUnchanged(
   reference: Doc,
   selector: Selector,
   weight = 1,
-  opts: { keys?: (keyof Style)[] } = {},
+  opts: { keys?: (keyof Style)[]; except?: (keyof Style)[] } = {},
 ): Check {
   const expected = select(reference, selector);
+  // `except` names keys a brief allows to change; every other key is held,
+  // including one the edit adds — an `opacity: 0` that was never there.
+  const allowed = new Set<string>(opts.except ?? []);
   return check("style_unchanged", "The appearance is untouched", weight, (doc) => {
     if (expected.length === 0) return { score: 1, detail: "Nothing to hold." };
     let compared = 0;
@@ -1302,12 +1362,13 @@ export function styleUnchanged(
       const after = doc.elements.find((e) => e.id === before.id);
       // A deleted element is `preservesElements`' finding, not this one.
       if (!after) continue;
-      const keys =
-        opts.keys ?? ([...new Set([...Object.keys(before.style), ...Object.keys(after.style)])] as (keyof Style)[]);
+      const keys = (
+        opts.keys ?? ([...new Set([...Object.keys(before.style), ...Object.keys(after.style)])] as (keyof Style)[])
+      ).filter((key) => !allowed.has(key));
       const drifted: string[] = [];
       for (const key of keys) {
         compared++;
-        if (before.style[key] === after.style[key]) matched++;
+        if (sameStyleValue(before, after, key)) matched++;
         else drifted.push(`${key} ${String(before.style[key] ?? "unset")}→${String(after.style[key] ?? "unset")}`);
       }
       if (before.type === "image") {

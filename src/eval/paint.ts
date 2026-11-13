@@ -356,3 +356,20 @@ export function sectorRing(cx: number, cy: number, r: number, start: number, end
   }
   return out;
 }
+
+/**
+ * Nothing visible is added but lines. A drawing task asks for paths; an opaque
+ * rectangle over the whole page leaves every path check satisfied and the
+ * picture gone, so anything else that paints is counted against it.
+ */
+export function onlyPathsAdded(reference: Doc, weight = 1, label = "Nothing is added but the lines asked for"): Check {
+  const known = new Set(reference.elements.map((e) => e.id));
+  return check("only_paths_added", label, weight, (doc) => {
+    const extra = doc.elements.filter((e) => !known.has(e.id) && e.type !== "path" && paintsAnything(e)).map((e) => e.id);
+    return {
+      score: extra.length === 0 ? 1 : Math.max(0, 1 - extra.length / 3),
+      detail: extra.length ? `Added: ${extra.slice(0, 6).join(", ")}` : "Only lines added.",
+    };
+  });
+}
+
