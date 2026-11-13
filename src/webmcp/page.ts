@@ -18,7 +18,7 @@
  */
 
 import { DocSession, type ActionRecord } from "../doc/session.js";
-import { getSurface, SURFACES } from "../surfaces/index.js";
+import { getSurface, surfaceFor, SURFACES } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { availableFeedbackModes, createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { getTask, TASKS } from "../tasks/index.js";
@@ -100,18 +100,37 @@ function onAction(_doc: Doc, _action: ActionRecord): void {
   render();
 }
 
-async function applySurface(): Promise<void> {
-  registration?.dispose();
-  registration = await registerSurfaceTools(modelContext(), session, getSurface(surfaceId), {
-    feedback: createFeedbackChannel(feedbackMode),
-    onAction,
-  });
-  render();
+/**
+ * One at a time. Registering is asynchronous, and two changes in quick
+ * succession — a task and a surface, or two turns of a dropdown — both used to
+ * dispose the same old registration and both register: the first handle was
+ * overwritten without being disposed, and its tools stayed published, bound
+ * to a session nobody was looking at any more.
+ */
+let applying: Promise<void> = Promise.resolve();
+
+function applySurface(): Promise<void> {
+  const run = async (): Promise<void> => {
+    registration?.dispose();
+    registration = null;
+    // The task's own tools too: one that draws or animates gets them here as
+    // it does in a sweep.
+    registration = await registerSurfaceTools(modelContext(), session, surfaceFor(surfaceId, getTask(taskId)), {
+      feedback: createFeedbackChannel(feedbackMode),
+      onAction,
+    });
+    render();
+  };
+  applying = applying.then(run, run);
+  return applying;
 }
 
 async function loadTask(id: string): Promise<void> {
+  // Looked up before anything is assigned: an unknown id must leave the page
+  // on the task it had, not on one `score()` and `state()` then throw for.
+  const task = getTask(id);
   taskId = id;
-  session = new DocSession(getTask(id).initial());
+  session = new DocSession(task.initial());
   await applySurface();
 }
 
@@ -217,12 +236,14 @@ Object.defineProperty(window, "__canvasBench", {
     },
     async setSurface(id: SurfaceId) {
       await ready;
+      getSurface(id); // throws on an unknown id, before the page's state changes
       surfaceId = id;
       (el("surface") as HTMLSelectElement).value = id;
       await applySurface();
     },
     async setFeedback(mode: FeedbackMode) {
       await ready;
+      if (!availableFeedbackModes().includes(mode)) throw new Error(`Unknown or unavailable feedback mode '${mode}'.`);
       feedbackMode = mode;
       (el("feedback") as HTMLSelectElement).value = mode;
       await applySurface();

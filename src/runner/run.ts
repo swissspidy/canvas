@@ -13,12 +13,11 @@
  * so nothing that was already paid for gets thrown away.
  */
 
-import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import type { Task } from "../tasks/types.js";
+import { fullBrief, type Task } from "../tasks/types.js";
 import { getTask } from "../tasks/index.js";
-import { getSurface } from "../surfaces/index.js";
-import { withMotion } from "../surfaces/motion.js";
+import { surfaceFor } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, type FeedbackMode } from "../feedback/index.js";
 import { runAgent } from "../agent/loop.js";
@@ -239,6 +238,40 @@ export interface SweepProgress {
   onWarnings?(messages: string[]): void;
 }
 
+/**
+ * Leave the scores file in a state this sweep can safely append to.
+ *
+ * Two things went wrong here. `--force` re-ran every cell but left the old
+ * rows in the file; if that forced sweep was then interrupted, a plain resume
+ * found the old rows for the cells it had not reached, saw a matching
+ * fingerprint — `--force` had already overwritten it — and reported runs made
+ * under the old settings beside runs made under the new. So a forced sweep
+ * sets the old file aside rather than appending to it. Nothing paid for is
+ * deleted: it is renamed, and says so in its name.
+ *
+ * And a sweep killed mid-write leaves a last line with no newline. Loading
+ * skips that fragment, but the next append was glued onto the end of it, so
+ * the first cell finished after a resume was lost too, and re-run, and
+ * re-billed. A file that does not end in a newline is given one.
+ */
+function prepareScoresFile(paths: SweepPaths, force: boolean): void {
+  if (!existsSync(paths.scoresFile)) return;
+  if (force) {
+    renameSync(paths.scoresFile, `${paths.scoresFile}.superseded-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+    return;
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(paths.scoresFile, "utf8");
+  } catch {
+    // Unreadable: `loadExistingScores` is about to say so, with the reason.
+    return;
+  }
+  // Not caught: if the newline cannot be written, the next score would be
+  // glued to the fragment and lost, so the sweep stops before paying for it.
+  if (raw.length > 0 && !raw.endsWith("\n")) appendFileSync(paths.scoresFile, "\n");
+}
+
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {
   const paths = sweepPaths(config.outDir);
   ensureDirs(paths);
@@ -252,6 +285,11 @@ export async function runSweep(config: SweepConfig, progress: SweepProgress = {}
         `\nResuming would average runs made under both. Use a new --out, or --force to re-run everything here.`,
     );
   }
+
+  // Before the new settings are written, not after: if setting the old scores
+  // aside fails, the old fingerprint must still be on disk, or the next plain
+  // resume would read the old rows as runs made under the new settings.
+  prepareScoresFile(paths, !!config.force);
 
   writeFileSync(paths.configFile, JSON.stringify({ ...config, startedAt: new Date().toISOString() }, null, 2));
 
@@ -379,7 +417,7 @@ async function runCell(
   const run = await runAgent({
     runId: cell.runId,
     task: cell.task,
-    surface: cell.task.motion ? withMotion(getSurface(cell.surface)) : getSurface(cell.surface),
+    surface: surfaceFor(cell.surface, cell.task),
     feedback: createFeedbackChannel(cell.feedback),
     model: cell.model,
     ...(config.effort ? { effort: config.effort } : {}),
@@ -401,7 +439,7 @@ async function runCell(
   if (config.judge && !config.dryRun) {
     try {
       judge = await judgeRun({
-        brief: cell.task.brief,
+        brief: fullBrief(cell.task),
         criteria: cell.task.judgeCriteria,
         finalDoc: run.finalDoc,
         initialDoc: run.initialDoc,
@@ -466,7 +504,7 @@ function writeArtifacts(
       JSON.stringify(
         {
           runId: cell.runId,
-          task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: cell.task.brief },
+          task: { id: cell.task.id, family: cell.task.family, title: cell.task.title, brief: fullBrief(cell.task) },
           surface: cell.surface,
           feedback: cell.feedback,
           model: cell.model,

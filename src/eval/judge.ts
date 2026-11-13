@@ -361,7 +361,7 @@ export function alignCriteria(
 
   // `.fill` matters: `flatMap` and `forEach` skip the holes in a sparse array.
   const scores = new Array<number | undefined>(requested.length).fill(undefined);
-  const unmatched: { criterion: string; score: number }[] = [];
+  const unmatched: { criterion: string; score: number; reason?: string }[] = [];
 
   for (const entry of returned) {
     const key = normalizeCriterion(entry.criterion);
@@ -375,6 +375,16 @@ export function alignCriteria(
     // paraphrase, and there is no honest slot left to put it in.
     if (slots) return { error: `Judge scored "${entry.criterion}" more than once.` };
     unmatched.push(entry);
+  }
+
+  // An "Overall" or blank row is not a paraphrase of a criterion. When the
+  // counts happened to agree — one criterion left out, one summary row added —
+  // it was slotted into the missing criterion's place and scored as it.
+  // A blank label with a reason is still no criterion's name: nothing says
+  // which slot it was meant for.
+  const filler = unmatched.find((e) => notACriterion(e) || normalizeCriterion(e.criterion) === "");
+  if (filler) {
+    return { error: `Judge returned "${filler.criterion || "(blank)"}" in place of one of the ${requested.length} criteria asked for.` };
   }
 
   // Counts already agree, so every remaining entry — a paraphrase of something

@@ -129,7 +129,7 @@ describe("every reported interval is task-clustered", () => {
 
 describe("pairedDifference", () => {
   it("recovers a planted effect and calls it resolved", () => {
-    const diff = pairedDifference(syntheticScores(0.2), (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(syntheticScores(0.2), "surfaceId", "relational", "coordinate");
     expect(diff.difference).toBeCloseTo(0.2, 6);
     expect(diff.pairs).toBe(5);
     expect(diff.resolved).toBe(true);
@@ -137,13 +137,13 @@ describe("pairedDifference", () => {
   });
 
   it("reports the sign of the comparison as asked", () => {
-    const diff = pairedDifference(syntheticScores(0.2), (s) => s.surfaceId, "coordinate", "relational");
+    const diff = pairedDifference(syntheticScores(0.2), "surfaceId", "coordinate", "relational");
     expect(diff.difference).toBeCloseTo(-0.2, 6);
     expect(diff.resolved).toBe(true);
   });
 
   it("does not resolve a zero effect", () => {
-    const diff = pairedDifference(syntheticScores(0), (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(syntheticScores(0), "surfaceId", "relational", "coordinate");
     expect(diff.difference).toBeCloseTo(0, 9);
     expect(diff.resolved).toBe(false);
   });
@@ -154,7 +154,7 @@ describe("pairedDifference", () => {
       score({ taskId: "shared", surfaceId: "relational", normalizedScore: 0.6 }),
       score({ taskId: "coordinate-only", surfaceId: "coordinate", normalizedScore: 0.9 }),
     ];
-    const diff = pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(scores, "surfaceId", "relational", "coordinate");
     expect(diff.pairs).toBe(1);
     expect(diff.difference).toBeCloseTo(0.2, 9);
   });
@@ -164,18 +164,18 @@ describe("pairedDifference", () => {
       score({ taskId: "only", surfaceId: "coordinate", normalizedScore: 0 }),
       score({ taskId: "only", surfaceId: "relational", normalizedScore: 1 }),
     ];
-    expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").resolved).toBe(false);
+    expect(pairedDifference(scores, "surfaceId", "relational", "coordinate").resolved).toBe(false);
   });
 
   it("keeps the bootstrap rule by default and switches only when asked", () => {
     const scores = syntheticScores(0.2);
-    expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").method).toBe("bootstrap");
+    expect(pairedDifference(scores, "surfaceId", "relational", "coordinate").method).toBe("bootstrap");
 
     // Five tasks. The bootstrap resolves it; the sign-flip test cannot, because
     // 2/2^5 = 0.0625 is the smallest p five pairs can produce. Both are looking
     // at the same effect, and only one of them is a 95% test at this size.
     const permuted = pairedDifference(
-      scores, (s) => s.surfaceId, "relational", "coordinate", (s) => s.normalizedScore, 2000, 20260916, "permutation",
+      scores, "surfaceId", "relational", "coordinate", (s) => s.normalizedScore, 2000, 20260916, "permutation",
     );
     expect(permuted.pairs).toBe(5);
     expect(permuted.floorP).toBeCloseTo(0.0625, 9);
@@ -742,5 +742,66 @@ describe("cost to pass", () => {
     expect(md).toContain("### Paired ratios");
     const json = buildReportJson(rows) as { costToPass: { bySurface: Record<string, unknown> } };
     expect(Object.keys(json.costToPass.bySurface).sort()).toEqual(["coordinate", "relational"]);
+  });
+});
+
+describe("statistics on a grid that is not full", () => {
+  it("puts the point estimate inside its own interval when tasks have unequal run counts", () => {
+    const rows = [
+      ...Array.from({ length: 30 }, () => score({ taskId: "big", surfaceId: "a", normalizedScore: 1 })),
+      score({ taskId: "t1", surfaceId: "a", normalizedScore: 0 }),
+      score({ taskId: "t2", surfaceId: "a", normalizedScore: 0.1 }),
+      score({ taskId: "t3", surfaceId: "a", normalizedScore: 0.05 }),
+    ];
+    const ci = clusterBootstrapCI(rows, (s) => s.normalizedScore);
+    expect(ci.low).toBeLessThanOrEqual(ci.mean);
+    expect(ci.high).toBeGreaterThanOrEqual(ci.mean);
+  });
+
+  it("does not find a difference between identical surfaces when one is missing cells", () => {
+    // Feedback is worth +0.4 on both surfaces. Surface `a` lost its screenshot
+    // cells on half the tasks; pooled, that reads as `a` being worse.
+    const rows: RunScore[] = [];
+    for (let t = 0; t < 12; t++) {
+      for (const surfaceId of ["a", "b"]) {
+        for (const feedbackMode of ["none", "screenshot"]) {
+          if (surfaceId === "a" && feedbackMode === "screenshot" && t % 2 === 0) continue;
+          rows.push(score({ taskId: `t${t}`, surfaceId, feedbackMode, normalizedScore: 0.3 + (feedbackMode === "screenshot" ? 0.4 : 0) + t * 0.01 }));
+        }
+      }
+    }
+    const diff = pairedDifference(rows, "surfaceId", "a", "b");
+    expect(diff.difference).toBeCloseTo(0, 9);
+    expect(diff.resolved).toBe(false);
+  });
+});
+
+describe("cost to pass, at its edges", () => {
+  const run = (taskId: string, surfaceId: string, cost: number, pass: boolean, model = "m"): RunScore => {
+    const base = score({ taskId, surfaceId, constraintScore: pass ? 1 : 0.9, model });
+    return { ...base, efficiency: { ...base.efficiency, costUsd: cost, agentCostUsd: cost, toolCalls: 10 } };
+  };
+
+  it("leaves a cell that spent nothing out of the ratio rather than flooring it", () => {
+    const rows = [
+      ...["t1", "t2", "t3"].flatMap((t) => [run(t, "a", 0.1, true), run(t, "b", 0.2, true)]),
+      run("t4", "a", 0, true),
+      run("t4", "b", 0.2, true),
+    ];
+    const cmp = compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost");
+    expect(cmp.ratio).toBeCloseTo(0.5, 9);
+    expect(cmp.clusters).toBe(3);
+  });
+
+  it("counts a task once however many models ran it", () => {
+    const rows = ["t1", "t2", "t3"].flatMap((t) => ["m1", "m2"].flatMap((m) => [run(t, "a", 0.1, true, m), run(t, "b", 0.2, true, m)]));
+    expect(compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost").clusters).toBe(3);
+  });
+
+  it("gives the same verdict whichever way round the pair is written", () => {
+    const rows = ["t1", "t2", "t3", "t4"].flatMap((t) => [run(t, "a", 0.86, true), run(t, "b", 1, true)]);
+    const ab = compareCostToPass(rows, (s) => s.surfaceId, "a", "b", "cost");
+    const ba = compareCostToPass(rows, (s) => s.surfaceId, "b", "a", "cost");
+    expect(ab.meaningful).toBe(ba.meaningful);
   });
 });

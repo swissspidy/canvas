@@ -28,7 +28,7 @@ const readTool: ToolDef<z.infer<typeof zReadInput>> = {
   run(ctx) {
     return {
       doc: ctx.doc,
-      message: JSON.stringify(ctx.doc, null, 2),
+      message: documentJson(ctx.doc),
       touched: [],
     };
   },
@@ -133,7 +133,20 @@ export const documentSurface: ToolSurface = {
   tools: [readTool, writeTool],
 };
 
-/** Exposed for the initial-state prompt and the live page. */
+/**
+ * A document as a model reads it: valid JSON, one element per line.
+ *
+ * It used to be indented two spaces deep throughout, which spells every key of
+ * every element on a line of its own and costs about twice the tokens of the
+ * same JSON one element to a line — 51,600 tokens against 26,100 for a
+ * 560-element painting, sent in the opening message to every surface and
+ * re-sent with every turn. Nothing a model needs is in the indentation, and
+ * the format is the same for every surface, so the saving changes no
+ * comparison's terms. `docs/PREREGISTRATION.md`, 2026-11-13.
+ */
 export function documentJson(doc: Doc): string {
-  return JSON.stringify(cloneDoc(doc), null, 2);
+  const d = cloneDoc(doc);
+  const head = `"width": ${d.width}, "height": ${d.height}, "background": ${JSON.stringify(d.background)}`;
+  if (d.elements.length === 0) return `{${head}, "elements": []}`;
+  return `{${head}, "elements": [\n${d.elements.map((el) => `  ${JSON.stringify(el)}`).join(",\n")}\n]}`;
 }

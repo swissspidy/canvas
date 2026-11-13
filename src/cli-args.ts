@@ -27,12 +27,19 @@ export function parseArgs(argv: string[]): Args {
     return { command: "help", flags: {}, positional: [] };
   }
   const [command = "help", ...rest] = argv;
-  const flags: Record<string, string | boolean> = {};
+  // No prototype: a flag is looked up by a name the user typed, and on a plain
+  // object `--toString` is already "set".
+  const flags: Record<string, string | boolean> = Object.create(null);
   const positional: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
     if (arg.startsWith("--")) {
-      const [key, inline] = arg.slice(2).split("=", 2);
+      // Split on the first `=` only: `--out=runs/a=b` names `runs/a=b`, and
+      // `split("=", 2)` threw the rest away and wrote the sweep to `runs/a`.
+      const body = arg.slice(2);
+      const eq = body.indexOf("=");
+      const key = eq === -1 ? body : body.slice(0, eq);
+      const inline = eq === -1 ? undefined : body.slice(eq + 1);
       if (inline !== undefined) flags[key!] = inline;
       else if (rest[i + 1] && !rest[i + 1]!.startsWith("--")) flags[key!] = rest[++i]!;
       else flags[key!] = true;
@@ -43,8 +50,40 @@ export function parseArgs(argv: string[]): Args {
   return { command, flags, positional };
 }
 
-export const str = (flags: Args["flags"], key: string, fallback: string): string =>
-  typeof flags[key] === "string" ? (flags[key] as string) : fallback;
+/**
+ * A flag given with nothing after it. Falling back to the default there read
+ * `--tasks --models x` as "every task", silently, on a command that spends
+ * money per cell.
+ */
+function requireValue(flags: Args["flags"], key: string): void {
+  if (flags[key] === true || flags[key] === "") throw new Error(`--${key} needs a value.`);
+}
+
+export const str = (flags: Args["flags"], key: string, fallback: string): string => {
+  requireValue(flags, key);
+  return typeof flags[key] === "string" ? (flags[key] as string) : fallback;
+};
+
+/** Every flag some command reads. */
+export const KNOWN_FLAGS = [
+  "base", "by", "concurrency", "dir", "dry-run", "effect", "effort", "estimate", "feedback", "force", "from", "judge-model",
+  "max-tokens", "method", "models", "n", "no-judge", "out", "pairs", "passing", "ratings", "repeats", "run-sd", "surfaces",
+  "task-sd", "tasks", "trials", "turn-budget", "width",
+] as const;
+
+/**
+ * Refuse a flag no command reads. An unknown flag used to be ignored, so
+ * `--dryrun` started a paid sweep and `--model x` ran the default model.
+ */
+export function assertKnownFlags(flags: Args["flags"]): void {
+  const known = new Set<string>(KNOWN_FLAGS);
+  for (const key of Object.keys(flags)) {
+    if (known.has(key)) continue;
+    const squash = (v: string) => v.replace(/-/g, "");
+    const near = KNOWN_FLAGS.find((k) => squash(k) === squash(key) || k === `${key}s` || `${k}s` === key || k.startsWith(key));
+    throw new Error(`Unknown option --${key}.${near ? ` Did you mean --${near}?` : ""} Run with --help for the list.`);
+  }
+}
 
 /**
  * A real-valued setting: any finite number, including zero and negatives.
@@ -90,10 +129,14 @@ export const positiveInt = (flags: Args["flags"], key: string, fallback: number)
 };
 
 export const bool = (flags: Args["flags"], key: string, fallback = false): boolean =>
-  key in flags ? flags[key] !== "false" : fallback;
+  flags[key] !== undefined ? flags[key] !== "false" : fallback;
 
 export const list = (flags: Args["flags"], key: string, fallback: string[]): string[] => {
+  requireValue(flags, key);
   const raw = flags[key];
   if (typeof raw !== "string") return fallback;
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  const items = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  // `--surfaces=,` is not "no surfaces": a sweep over nothing ran to "Done".
+  if (items.length === 0) throw new Error(`--${key} needs at least one value.`);
+  return items;
 };

@@ -9,6 +9,7 @@
  */
 
 import type { Element, Point, Polygon, Rect } from "./types.js";
+import { pathCoverage, pathPieces } from "./path.js";
 
 /** Floating point slack, in canvas units. Positions are O(1000), so 1e-6 is generous. */
 export const EPS = 1e-6;
@@ -191,6 +192,10 @@ function lineIntersection(p1: Point, p2: Point, p3: Point, p4: Point): Point | n
  * and turned with it, first point straight up before rotation.
  */
 export function shapePolygons(el: Element): Polygon[] {
+  if (el.type === "path") {
+    const pieces = pathPieces(el);
+    return [...pieces.fill, ...pieces.stroke];
+  }
   const shape = el.type === "rect" ? (el.style.shape ?? "rect") : "rect";
   if (shape === "rect") return [corners(el)];
   const c = center(el);
@@ -230,10 +235,19 @@ export function shapePolygons(el: Element): Polygon[] {
   return pieces.map((poly) => poly.map(place));
 }
 
+/**
+ * What an element paints as pieces that never overlap, for summing areas. A
+ * shape's pieces already don't; a path's stroke lies over its own fill and its
+ * segments overlap at every joint.
+ */
+function coverage(el: Element): Polygon[] {
+  return el.type === "path" ? pathCoverage(el) : shapePolygons(el);
+}
+
 /** Exact area of the intersection of what two elements draw. */
 export function overlapArea(a: Element, b: Element): number {
   let area = 0;
-  for (const pa of shapePolygons(a)) for (const pb of shapePolygons(b)) area += polygonArea(convexClip(pa, pb));
+  for (const pa of coverage(a)) for (const pb of coverage(b)) area += polygonArea(convexClip(pa, pb));
   return area;
 }
 
@@ -264,7 +278,7 @@ export function rectToPolygon(r: Rect): Polygon {
 /** Area of the element that falls outside `bounds`. Zero when fully inside. */
 export function outOfBoundsArea(el: Element, bounds: Rect): number {
   let out = 0;
-  for (const poly of shapePolygons(el)) {
+  for (const poly of coverage(el)) {
     const inside = polygonArea(convexClip(poly, rectToPolygon(bounds)));
     out += Math.max(0, polygonArea(poly) - inside);
   }

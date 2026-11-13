@@ -407,7 +407,7 @@ describe("the opening message is the same for every condition except the screens
       const opening = JSON.stringify(messagesOf(model.doGenerateCalls[0]!).find((m) => m.role === "user")!.content);
       expect(opening).toContain("Quarterly Review");
       // The raw JSON is there too, not just the prose description.
-      expect(opening).toContain('\\"id\\": \\"headline\\"');
+      expect(opening).toContain('\\"id\\":\\"headline\\"');
       expect(opening).toContain(task.brief.slice(0, 40));
     }
   });
@@ -651,3 +651,109 @@ describe("transcripts", () => {
     expect(json.length).toBeLessThan(200_000);
   });
 });
+
+describe("answering a call the SDK has already answered", () => {
+  // A call to a tool that is not in the set is marked invalid by the SDK,
+  // which writes its own `tool` message for it. The loop answers every call
+  // itself, so that message has to be left out — or the next request carries
+  // two results for one call id.
+  it("sends exactly one result for a call to a tool that does not exist", async () => {
+    const { model, result } = run("none", [
+      { tools: [{ name: "teleport", input: { id: "el_1" } }] },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.failedToolCalls).toBe(1);
+    const second = (model.doGenerateCalls as Call[])[1]!;
+    const results = messagesOf(second)
+      .filter((m) => m.role === "tool")
+      .flatMap((m) => m.content as { type: string; toolCallId: string }[])
+      .filter((p) => p.type === "tool-result");
+    expect(results).toHaveLength(1);
+    expect(JSON.stringify(results[0])).toContain("There is no tool called 'teleport'");
+  });
+
+  it("keeps the per-turn call counts adding up to the calls that ran", async () => {
+    const { result } = run("none", [
+      { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.turnRecords.reduce((sum, t) => sum + t.toolCalls, 0)).toBe(r.toolCalls);
+  });
+});
+
+describe("calls in one reply", () => {
+  // The base prompt tells every surface that a reply's calls run in order,
+  // each seeing what the one before it did. This is that promise.
+  it("run in order, each against the document the previous one left", async () => {
+    const { result } = run("none", [
+      {
+        tools: [
+          { name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } },
+          { name: "move", input: { id: "el_1", x: 40, y: 50 } },
+        ],
+      },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.failedToolCalls).toBe(0);
+    expect(r.turnRecords[0]!.toolCalls).toBe(2);
+    expect(r.finalDoc.elements[0]).toMatchObject({ id: "el_1", x: 40, y: 50 });
+  });
+});
+
+describe("a task delivered in rounds", () => {
+  it("hands over each round when the agent signs off the last, and records where each ended", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds", maxTurns: 10, rounds: ["Now move it to x=40.", "Now move it to y=50."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+        { tools: [{ name: "move", input: { id: "el_1", x: 40, y: 0 } }] },
+        { text: "Done with round two." },
+        { tools: [{ name: "move", input: { id: "el_1", x: 40, y: 50 } }] },
+        { text: "Done." },
+      ]),
+    );
+    const r = await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model });
+    expect(r.stopReason).toBe("completed");
+    expect(r.roundEndCalls).toEqual([1, 2, 3]);
+    expect(r.finalDoc.elements[0]).toMatchObject({ x: 40, y: 50 });
+    const third = JSON.stringify(messagesOf((model.doGenerateCalls as Call[])[2]!));
+    expect(third).toContain("Round 2 of 3");
+    expect(third).toContain("Now move it to x=40.");
+    expect(third).not.toContain("turns left");
+  });
+
+  it("tells the turns left with the next round when a budget is stated", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds-budget", rounds: ["Now move it to x=40."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+        { text: "Done." },
+      ]),
+    );
+    await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model, turnBudget: 5 });
+    const third = JSON.stringify(messagesOf((model.doGenerateCalls as Call[])[2]!));
+    expect(third).toContain("Round 2 of 2");
+    expect(third).toContain("[3 turns left]");
+  });
+});
+
+describe("a task delivered in rounds, out of turns", () => {
+  it("ends as max_turns, not completed, when the last turn signs off with a round still to come", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds-short", maxTurns: 2, rounds: ["Now move it to x=40."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+      ]),
+    );
+    const r = await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model });
+    expect(r.stopReason).toBe("max_turns");
+    expect(r.roundEndCalls).toEqual([1]);
+  });
+});
+

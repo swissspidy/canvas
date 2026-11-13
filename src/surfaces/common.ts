@@ -8,8 +8,8 @@
  */
 
 import { z } from "zod";
-import { ELEMENT_TYPES } from "../doc/types.js";
-import type { Element, Style } from "../doc/types.js";
+import { BOX_ELEMENT_TYPES } from "../doc/types.js";
+import type { BoxElementType, Element, Style } from "../doc/types.js";
 import {
   BLANK_TEXT_MESSAGE,
   TEXT_FIELD_NOTE,
@@ -28,7 +28,7 @@ export const zElementId = z.string().min(1).describe("Element id, e.g. 'el_3'.")
 
 /** Content and appearance of a new element, with no placement. */
 export const zCreateContent = {
-  type: z.enum(ELEMENT_TYPES).describe("What kind of element to create."),
+  type: z.enum(BOX_ELEMENT_TYPES).describe("What kind of element to create."),
   text: zTextContent(2000, `Required for type 'text'. ${TEXT_FIELD_NOTE}`).optional(),
   src: z
     .string()
@@ -49,7 +49,9 @@ export function describeElementShort(el: Element): string {
       ? `text ${JSON.stringify((el.text ?? "").slice(0, 40))}`
       : el.type === "image"
         ? `image ${el.src}`
-        : "rect";
+        : el.type === "path"
+          ? `${el.closed ? "closed " : ""}path, ${el.points?.length ?? 0} points`
+          : "rect";
   return `${el.id} (${what})`;
 }
 
@@ -66,7 +68,7 @@ export function geometryPhrase(el: Element): string {
 export function buildElement(
   ctx: ToolContext,
   content: {
-    type: Element["type"];
+    type: BoxElementType;
     text?: string;
     src?: string;
     alt?: string;

@@ -20,12 +20,13 @@
  * each cell instead — see `docs/PREREGISTRATION.md`.
  */
 
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
-import { openai } from "@ai-sdk/openai";
-import { togetherai } from "@ai-sdk/togetherai";
-import { xai } from "@ai-sdk/xai";
-import { zai } from "@ai-sdk/zai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogle } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createTogetherAI } from "@ai-sdk/togetherai";
+import { createXai } from "@ai-sdk/xai";
+import { createZai } from "@ai-sdk/zai";
+import { Agent } from "undici";
 import type { LanguageModel } from "ai";
 
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -56,6 +57,12 @@ export interface ModelSpec {
   cacheReadMultiplier: number;
   /** False when the id is absent from the table; cost is then 0 and meaningless. */
   priced: boolean;
+  /**
+   * Dearer rates for a request whose prompt (uncached, cached and cache-write
+   * input together) is above `aboveTokens`. Applied per request, since a
+   * provider prices each request by its own prompt.
+   */
+  longPrompt?: Omit<ModelSpec, "id" | "label" | "priced" | "longPrompt"> & { aboveTokens: number };
 }
 
 /**
@@ -104,26 +111,37 @@ type PriceEntry = Pick<ModelSpec, "label" | "inputPerMTok" | "outputPerMTok"> & 
    * discount: it overstates spend rather than understating it.
    */
   cachedInputPerMTok?: number;
+  /** A second set of rates for requests whose prompt is above `aboveTokens`. */
+  longPrompt?: { aboveTokens: number; inputPerMTok: number; outputPerMTok: number; cachedInputPerMTok?: number };
 };
+
+/** A cached-input rate as a multiple of the input rate; no published rate is no discount. */
+function readMultiple(cached: number | undefined, input: number): number {
+  return cached !== undefined && input > 0 ? cached / input : 1;
+}
 
 function table(entries: Record<string, PriceEntry>): Record<string, ModelSpec> {
   return Object.fromEntries(
     Object.entries(entries).map(([id, entry]) => {
-      const { cachedInputPerMTok, ...rest } = entry;
+      const { cachedInputPerMTok, longPrompt, ...rest } = entry;
       const { provider } = parseModelSpec(id);
-      return [
+      const spec: ModelSpec = {
         id,
-        {
-          id,
-          ...rest,
+        ...rest,
+        cacheWriteMultiplier: CACHE_WRITE_MULTIPLIER[provider],
+        cacheReadMultiplier: readMultiple(cachedInputPerMTok, rest.inputPerMTok),
+        priced: true,
+      };
+      if (longPrompt) {
+        spec.longPrompt = {
+          aboveTokens: longPrompt.aboveTokens,
+          inputPerMTok: longPrompt.inputPerMTok,
+          outputPerMTok: longPrompt.outputPerMTok,
           cacheWriteMultiplier: CACHE_WRITE_MULTIPLIER[provider],
-          cacheReadMultiplier:
-            cachedInputPerMTok !== undefined && rest.inputPerMTok > 0
-              ? cachedInputPerMTok / rest.inputPerMTok
-              : 1,
-          priced: true,
-        },
-      ];
+          cacheReadMultiplier: readMultiple(longPrompt.cachedInputPerMTok, longPrompt.inputPerMTok),
+        };
+      }
+      return [id, spec];
     }),
   );
 }
@@ -187,7 +205,18 @@ export const MODELS: Record<string, ModelSpec> = {
   ...extraModels(),
   ...table({
     "anthropic:claude-opus-5-5": { label: "Opus 5.5", inputPerMTok: 4, cachedInputPerMTok: 0.2, outputPerMTok: 20 },
-    "anthropic:claude-sonnet-5-5": { label: "Sonnet 5.5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
+    // Sonnet 5.5 kept Sonnet 5's prices except cache reads, which fell to $0.10.
+    "anthropic:claude-sonnet-5-5": { label: "Sonnet 5.5", inputPerMTok: 2, cachedInputPerMTok: 0.1, outputPerMTok: 10 },
+    // $0.10 / $0.50 for prompts up to 100K tokens, $0.50 / $2.50 above. The
+    // cache-read rates are not published beside them: a tenth of input, as on
+    // every other Anthropic model here, is assumed for both tiers.
+    "anthropic:claude-haiku-5-5": {
+      label: "Haiku 5.5",
+      inputPerMTok: 0.1,
+      cachedInputPerMTok: 0.01,
+      outputPerMTok: 0.5,
+      longPrompt: { aboveTokens: 100_000, inputPerMTok: 0.5, cachedInputPerMTok: 0.05, outputPerMTok: 2.5 },
+    },
     "anthropic:claude-opus-5": { label: "Opus 5", inputPerMTok: 5, cachedInputPerMTok: 0.5, outputPerMTok: 25 },
     "anthropic:claude-sonnet-5": { label: "Sonnet 5", inputPerMTok: 2, cachedInputPerMTok: 0.2, outputPerMTok: 10 },
     "anthropic:claude-haiku-4-5": { label: "Haiku 4.5", inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 5 },
@@ -250,6 +279,7 @@ export const DEFAULT_MODEL = "anthropic:claude-opus-5-5";
 export const MODEL_SWEEP = [
   "anthropic:claude-opus-5-5",
   "anthropic:claude-sonnet-5-5",
+  "anthropic:claude-haiku-5-5",
 ];
 
 /** Every model in the registry, in table order. What `--models all` expands to. */
@@ -337,21 +367,54 @@ export function getModel(id: string): ModelSpec {
  * `PROVIDER_ENV`'s variable itself and raises its own missing-key error
  * naming it.
  */
+/**
+ * How long a request may wait for its response, at most.
+ *
+ * Node's fetch gives up on a response whose headers have not arrived within
+ * five minutes, and a turn is one request that sends nothing back until the
+ * model has finished thinking and writing. At a 65,536-token ceiling, Gemini
+ * 3.8 Flash writing a whole document took longer than that: the request was
+ * cut off, retried, cut off again, and after seven attempts and 37 minutes
+ * the cell was an `api_error` — paid for at the provider, invisible in the
+ * cost, and excluded from the analysis. Thirty minutes is longer than any
+ * turn this project has seen; a hung connection still ends.
+ */
+export const REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
+
+const patient = new Agent({ headersTimeout: REQUEST_TIMEOUT_MS, bodyTimeout: REQUEST_TIMEOUT_MS });
+
+/**
+ * The global `fetch`, read at call time so a test can still stub it, sent
+ * through a client that waits as long as a turn takes. The `dispatcher`
+ * option is honoured by Node's own fetch; `models.test.ts` drives a request
+ * through every adapter to check nothing else about it changes.
+ */
+const patientFetch: typeof fetch = (input, init) => globalThis.fetch(input, { ...init, dispatcher: patient } as RequestInit);
+
+const providers = {
+  anthropic: createAnthropic({ fetch: patientFetch }),
+  google: createGoogle({ fetch: patientFetch }),
+  openai: createOpenAI({ fetch: patientFetch }),
+  xai: createXai({ fetch: patientFetch }),
+  zai: createZai({ fetch: patientFetch }),
+  togetherai: createTogetherAI({ fetch: patientFetch }),
+};
+
 export function resolveLanguageModel(spec: string): LanguageModel {
   const { provider, modelId } = parseModelSpec(spec);
   switch (provider) {
     case "anthropic":
-      return anthropic(modelId);
+      return providers.anthropic(modelId);
     case "google":
-      return google(modelId);
+      return providers.google(modelId);
     case "openai":
-      return openai(modelId);
+      return providers.openai(modelId);
     case "xai":
-      return xai(modelId);
+      return providers.xai(modelId);
     case "zai":
-      return zai(modelId);
+      return providers.zai(modelId);
     case "togetherai":
-      return togetherai(modelId);
+      return providers.togetherai(modelId);
   }
 }
 
@@ -436,12 +499,26 @@ export function addUsage(a: TokenUsage, b: Partial<TokenUsage>): TokenUsage {
   };
 }
 
+/**
+ * What one request cost. Per request, because a model with a long-prompt tier
+ * prices each request by its own prompt: summing a run's usage first and
+ * pricing the total would put a run of small requests in the dear tier, and
+ * one large request among small ones in the cheap one. A run's cost is the
+ * sum of its requests' (`costOfRequests`).
+ */
 export function costUsd(usage: TokenUsage, spec: ModelSpec): number {
+  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+  const rates = spec.longPrompt && prompt > spec.longPrompt.aboveTokens ? spec.longPrompt : spec;
   const m = 1e-6;
   return (
-    usage.input * spec.inputPerMTok * m +
-    usage.output * spec.outputPerMTok * m +
-    usage.cacheWrite * spec.inputPerMTok * spec.cacheWriteMultiplier * m +
-    usage.cacheRead * spec.inputPerMTok * spec.cacheReadMultiplier * m
+    usage.input * rates.inputPerMTok * m +
+    usage.output * rates.outputPerMTok * m +
+    usage.cacheWrite * rates.inputPerMTok * rates.cacheWriteMultiplier * m +
+    usage.cacheRead * rates.inputPerMTok * rates.cacheReadMultiplier * m
   );
+}
+
+/** The cost of several requests, each priced at its own tier. */
+export function costOfRequests(requests: readonly TokenUsage[], spec: ModelSpec): number {
+  return requests.reduce((sum, usage) => sum + costUsd(usage, spec), 0);
 }

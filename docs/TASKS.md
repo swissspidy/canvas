@@ -317,6 +317,47 @@ marks for it before anything had been done.
 
 ---
 
+### `paint` — drawn, not laid out (6 prototypes)
+
+Not in the registered set or any default grid. `--tasks paint` selects the
+four diagrams, the revision and the lighthouse; the rest are shelved and run only by id. The chart
+and the pie are arithmetic from numbers in the brief with no tool on any
+surface to make a difference; the maze, the board and the first flowchart did
+not separate surfaces on GPT-5.6 Luna (`docs/PREREGISTRATION.md`, 2026-11-12). Each sets `paint: true`, which attaches the drawing tools
+and the paragraph that explains a path.
+
+| Task | What has to be found | What scores it |
+|---|---|---|
+| `paint.route` | Three traces across a board of ten chips, square-cornered, 12 units clear of every chip and of each other. Lay them in the wrong order and one pad is walled in. | `pathClearOf`, `pathsApart`, `pathEnds`, `pathOrthogonal`, `pathLengthAtMost` |
+| `paint.maze` | The one way through an 8 by 6 maze, from the walls' coordinates. | `pathClearOf` against every wall, `pathEnds`, a length cap |
+| `paint.flowchart` | Seven arrows that start and end *on the outline* of a box, an oval or a diamond, along the line joining centres. | `connects`, one per arrow |
+| `paint.diagram` | The flowchart built out: twelve shapes, nearly all ovals and polygons turned at an angle, and twenty arrows — three of them diagonals meeting their shape at a shallow angle — each ending on the outline as drawn, to within 2 units. | `connects`, one per arrow |
+| `paint.cycle` | The same brief on a hub and a ring of eight: sixteen arrows, at every angle. | `connects`, one per arrow |
+| `paint.orgchart` | A tree, one shape fanning out to four and each of those to two: fourteen arrows, several leaving one shape at shallow angles. | `connects`, one per arrow |
+| `paint.network` | Sixteen small shapes in a four-by-four grid: twenty-four arrows across, down and diagonally, over short gaps. | `connects`, one per arrow |
+| `paint.revise` | A 140-element landscape revised in four edits that each reach many elements — 40 crowns recoloured, the sun moved with its 16 rays, 12 birds removed, a retitle — with every other element held exactly. The first task where the document is big enough for the surfaces' cost to scale differently. | Per-edit checks, plus geometry, style, outline and identity held on everything untouched |
+| `paint.revise-70` … `-1120` | The same revision — 28 edited elements — in paintings of 70, 140, 280, 560 and 1,120 elements; only untouched scenery grows. Run as `--tasks scale`. | As `paint.revise` |
+| `session.revise-280`, `session.cycle` | The 280-element revision and the hub-and-ring diagram, asked for in rounds: the next instruction arrives when the agent signs off the last. Same final page and checks as `paint.revise-280` and `paint.cycle`. Run as `--tasks session`. | As their single-brief twins |
+| `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
+| `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
+| `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |
+
+The four diagrams are built by one function, `diagramTask`, from a layout:
+same brief, same checks, different geometry. Every layout is tested for the
+same things — no arrow's centre line passes within 25 units of another shape
+or label, every label sits inside its shape, `connect` alone finishes it, and
+arrows ended on the bounding box instead of the outline score below 90%.
+
+Also asserted in `src/surfaces/paint.test.ts`: a straight line through the maze's
+walls scores zero on clearance; an invisible path earns nothing on any of them;
+a pie of straight-edged triangles fails every slice while one drawn as smooth
+curves through a few points passes; an arrow drawn the wrong way round, or to a
+shape's box rather than its outline, loses its marks.
+
+`paint.lighthouse` is deliberately not a pass/fail task. Its checks are floors
+a blank page fails and any honest attempt clears, so a pass rate says nothing
+there; compare its pages head to head (`compare --passing`).
+
 ## The check library
 
 Universal checks run on every task, whatever else it asks for:

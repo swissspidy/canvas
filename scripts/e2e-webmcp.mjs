@@ -149,7 +149,15 @@ async function main() {
   });
   server.stderr.on("data", (d) => process.stderr.write(`[server] ${d}`));
 
-  const browser = await chromium.launch({ executablePath: executable });
+  // If the browser will not start, the server must not be left running: it
+  // would hold the port, and the next run would test against the stale one.
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: executable });
+  } catch (err) {
+    stopServer(server);
+    throw err;
+  }
   try {
     await waitForServer();
     const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });

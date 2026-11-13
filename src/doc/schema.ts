@@ -9,11 +9,12 @@
  */
 
 import { z } from "zod";
-import { ANIMATION_EFFECTS, ELEMENT_TYPES, FLY_SIDES, FONT_WEIGHTS, H_ALIGNS, OBJECT_FITS,
-  SHAPES, V_ALIGNS } from "./types.js";
+import { ANIMATION_EFFECTS, ARROWS, CURVES, ELEMENT_TYPES, FLY_SIDES, FONT_WEIGHTS, H_ALIGNS, LINE_CAPS,
+  MAX_PATH_POINTS, OBJECT_FITS, SHAPES, V_ALIGNS } from "./types.js";
 import type { Animation, Doc, Element } from "./types.js";
 import { ASSET_KEYS } from "./assets.js";
 import { round } from "./geometry.js";
+import { boxOfPoints, fitPointsToBox, pointsFitBox, type Pt } from "./path.js";
 
 /** `#rgb`, `#rrggbb`, `#rrggbbaa`, or the keyword `transparent`. */
 export const COLOR_RE = /^(#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|transparent)$/;
@@ -119,6 +120,13 @@ export const zStyle = z
       .max(360)
       .optional()
       .describe("Gradient direction in degrees: 0 runs left to right, 90 top to bottom (the default)."),
+    curve: z
+      .enum(CURVES)
+      .optional()
+      .describe("Path elements only: 'straight' joins the points with segments (the default), 'smooth' passes a curve through every point."),
+    lineCap: z.enum(LINE_CAPS).optional().describe("Path elements only: the shape of a stroke's ends and corners. Default 'round'."),
+    dash: z.number().min(1).max(500).optional().describe("Path elements only: dash length, with gaps of the same length. Omit for a solid line."),
+    arrow: z.enum(ARROWS).optional().describe("Path elements only: arrowheads on an open path's ends. Default 'none'."),
   })
   .describe("Visual style. Every key is optional; omitted keys keep their defaults.");
 
@@ -132,6 +140,16 @@ export const zStylePatch = z.strictObject(
     Object.entries(zStyle.shape).map(([key, value]) => [key, (value as z.ZodType).nullable()]),
   ) as { [K in keyof typeof zStyle.shape]: z.ZodNullable<(typeof zStyle.shape)[K]> },
 );
+
+/** One point of a path. */
+export const zPoint = z.tuple([z.number(), z.number()]);
+
+/** The points of a path, as every surface that takes them as numbers takes them. */
+export const zPoints = z
+  .array(zPoint)
+  .min(2)
+  .max(MAX_PATH_POINTS)
+  .describe("The points the line runs through, in order, as [x, y] pairs in canvas units.");
 
 export const zAnimation = z
   .strictObject({
@@ -147,15 +165,23 @@ export const zElement = z
   .strictObject({
     id: z.string().min(1).max(64).describe("Unique element id."),
     type: z.enum(ELEMENT_TYPES),
-    x: z.number().describe("Left edge of the unrotated box."),
-    y: z.number().describe("Top edge of the unrotated box."),
-    width: z.number().min(1),
-    height: z.number().min(1),
+    x: z.number().optional().describe("Left edge of the unrotated box. Required, except on a path."),
+    y: z.number().optional().describe("Top edge of the unrotated box. Required, except on a path."),
+    width: z.number().min(1).optional().describe("Required, except on a path."),
+    height: z.number().min(1).optional().describe("Required, except on a path."),
     rotation: z.number().min(-360).max(360).default(0).describe("Clockwise degrees about the box center."),
     z: z.number().int().describe("Paint order. Higher is nearer the viewer."),
     text: zTextContent(4000, `Text content (text elements). ${TEXT_FIELD_NOTE}`).optional(),
     src: z.string().optional().describe(`Asset key (image elements). One of: ${ASSET_KEYS.join(", ")}`),
     alt: z.string().max(300).optional(),
+    points: zPoints
+      .optional()
+      .describe(
+        "Path elements only, and required there: the points the line runs through, as [x, y] pairs in canvas units " +
+          "before rotation. Leave out x, y, width and height and the box is the points' bounding box; give them and " +
+          "the points are stretched to fill that box.",
+      ),
+    closed: z.boolean().optional().describe("Path elements only: join the last point back to the first, making a shape a fill can paint."),
     style: zStyle.default({}),
     animation: zAnimation.optional(),
   })
@@ -215,6 +241,7 @@ export function semanticIssues(doc: Doc): string[] {
     if (el.type !== "image" && el.src !== undefined) {
       issues.push(`${el.id}: only image elements may set 'src'`);
     }
+    issues.push(...pathIssues(el));
     issues.push(...animationIssues(el.id, el.animation));
   }
   return issues;
@@ -250,8 +277,53 @@ export function normalizeElement(el: Element): Element {
   if (el.text !== undefined) out.text = el.text;
   if (el.src !== undefined) out.src = el.src;
   if (el.alt !== undefined) out.alt = el.alt;
+  if (el.points !== undefined) {
+    // The box is the points' bounding box, always. Whichever of the two was
+    // changed, the other follows: a moved or resized box carries its points.
+    const box = { x: out.x, y: out.y, width: out.width, height: out.height };
+    const pts = pointsFitBox(el.points, box) ? el.points : fitPointsToBox(el.points, box);
+    out.points = pts.map(([x, y]): Pt => [round(x), round(y)]);
+  }
+  if (el.closed) out.closed = true;
   if (el.animation !== undefined) out.animation = { ...el.animation };
   return out;
+}
+
+/** What a path's schema cannot say: which fields it needs and which only it may carry. */
+export function pathIssues(el: Element): string[] {
+  if (el.type !== "path") {
+    const stray = [el.points !== undefined ? "points" : "", el.closed !== undefined ? "closed" : ""].filter(Boolean);
+    return stray.map((key) => `${el.id}: only path elements may set '${key}'`);
+  }
+  if (!el.points || el.points.length < 2) return [`${el.id}: a path needs 'points' with at least two of them`];
+  if (el.closed && el.points.length < 3) return [`${el.id}: a closed path needs at least three points`];
+  return [];
+}
+
+const BOX_KEYS = ["x", "y", "width", "height"] as const;
+
+/**
+ * Give a path that came without a box the bounding box of its points, and say
+ * what is wrong with any element whose box is missing or half-given. Runs on
+ * a parsed document before it is normalized, because normalizing rounds the
+ * four numbers and would turn a missing one into NaN.
+ */
+function resolveBoxes(elements: Partial<Element>[]): string[] {
+  const issues: string[] = [];
+  for (const el of elements) {
+    const missing = BOX_KEYS.filter((k) => el[k] === undefined);
+    if (missing.length === 0) continue;
+    if (el.type !== "path") {
+      issues.push(`${el.id}: ${el.type} elements need ${missing.map((k) => `'${k}'`).join(", ")}`);
+    } else if (missing.length < BOX_KEYS.length) {
+      issues.push(`${el.id}: give a path all of x, y, width and height, or none of them (missing ${missing.map((k) => `'${k}'`).join(", ")})`);
+    } else if (!el.points || el.points.length < 2) {
+      issues.push(`${el.id}: a path needs 'points' with at least two of them`);
+    } else {
+      Object.assign(el, boxOfPoints(el.points));
+    }
+  }
+  return issues;
 }
 
 /** What an animation's schema cannot say: which fields go with which effect. */
@@ -282,6 +354,10 @@ export function parseDoc(input: unknown): Doc {
   if (!res.success) {
     const issues = formatIssues(res.error);
     throw new DocValidationError(`Document failed validation (${issues.length} issue(s))`, issues);
+  }
+  const boxIssues = resolveBoxes(res.data.elements as Partial<Element>[]);
+  if (boxIssues.length) {
+    throw new DocValidationError(`Document failed validation (${boxIssues.length} issue(s))`, boxIssues);
   }
   const doc = normalizeDoc(res.data as Doc);
   const sem = semanticIssues(doc);

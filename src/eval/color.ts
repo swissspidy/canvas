@@ -12,6 +12,8 @@
 import type { Doc, Element } from "../doc/types.js";
 import { center, degToRad, shapeContainsPoint } from "../doc/geometry.js";
 import { getAsset } from "../doc/assets.js";
+import { pathFill, pathPieces, pathStroke } from "../doc/path.js";
+import { polygonContainsPoint } from "../doc/geometry.js";
 
 export interface Rgba {
   r: number;
@@ -101,14 +103,39 @@ function layerColor(el: Element, at?: { x: number; y: number }): Rgba | null {
     const avg = assetAverageColor(el);
     return avg ? parseColor(avg) : null;
   }
+  if (el.type === "path") {
+    // The stroke is painted over the fill: a point on the line takes the
+    // line's colour laid over whatever fill is under it there (all of it when
+    // the line is opaque), and any other point inside the outline the fill's.
+    const stroke = pathStroke(el);
+    const pieces = pathPieces(el);
+    const fill = pathFill(el);
+    const inFill = fill !== null && (!at || pieces.fill.some((poly) => polygonContainsPoint(poly, at)));
+    const under = inFill ? fillAt(el, fill, at) : null;
+    const line = stroke && at && pieces.stroke.some((poly) => polygonContainsPoint(poly, at)) ? parseColor(stroke.color) : null;
+    if (!line) return under;
+    return under ? over(line, under) : line;
+  }
   // A rect with no declared fill still paints: the renderer defaults it to
   // #cccccc, so the scorer has to see the same grey the reader does.
   const fill = el.type === "rect" ? (el.style.fill ?? "#cccccc") : el.style.fill;
-  if (!fill) return null;
+  return fill ? fillAt(el, fill, at) : null;
+}
+
+/** A fill's colour at a point, along its gradient when it has one. */
+function fillAt(el: Element, fill: string, at?: { x: number; y: number }): Rgba | null {
   const from = parseColor(fill);
   const to = el.style.fillTo ? parseColor(el.style.fillTo) : null;
   if (!from || !to || !at) return from;
   return mix(from, to, gradientPosition(el, at));
+}
+
+/** One colour laid over another, both possibly translucent ("source over"). */
+function over(fg: Rgba, bg: Rgba): Rgba {
+  const a = fg.a + bg.a * (1 - fg.a);
+  if (a <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  const ch = (f: number, b: number) => (f * fg.a + b * bg.a * (1 - fg.a)) / a;
+  return { r: ch(fg.r, bg.r), g: ch(fg.g, bg.g), b: ch(fg.b, bg.b), a };
 }
 
 /**
@@ -193,7 +220,10 @@ export function effectiveBackdrop(doc: Doc, el: Element): string {
   // Nearest layer first. A text element's own fill is painted behind its own
   // glyphs, so it joins the stack above everything else.
   const stack: Rgba[] = [];
-  const own = parseColor(el.style.fill ?? "transparent");
+  // Through `layerColor`, so a block fill that is a gradient is read where the
+  // glyphs sit rather than at its first stop — a fill fading in from
+  // `transparent` used to count as no fill at all.
+  const own = el.type === "text" ? layerColor(el, point) : null;
   if (own && own.a > 0) stack.push(withOpacity(own, el.style.opacity));
 
   // Paint order is bottom-first; walk down from just below `el`.

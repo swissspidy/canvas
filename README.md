@@ -15,6 +15,15 @@ Three tool surfaces over one shared document model:
 | **Relational** | `place el_3 below el_2 with a 50 unit gap` | `create`, `place`, `rotate`, `align`, `distribute`, `fit_text`, `fit_within`, `set_size`, `avoid_overlap`, `set_style`, `set_background`, `delete` |
 | **Document-as-code** | here is the entire JSON, again | `read_document`, `write_document` |
 
+Two ablations sit beside them: `hybrid` (coordinate and relational together)
+and `measured` (coordinate plus only the measuring tools `fit_text` and
+`connect`), which separates the tool from the vocabulary around it.
+
+Tasks that *draw* — a route through a maze, arrows between a flowchart's
+shapes, a pie chart — add a `draw` tool to coordinate and relational, and a
+`connect` to relational that works out where a line leaves one shape, meets
+another, and gets round what is between them.
+
 Crossed with what the agent sees after each action: **nothing**, a **structured
 description**, a **rendered screenshot**, or **both**. That axis is a
 first-class variable rather than a flag, because the most interesting result
@@ -22,6 +31,34 @@ this study could produce is that it dominates the tool-surface choice.
 
 What counts as a result is written down in
 **[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md)**, before any run.
+
+## What we found
+
+1. **A tool that computes beats estimating, feedback and a bigger model.**
+   Where the agent must know how wide type is or where a line meets a curve,
+   the relational surface — with `fit_text` and `connect` — passed far more
+   often at a fraction of the cost per pass. Pre-registered and confirmed on
+   text measurement (GPT-5.6 Luna and Terra: 22/24 against 5/24 at best) and
+   on diagram drawing (Gemini 3.8 Flash: 23/24 against 0/24).
+2. **The tool does the work; the vocabulary decides whether it is used.** An
+   ablation, coordinate plus only the measuring tools, matched relational on
+   text. On drawing, Haiku 5.5 offered the tool beside typed coordinates used
+   it in 10 of 24 runs and passed exactly those; with `connect` as the only
+   line tool it passed 24 of 24.
+3. **Rewriting the document costs more the bigger it is and the more often
+   it is edited.** Document-as-code's cost rose 4.5× from 70 to 560 elements
+   against 2.5× for coordinate, hit a wall at the model's output limit
+   (past 1,000 elements on Gemini), and cost 5× coordinate over a four-round
+   editing session on Sonnet 5.5.
+4. **Strong models close every exact gap.** Each geometry family that
+   separated the surfaces stopped separating them a model generation up, and
+   open-ended illustration did not separate them on Sonnet either.
+5. **Cost keeps separating the surfaces after pass rates stop**, which is why
+   the bench reads cost per correct page first.
+
+The [results site](site/index.html) has the evidence, and
+[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md) every plan, written before
+its runs, and every result against it.
 
 ---
 
@@ -31,7 +68,7 @@ Node 24 — `nvm use` picks it up from `.nvmrc`.
 
 ```bash
 npm install
-npm test                      # 560+ tests, no API key needed
+npm test                      # 750+ tests, no API key needed
 npm run serve                 # live page at http://localhost:5173
 ```
 
@@ -70,7 +107,7 @@ checked price to `MODELS` in `src/agent/models.ts` to include them in cost
 comparisons.
 
 ```bash
-npm run cli -- tasks                        # the 23 tasks
+npm run cli -- tasks                        # the 27 tasks
 npm run cli -- surfaces                     # the surfaces and their tools
 npm run cli -- show repair.overlapping-stack  # a task's brief, start state and baseline
 npm run cli -- render fit.long-headline     # render a starting document to PNG
@@ -78,6 +115,8 @@ npm run cli -- render fit.long-headline     # render a starting document to PNG
 npm run cli -- run --estimate               # matrix size, no key needed, no spending
 npm run cli -- run --dry-run --out runs/wiring   # full pipeline, scripted model, no API calls
 npm run cli -- run --tasks fit --repeats 1 --out runs/pilot   # a real pilot: 60 runs
+npm run cli -- run --tasks paint --repeats 1 --out runs/paint # the drawing tasks
+npm run cli -- run --tasks scale --repeats 1 --out runs/scale # one revision, five sizes
 ```
 
 ### The whole grid
@@ -92,7 +131,7 @@ npm run cli -- run \
   --repeats 3 --concurrency 12 --out runs/leaderboard
 ```
 
-That is 23 tasks x 4 surfaces x 6 feedback conditions x however many models,
+That is 27 tasks x 4 surfaces x 6 feedback conditions x however many models,
 so price it before starting it. Run one task into the same `--out`, then ask:
 
 ```bash
@@ -327,8 +366,8 @@ npm run cli -- compare --dir runs/budget --by model --pairs 6 --passing
 
 ## The document model
 
-Deliberately tiny, and close to the Web Stories model: a fixed-size canvas
-holding a flat list of absolutely-positioned elements.
+Small, and close to the Web Stories model: a fixed-size canvas holding a flat
+list of absolutely-positioned elements — text, shapes, images, and paths.
 
 ```jsonc
 {
@@ -343,6 +382,21 @@ holding a flat list of absolutely-positioned elements.
   ]
 }
 ```
+
+A **path** is what makes it a canvas to draw on rather than only to lay out:
+a line through points, open or closed, straight or smooth, stroked, filled,
+dashed, with arrowheads.
+
+```jsonc
+{ "id": "el_3", "type": "path", "z": 2,
+  "points": [[120, 640], [300, 520], [480, 600], [660, 430]],
+  "style": { "strokeColor": "#e63946", "strokeWidth": 8, "curve": "smooth", "arrow": "end" } }
+```
+
+Its box is always the bounding box of its points, so moving, aligning or
+rotating one is the same operation as for anything else. A smooth path is
+flattened to short segments once, and the renderer paints exactly those — the
+line a check measures is the line on screen.
 
 No nesting, no groups, no rich text, no multi-page. Images come from a fixed
 procedural library with honest intrinsic aspect ratios, so `objectFit` is a
@@ -387,13 +441,13 @@ Two smaller ones worth naming:
 
 ```
 src/
-  doc/        model, exact rotated-box geometry, occlusion, session, ops
+  doc/        model, exact rotated-box geometry, paths, occlusion, session, ops
   text/       TrueType metrics reader, layout and line breaking
   render/     doc -> SVG, SVG -> PNG, doc -> structured description
-  surfaces/   the three tool surfaces (+ hybrid), and the executor
+  surfaces/   the three tool surfaces (+ hybrid), drawing and animation tools, the executor
   feedback/   the feedback channel, six modes
-  tasks/      23 tasks across five families
-  eval/       checks, colour, blinded judge, scoring, human validation
+  tasks/      27 registered tasks across six families, plus prototypes (shapes, motion, paint)
+  eval/       checks (layout, motion, paint), colour, blinded judge, scoring, human validation
   agent/      the agent loop, the model registry and pricing, events
   webmcp/     the polyfill, surface registration, and the host page
   runner/     sweep runner and report generation

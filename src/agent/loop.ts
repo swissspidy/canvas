@@ -48,7 +48,7 @@ import { renderSvg } from "../render/svg.js";
 import { toBase64 } from "../render/rasterizer.js";
 import {
   addUsage,
-  costUsd,
+  costOfRequests,
   getModel,
   MAX_RETRIES,
   reasoningFor,
@@ -139,6 +139,12 @@ export interface RunResult {
   session: DocSession;
   /** Transcript with image payloads replaced by placeholders. */
   transcript: unknown[];
+  /**
+   * For a task delivered in rounds (`Task.rounds`): the number of tool calls
+   * the session had made when each round, the opening brief included, was
+   * signed off. Shorter than the round count when the run ended early.
+   */
+  roundEndCalls?: number[];
 }
 
 /**
@@ -269,10 +275,23 @@ function lastSuccessful<T extends { ok: boolean }>(results: T[]): T | undefined 
   return undefined;
 }
 
+/**
+ * The next instruction of a task delivered in rounds. Worded the same on every
+ * surface and under every feedback condition, and it says what the round is,
+ * so the agent knows the earlier rounds stand and more may follow.
+ */
+export function roundText(round: number, of: number, instruction: string): string {
+  return `# Round ${round} of ${of}\n\nThe page now stands as you left it. Next:\n\n${instruction}\n\nKeep everything the earlier rounds asked for.`;
+}
+
 export async function runAgent(config: RunConfig): Promise<RunResult> {
   const startedAt = Date.now();
   const emit: EventSink = config.onEvent ?? noopSink;
   const maxTurns = config.turnBudget ?? config.maxTurns ?? config.task.maxTurns;
+  const rounds = config.task.rounds ?? [];
+  // One entry per request, so each is priced at its own tier (`costOfRequests`).
+  const requestUsages: TokenUsage[] = [];
+  const roundEndCalls: number[] = [];
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
   const effort = config.effort ?? "high";
   const spec = getModel(config.model);
@@ -319,6 +338,8 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     for (turn = 1; turn <= maxTurns; turn++) {
       if (config.signal?.aborted) {
         stopReason = "aborted";
+        // This turn never started, so it is not one of the turns the run took.
+        turn--;
         break;
       }
       emit({ type: "turn_start", turn });
@@ -350,6 +371,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
       const turnUsage = tokenUsage(result.usage);
       usage = addUsage(usage, turnUsage);
+      requestUsages.push(turnUsage);
 
       if (result.reasoningText) emit({ type: "thinking", turn, text: result.reasoningText });
       if (result.text) emit({ type: "text", turn, text: result.text });
@@ -380,7 +402,9 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         stopReason = "max_tokens";
         error = `Turn ${turn} stopped at the output limit before finishing (maxOutputTokens ${maxTokens}).`;
         emit({ type: "error", message: error, fatal: true });
-        record(result.toolCalls.length);
+        // None of the calls it was writing ran, so none are counted: the
+        // per-turn counts have to add up to the calls on the session.
+        record(0);
         break;
       }
 
@@ -400,13 +424,42 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         // unusable or half-written, and storing it would make an abandoned
         // turn read like a finished one.
         messages.push(...(result.responseMessages as ModelMessage[]));
-        stopReason = "completed";
         record(0);
         emit({ type: "turn_end", turn, usage: turnUsage, stopReason: result.finishReason });
+        roundEndCalls.push(session.actions.length);
+        // A task delivered in rounds hands over the next instruction when the
+        // agent signs off the last one, in the same conversation, the way an
+        // editor gets a second note on a page they have just finished.
+        const next = rounds[roundEndCalls.length - 1];
+        if (next !== undefined) {
+          // A round still to deliver and no turn left to deliver it in is a
+          // run cut short, not a finished one: the page never got the later
+          // notes, and "completed" would score it as though it had.
+          if (turn >= maxTurns) {
+            stopReason = "max_turns";
+            break;
+          }
+          // The sign-off used a turn too: under a stated budget the next note
+          // carries the turns left, as a tool turn's feedback would.
+          const note = roundText(roundEndCalls.length + 1, rounds.length + 1, next);
+          messages.push({
+            role: "user",
+            content: config.turnBudget === undefined ? note : `${note}\n\n${remainingText(maxTurns - turn)}`,
+          });
+          continue;
+        }
+        stopReason = "completed";
         break;
       }
 
-      messages.push(...(result.responseMessages as ModelMessage[]));
+      // Only the assistant's side. When a call names a tool that does not
+      // exist or carries input that will not parse, the SDK answers it itself,
+      // with a `tool` message of its own wording — and this loop then answered
+      // the same call id again below. The next request carried two results for
+      // one call, which a provider may reject outright, and the wording the
+      // model read was the SDK's rather than the one held constant across
+      // surfaces. Every call is answered here, once, by `executeToolCall`.
+      messages.push(...(result.responseMessages as ModelMessage[]).filter((m) => m.role !== "tool"));
 
       const results: {
         type: "tool-result";
@@ -456,7 +509,9 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
 
       // Feedback describes the state after *all* of this turn's calls, so it
       // attaches once, to the last result that can carry it.
-      const feedbackBlocks = await config.feedback.after(session.doc);
+      // Not after the last turn: there is no next request to carry it, and
+      // under the screenshot conditions it is a rasterization nobody sees.
+      const feedbackBlocks = turn < maxTurns ? await config.feedback.after(session.doc) : [];
       if (feedbackBlocks.length > 0) {
         emit({
           type: "feedback",
@@ -512,6 +567,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     effort,
     stopReason,
     ...(error ? { error } : {}),
+    ...(rounds.length ? { roundEndCalls } : {}),
     turns: Math.min(turn, maxTurns),
     turnRecords,
     toolCalls: session.actions.length,
@@ -521,7 +577,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     // Priced from the table, not from what was actually called: a dry run or a
     // test injects its own model but still names a real one, and reporting
     // that as unpriced would be misleading.
-    costUsd: costUsd(usage, spec),
+    costUsd: costOfRequests(requestUsages, spec),
     pricingKnown: spec.priced,
     wallMs: Date.now() - startedAt,
     initialDoc,

@@ -23,7 +23,27 @@ describe("renderSvg gradients", () => {
       style: { fontSize: 40, fill: "transparent", fillTo: "#000000" },
     };
     const svg = renderSvg(doc(text));
-    expect(svg).toContain('<linearGradient id="grad-t"');
-    expect(svg).toContain('fill="url(#grad-t)"');
+    expect(svg).toContain('<linearGradient id="fill_0"');
+    expect(svg).toContain('fill="url(#fill_0)"');
+  });
+});
+
+describe("renderSvg and what is off the canvas", () => {
+  // A text or image element far outside the view box makes resvg abort the
+  // process, so it must not reach the SVG at all.
+  it("leaves out an element that is wholly off the canvas, and keeps one that reaches it", async () => {
+    const far: Element = { id: "far", type: "text", x: 100, y: 4200, width: 300, height: 100, rotation: 0, z: 0, text: "Far", style: {} };
+    const edge: Element = { id: "edge", type: "text", x: 900, y: 950, width: 300, height: 100, rotation: 0, z: 1, text: "Edge", style: {} };
+    const svg = renderSvg(doc(far, edge));
+    expect(svg).not.toContain('data-id="far"');
+    expect(svg).toContain('data-id="edge"');
+    const { rasterizeDoc } = await import("./rasterizer.js");
+    expect((await rasterizeDoc(doc(far, edge), { pixelWidth: 100 })).length).toBeGreaterThan(0);
+  });
+
+  it("keeps unclipped text whose box is above the canvas, since its later lines can reach it", () => {
+    const above: Element = { id: "above", type: "text", x: 100, y: -40, width: 300, height: 10, rotation: 0, z: 0, text: "a\nb\nc\nd\ne", style: { fontSize: 20, lineHeight: 1 } };
+    expect(renderSvg(doc(above))).not.toContain('data-id="above"');
+    expect(renderSvg(doc(above), { clipText: false })).toContain('data-id="above"');
   });
 });

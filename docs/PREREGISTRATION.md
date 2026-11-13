@@ -1272,3 +1272,675 @@ Nothing in the question, the hypotheses, the primary outcome or the analysis
 plan changes. It narrows what counts as an observation, in the direction of
 counting fewer things, and it is written down now because deciding which runs
 count *after* seeing them is the move this document exists to prevent.
+
+**2026-11-11 — paths, a paint family of prototypes, and corrections to the
+analysis code.** Exploratory; nothing here touches the confirmed result.
+
+*The document model gained a fourth element, `path`* (`docs/DESIGN.md`,
+"Drawing: paths"). The drawing tools — `draw` on coordinate, `draw` and
+`connect` on relational — are attached only to tasks that set `paint`, so the
+tool list of every registered task is unchanged. Two things did change for
+every task: `write_document`'s schema now admits a path (with `x`, `y`,
+`width` and `height` no longer marked required in the JSON Schema, since a
+path may omit them; they are still required of every other element, and the
+error says so), and a rendered document leaves out any element wholly off the
+canvas. Six prototype tasks, `--tasks paint`, are in no grid. They are the
+fourth attempt at a family a frontier model does not saturate, and whether
+they are is not known: no run against a real model has been made on them.
+
+*The analysis code was wrong in ways that could have moved a reported
+number*, found by review rather than by a result that looked odd. Each is
+fixed, each has a test, and none was exercised by the confirmation's balanced
+144-run grid except where noted:
+
+- The task-clustered interval was drawn for the mean of per-task means while
+  the point beside it was the mean over runs. On an unbalanced grid the point
+  could sit outside its own interval. The interval now resamples tasks and
+  recomputes the mean over runs.
+- A paired difference pooled each side's runs within a task across the other
+  factors. With cells missing on one side — excluded harness failures, a
+  resumed sweep — that confounded the factors, and two identical surfaces
+  could come out resolved. Sides are now compared only on the cells both have.
+  On a full grid with equal repeats the number is unchanged.
+- Cost per pass floored a cell that spent nothing at a billionth before taking
+  its logarithm. Such cells are now left out of the geometric mean and the
+  ratio.
+- The cost-ratio interval resampled model-by-task cells, not tasks as §13
+  says. **This one may apply to the confirmation**, which ran two models:
+  any ratio computed across both of them had its interval drawn over
+  model-by-task cells rather than tasks, and would be narrower than it should
+  be. Nothing has been recomputed here, because the run records are not in
+  the repository; `report --dir` on those runs now resamples tasks.
+- "Practically meaningful" tested the ratio's distance from 1, so 0.86 was not
+  meaningful and its reciprocal 1.16 was. It is now 0.85 or below, or 1/0.85
+  or above.
+- The judge's reply was accepted when it left one criterion out and added an
+  "Overall" row: the counts agreed, and the overall rating was read as the
+  missing criterion's score. That is now an error, like any other miscount.
+- Runs ended by a harness failure were eligible for the human-rating sample
+  and counted in judge agreement. They are excluded there as everywhere else.
+
+*And the harness*: a call to a tool that does not exist was answered twice in
+the next request (once by the SDK, once by the loop), which a provider may
+reject — turning a malformed-call run into an `api_error`, excluded and
+retried, and so removing from the data exactly the runs the malformed-call
+rate is counted on. Whether that happened in any recorded sweep is unknown.
+
+**2026-11-12 — the paint family's first pilot, on the cheapest model.** Run
+on GPT-5.6 Luna rather than Opus 5.5, because the one confirmed result came
+from cheaper models, and a family has to separate surfaces there before it is
+worth pricing higher up. Before it ran, `paint.chart` and `paint.pie` were
+taken out of `--tasks paint` (still runnable by id): both are arithmetic from
+numbers in the brief, and no surface has a tool for either.
+
+*Pilot.* `paint.maze`, `paint.route` and `paint.flowchart`, three surfaces,
+`none` and `both`, one repeat, no judge: 18 runs, $0.20. **15 of 18 passed.**
+The maze passed on every surface in one call, the exact way through read off
+24 wall rectangles with no feedback. The three misses were one each: a
+flowchart arrow 7.8 units off an oval (coordinate, `none`), a trace 80 units
+over the length cap (coordinate, `none`), and two traces crossing (relational,
+`none`). Relational agents used `connect` on the flowchart — every arrow, at
+the lowest cost of any cell — and never on the maze or the board: they drew
+through points given as offsets from the canvas's corner, which is
+coordinates by another name.
+
+*Read.* As built, none of the three separates surfaces even on the cheapest
+model, so by the stopping rule set before the run nothing goes to Sonnet 5.5
+or Opus 5.5. No adjustment is made on this result.
+
+*Second pilot, the same day.* The flowchart's one slip — an arrow ending
+off an oval — is the kind a tool prevents, so it was built out into
+`paint.diagram`: twelve shapes, nearly all ovals and polygons at an angle,
+and twenty arrows, three of them diagonal. The maze, the board and the first
+flowchart were shelved. Luna, three surfaces, `none` and `both`, one repeat,
+no judge: 6 runs, $0.08. **Relational passed both runs; coordinate passed
+neither; document-as-code passed with feedback and not without.** Relational
+called `connect` for all twenty arrows and spent $0.002–0.003 a run, against
+$0.014–0.022 on the other two. The misses were arrows ending 3 to 100 units
+from the outline — typically on the bounding box of a turned shape, or short
+of a polygon's corner.
+
+One repeat per cell is not a result: this decides only that the task is
+worth repeating, and on which models. No adjustment is made on it.
+
+*Third pilot, the same day: repeats, and up the model ladder.* `paint.diagram`,
+three surfaces, `none` and `both`, no judge. Luna at three repeats (the six
+runs above plus twelve), and GPT-5.6 Terra and Sol at one — Sonnet 5.5 and
+Opus 5.5 were planned, but no Anthropic key was available, and the OpenAI
+ladder is priced the same and is the family the confirmation used. 30 runs,
+$1.74.
+
+| Model | Relational | Coordinate | Document-as-code | Cost a run, relational / others |
+|---|---|---|---|---|
+| Luna | 6 of 6 | 0 of 6 | 1 of 6 | $0.002 / $0.016–0.023 |
+| Terra | 2 of 2 | 0 of 2 | 0 of 2 | $0.018–0.022 / $0.11–0.15 |
+| Sol | 2 of 2 | 0 of 2 | 1 of 2 | $0.028–0.032 / $0.17–0.32 |
+
+Every relational run called `connect` twenty times and passed. Both
+document-as-code passes had the screenshot. Unlike the measurement family,
+the strongest model tried does not close the gap: Sol misses the outline on
+coordinate as Luna does, at ten times the price.
+
+*Read.* This is one task, and every interval here is task-clustered, so the
+report resolves nothing and should not: three repeats of one layout are not
+three independent observations (§4). What it decides is that the paint
+family is worth building into a confirmatory set — several diagrams with
+different shapes and layouts — and pre-registering before any of them is
+run. No adjustment is made on it.
+
+**2026-11-12 (second entry) — a confirmation of the paint pilot's effect.**
+Written before any run of `paint.cycle`, `paint.orgchart` or
+`paint.network`, and before the first confirmatory run. It mirrors the
+2026-10-09 confirmation of the measurement effect, so that the two results
+are read the same way.
+
+The pilots above show one effect on one task: on `paint.diagram`, relational
+passed every run on three models and coordinate none. Three more diagrams
+were built to test it, each a different structure — a hub with a ring of
+eight around it (arrows at every angle), a tree that fans out (several arrows
+leave one shape at shallow angles), and a four-by-four grid of small shapes
+with diagonals (short gaps, outlines close together). All four share one
+brief, one set of checks and one operation only relational has, `connect`.
+Each has a reference solution at full marks; arrows ended on each shape's box
+rather than its outline score below 90% on every one; and `connect` alone
+finishes every one (`src/surfaces/paint.test.ts`).
+
+- *Design.* `paint.diagram`, `paint.cycle`, `paint.orgchart`,
+  `paint.network`; surfaces `coordinate`, `relational`, `document`; feedback
+  `none` and `both`; Gemini 3.8 Flash (`google:gemini-3.8-flash`) at effort
+  `high`, `maxOutputTokens` 32,000; no turn budget; three repeats; no judge,
+  since it is no part of either outcome. 72 runs, about $4 priced from the
+  pilots at its token rates. Fresh runs into a new directory: no pilot run
+  enters this analysis.
+- *Amended before any run.* The first draft of this entry named GPT-5.6
+  Luna and Terra. At the author's request the confirmation runs on Gemini
+  3.8 Flash instead, a decision made before any Gemini run on any paint
+  task. It is the stronger test: every pilot was on OpenAI models, so a
+  confirmation on another provider's model, which played no part in
+  designing the tasks, cannot be the pilot's selection repeating itself.
+- *D1.* Relational's pass rate is higher than coordinate's and
+  than document-as-code's, paired within task: the mean within-task
+  difference, with the task-clustered bootstrap of §4, excludes zero.
+- *D2.* Relational's cost per pass (§13, eighth entry) is at
+  most 0.85 times coordinate's and document-as-code's, the paired ratio's
+  interval excluding 1.
+- *Reading it.* Both hold, or the effect is not confirmed. Four tasks is a thin basis for a task-clustered interval, as it was for the
+  measurement confirmation; a result that holds is a result about these four
+  diagrams. `paint.diagram` was designed after a pilot and then piloted
+  itself, so D1 and D2 are also reported on the three new diagrams alone, as
+  a sensitivity check that cannot rescue a failed test: if the four-task
+  result holds and the three-task one does not, both are reported and the
+  effect is called confirmed only on the four.
+- *Exploratory, and labelled so if run.* The same grid on other models —
+  GPT-5.6 Luna and Terra, as first drafted, or the strongest available —
+  for whether the gap narrows as the model gets stronger, which on the
+  measurement family it did and on the pilot here it did not. And the
+  surface-by-feedback cells: both of document-as-code's pilot passes had the
+  screenshot.
+
+*Result.* 72 runs, $18.53, no harness failures, nothing read before the
+grid finished but the stop reasons of the first three runs.
+
+| | Relational | Coordinate | Document-as-code |
+|---|---|---|---|
+| Passes, four diagrams | 23/24 | 0/24 | 0/24 |
+| Passes, three new diagrams | 18/18 | 0/18 | 0/18 |
+| Cost per pass, pooled | $0.15 | $19.99 | $10.38 |
+
+| | D1, relational minus coordinate · minus document | D2, relational's cost per pass over coordinate's · document's |
+|---|---|---|
+| Four diagrams | +0.96 [0.88, 1.00] · +0.96 [0.88, 1.00] | 0.027 [0.018, 0.045] · 0.051 [0.037, 0.089] |
+| Three new only | +1.00 [1.00, 1.00] · +1.00 [1.00, 1.00] | 0.020 [0.018, 0.025] · 0.038 [0.037, 0.041] |
+
+D1 and D2 hold, on the four diagrams and on the three new ones alone: **the
+effect is confirmed on Gemini 3.8 Flash, on these four diagrams.** Every
+relational run used `connect`; no coordinate or document-as-code run passed.
+(With no pass, a cell's cost per pass is twice its spend, per the eighth
+entry, so the D2 ratios are bounded by that rule rather than measured against
+a real pass. D2 is the geometric mean over diagrams of each diagram's ratio,
+so it is not the pooled row above divided out.)
+
+Three things the numbers alone do not say.
+
+- *Document-as-code mostly lost to the output ceiling.* 22 of its 24 runs
+  ended `max_tokens`: Gemini spent much of the 32,000-token ceiling reasoning
+  and then could not finish writing the whole document in one call. That is
+  an outcome under §5 and is counted as a failure, as pre-registered, but
+  relational against document-as-code here is largely a measure of that
+  ceiling, not of drawing. Relational against coordinate is the clean
+  comparison: coordinate ended `max_tokens` 3 times in 24 and otherwise
+  finished, scoring 0.70 to 0.96 — arrows that missed their outlines.
+- *Coordinate worked long.* 16.4 turns and 1.29 million input tokens a run on
+  average, against relational's 8.7 and 0.38 million. That, not the price
+  list, is most of the cost.
+- *The estimate was off by four and a half times* — about $4 forecast,
+  $18.53 spent — because it was priced from OpenAI runs that took two or
+  three turns, and Gemini's coordinate runs took sixteen. Pricing a new model
+  from another model's turn counts is not a forecast; the next one is priced
+  from a single cell of the model itself.
+
+Exploratory, not run: document-as-code without the ceiling, to separate the
+ceiling from the surface; and the same grid on other models.
+
+**2026-11-12 (third entry) — document-as-code without the ceiling.**
+Exploratory, and written before its first run. The confirmation above lost
+22 of document-as-code's 24 runs to the 32,000-token output ceiling, so
+relational against document-as-code there measured the ceiling as much as
+the surface. This re-runs only that surface with the ceiling at Gemini 3.8
+Flash's own maximum, 65,536 tokens — no limit but the model's — on the same
+four diagrams, `none` and `both`, three repeats: 24 runs, priced from its
+first one before the rest are started. It is compared with the confirmation's
+relational runs as they stand. It cannot change the confirmed result, which
+was tested as pre-registered; it says whether document-as-code's zero was
+the surface or the ceiling.
+
+*First attempt: a harness failure, and its cause.* The pricing run ended
+`api_error` after 43 minutes, having made one tool call: every request after
+the first was cut off by Node's fetch, which abandons a response whose
+headers take more than five minutes, and a turn sends nothing back until the
+model has finished. Uncapped, Gemini's whole-document turns ran past that,
+and each retry failed the same way. Excluded as a harness failure under §5;
+the provider likely billed the abandoned attempts, which the run's recorded
+cost ($0.02) cannot show. Every adapter now sends its requests through a
+client that waits thirty minutes (`REQUEST_TIMEOUT_MS`, tested per
+provider). The confirmation above did not depend on it: at a 32,000-token
+ceiling it recorded no harness failure.
+
+*Result, at one repeat.* Cut from three repeats to one, at the author's
+request, before the remaining runs started, since the question was only
+whether the surface ever passes uncapped. Eight runs (the pricing run and
+seven more), $2.59, about 35 minutes. **None passed.** Six finished and
+scored 0.93 to 0.96: every diagram had arrows ending 10 to 17 units from
+their outlines, the coordinate surface's miss. Two still ended `max_tokens`
+at the model's own 65,536-token maximum. So document-as-code's zero in the
+confirmation was not the 32,000-token ceiling alone: uncapped, it reaches a
+finished page and makes the same measurement error coordinate does. The
+confirmation's result stands as tested, and relational against
+document-as-code reads as cleanly as against coordinate.
+
+**2026-11-12 (fourth entry) — pricing `paint.revise`.** Exploratory. One run
+per surface on Gemini 3.8 Flash, feedback `none`, at a 65,536-token ceiling so
+the large document cannot meet the confirmation's: 3 runs, $0.33. Every
+surface passed. Coordinate made the edits in 70 calls and 2 turns for $0.059;
+relational in 71 calls and 5 turns for $0.115; document-as-code in 3 calls
+(one rejected write) and 4 turns for $0.153, re-sending the 140-element
+painting with each. The task does not separate surfaces on passing, as
+expected of edits that need no measurement; whether cost grows differently
+with the size of the document is the question it was built for, and one
+painting at one size cannot answer it.
+
+**2026-11-12 (fifth entry) — how cost grows with the document.** Exploratory,
+written before any run of the scaling set.
+
+`paint.revise-70`, `-140`, `-280` and `-560`: one revision — 12 crowns
+recoloured, a sun and its 8 rays moved, 6 birds removed, a retitle, 28
+elements in all — in paintings of 70, 140, 280 and 560 elements. The edited
+elements are identical at every size (a test holds them so); only untouched
+scenery grows, from about 6,000 to 52,000 tokens of JSON.
+
+- *Design.* The four sizes, three surfaces, feedback `none`, Gemini 3.8 Flash
+  at effort `high` and a 65,536-token ceiling, one repeat: 12 runs, priced
+  from the 560-element document-as-code run before the rest start.
+- *Expected.* Coordinate's and relational's cost per run roughly flat across
+  sizes, since they touch only the 28 edited elements. Document-as-code's
+  rising with size, since each write re-sends the whole document; at 560
+  elements a single write is about 52,000 tokens, which leaves Gemini little
+  of its 65,536-token maximum to think in, so it may not finish at all.
+- *Read as.* Cost per run against size, per surface, at one repeat: a shape,
+  not an interval. A rise in document-as-code's cost that coordinate and
+  relational do not share is the effect; anything else is reported as found.
+
+*Result.* 12 runs, $1.69, every one passed.
+
+| Elements | Coordinate | Relational | Document-as-code |
+|---|---|---|---|
+| 70 | $0.041 | $0.093 | $0.085 |
+| 140 | $0.053 | $0.102 | $0.165 |
+| 280 | $0.074 | $0.109 | $0.205 |
+| 560 | $0.125 | $0.245 | $0.397 |
+| Rise, 70 to 560 | 3.0× | 2.6× | 4.7× |
+
+Half of what was expected. Document-as-code's cost rose the most, as
+predicted, and for the predicted reason: its output grew with the document
+(11,700 tokens at 70 elements, 50,300 at 560), because it writes the whole of
+it, and output is the dearer kind of token and is never read from a cache.
+At 560 elements its single write took 49,500 of the model's 65,536 tokens;
+it finished, with less margin than any other run.
+
+Coordinate's cost did not stay flat: it tripled, with its output the same at
+every size (about 5,000 tokens, 28 calls, two turns). What grew was input —
+45,000 tokens to 249,000 — because every surface's opening message carries
+the whole document, as JSON and as a description (the equal-information rule
+of `docs/DESIGN.md`), and each turn re-sends it, mostly from cache at a tenth
+of the price. Relational grew the same way, less evenly: its turn count fell
+from seven at 70 elements to two at 560, so its curve mixes size with how
+the run happened to go.
+
+So the size of a document costs every surface, through what it reads; it
+costs document-as-code twice, because it must also write it. At one repeat
+this is a shape, not an estimate: the per-element slope here is about $0.17
+per thousand elements on coordinate and $0.64 on document-as-code, and
+nothing in this entry is an interval.
+
+**2026-11-13 — the document is shown one element to a line.** A deviation,
+made before any run under it.
+
+The scaling set showed every surface paying for the size of a document
+through what it reads: the opening message carries the whole document, as a
+description and as JSON, to every surface (the equal-information rule of
+`docs/DESIGN.md`), and each turn re-sends it. The JSON was indented two
+spaces throughout, which put every key of every element on a line of its own
+and cost about twice the tokens of the same JSON one element to a line —
+51,600 against 26,100 at 560 elements.
+
+*Decided.* The rule stands: every surface still sees both views at turn
+zero. Dropping either for some surfaces would buy tokens with the comparison's
+fairness — the JSON carries exact values, and the description the one fact
+the JSON cannot, whether text fits its box. What changes is the waste: every
+document shown to a model (the opening message, `read_document`) is now
+serialized one element to a line. Same information, the same for every
+surface.
+
+*What it touches.* Every task's opening message, so runs before and after
+this entry are not pooled. The confirmed measurement and paint results were
+tested under the indented format and stand as tested. The change can move
+surfaces unequally in one known way: document-as-code reads the JSON it
+rewrites, and may copy its layout into what it writes. That is a reason to
+measure the scaling set again rather than to assume the saving.
+
+*Result, and a second change.* The scaling set re-run under the new format:
+12 runs, $1.38 against $1.69, every run passed. At 560 elements coordinate
+fell from $0.125 to $0.100 (input down 27%) and document-as-code from $0.397
+to $0.341 (input down 30%; its output, about 50,000 tokens of which half is
+the document and half thinking, did not move). Relational's figures varied
+too much to read — two to eight turns for identical edits — and its
+transcripts said why: it sent its calls one or two to a reply, waiting to see
+each land, though the edits depend on one another only in order (the rays are
+placed around the sun, so the sun moves first). Each extra turn re-sends the
+conversation.
+
+The loop has always run a reply's calls in order, each against the document
+the one before it left, and no surface was told so. The base prompt now
+says it, identically for every surface, and a test holds the loop to it. A
+gap in what every surface is told is the harness's, not a surface's, so it is
+closed for all of them; it may help the incremental surfaces more than
+document-as-code, which rarely needs two calls in a reply, and that is
+measured rather than assumed. Runs before and after this are not pooled.
+
+*Result.* The scaling set at two repeats under both changes: 24 runs, $2.76,
+every run passed. Relational finished in two turns in seven of eight runs,
+against three to eight before, and the curves became readable:
+
+| Average of two | 70 | 140 | 280 | 560 | Rise |
+|---|---|---|---|---|---|
+| Coordinate | $0.040 | $0.044 | $0.066 | $0.100 | 2.5× |
+| Relational | $0.071 | $0.085 | $0.114 | $0.139 | 2.0× |
+| Document-as-code | $0.075 | $0.100 | $0.205 | $0.341 | 4.5× |
+
+The fifth entry's expectation holds in direction: document-as-code's cost
+rises fastest with the document, from level with relational at 70 elements to
+3.4 times coordinate at 560, because it writes what the others only read.
+Coordinate and relational still rise, more slowly, from re-reading the
+document each turn. Two repeats, so these are averages, not intervals.
+
+*Past the ceiling, predicted before its run.* `paint.revise-1120`, the same
+edits in a painting of 1,120 elements, about 53,000 tokens of JSON even one
+element to a line. Three runs, one per surface, as above. Expected:
+coordinate and relational finish at roughly twice their 560-element cost;
+document-as-code does not finish, since one write of the document leaves
+Gemini about 12,000 of its 65,536 tokens to think in, and it used more than
+that at 560.
+
+*Result.* As predicted. 3 runs, $0.76. Coordinate finished in two turns and
+28 calls for $0.166; relational in two turns and 29 calls for $0.200; both
+passed. Document-as-code read the document, then spent 28 minutes and all
+65,536 of the model's output tokens on one write that never closed, and
+ended `max_tokens` with the painting as it was found, for $0.393.
+
+So there is a size past which document-as-code cannot make an edit at all,
+however small the edit, and it is set by the model's output limit, not by
+the task: on Gemini 3.8 Flash it lies between 560 and 1,120 elements of this
+painting. The incremental surfaces have no such wall — their output did not
+grow with the document — only a cost that rises with what they re-read.
+
+**2026-11-13 (second entry) — the next round, on Claude Sonnet 5.5 and Haiku
+5.5.** Written before any run on either model with the measured surface, the
+compact format or the call-order sentence. Two experiments; both exploratory.
+The confirmed results were tested on other models under the earlier prompt
+and format, and nothing here re-tests them as pre-registered.
+
+*E1 — is it the tool or the vocabulary?* Both confirmed results credit the
+relational surface, and both run through one tool that computes what the
+agent would otherwise estimate (`fit_text`, `connect`). Relational also
+differs from coordinate in its whole vocabulary, so they cannot say which did
+the work. A new ablation surface, `measured`, is coordinate with only the
+measuring tools added — the same tool objects relational uses (a test holds
+them identical) — so coordinate against `measured` is the tool, and
+`measured` against relational is the vocabulary.
+
+- *Design.* The four measurement tasks and the four diagrams; surfaces
+  `coordinate`, `measured`, `relational`, `document`; feedback `none` and
+  `both`; Sonnet 5.5 and Haiku 5.5 at effort `high`, `maxOutputTokens`
+  32,000; no turn budget; no judge. Haiku at three repeats (192 runs, about
+  $4). Sonnet priced from one cell of each family first; three repeats if the
+  priced grid is under $30, one if not (64 runs, about $16) — decided before
+  its second run and recorded here.
+- *Expected.* `measured` passes about as often as relational and far more
+  often than coordinate: the tool does the work. If instead `measured` sits
+  with coordinate, the vocabulary matters — an agent given a measuring tool
+  beside numbers it can type does not reach for it. Pass rates and cost per
+  pass are read per family and per model, paired within task as in §4, and
+  reported as intervals labelled exploratory.
+
+*E2 — does feedback change the size curve?* The scaling set ran with no
+feedback. A screenshot costs the same at every size, and a description grows
+with the document, so `both` may reshape the curve.
+
+- *Design.* `--tasks scale` (70 to 1,120 elements), surfaces `coordinate`,
+  `relational`, `document`, feedback `both`, Sonnet 5.5 and Haiku 5.5, one
+  repeat, a 65,536-token ceiling as before: 30 runs, about $5. Haiku's prompts
+  past 100,000 tokens cost more than the registry models, so its large-size
+  costs are under-reported and are marked so.
+- *Read as.* Cost against size per surface, beside the no-feedback curve on
+  Gemini; a shape, not an estimate.
+
+*Running it.* No Anthropic key reached the session that wrote this entry, so
+it runs in a session that has one. The bench reads `ANTHROPIC_BASE_URL`, and
+a Claude Code session sets that for its own use, so every command overrides
+it:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
+# E1, Haiku
+npm run cli -- run --tasks measure,paint.diagram,paint.cycle,paint.orgchart,paint.network \
+  --surfaces coordinate,measured,relational,document --feedback none,both \
+  --models anthropic:claude-haiku-5-5 --repeats 3 --no-judge --out runs/e1-haiku
+# E1, Sonnet: price one cell per family first, then the grid
+npm run cli -- run --tasks measure.menu,paint.diagram --surfaces coordinate --feedback none \
+  --models anthropic:claude-sonnet-5-5 --repeats 1 --no-judge --out runs/e1-sonnet
+npm run cli -- run --tasks measure,paint.diagram,paint.cycle,paint.orgchart,paint.network \
+  --surfaces coordinate,measured,relational,document --feedback none,both \
+  --models anthropic:claude-sonnet-5-5 --repeats 3 --no-judge --out runs/e1-sonnet --estimate
+# E2, both models
+npm run cli -- run --tasks scale --surfaces coordinate,relational,document --feedback both \
+  --models anthropic:claude-sonnet-5-5,anthropic:claude-haiku-5-5 --repeats 1 --no-judge \
+  --max-tokens 65536 --out runs/e2-scale-both
+```
+
+*Decided under the rule above, before Sonnet's second cell.* A key did reach
+this session after all (supplied by the author in another variable), so the
+round runs here. Sonnet 5.5's two pricing runs cost $0.189 (`paint.diagram`)
+and $0.262 (`measure.menu`), which prices its three-repeat grid at $43.33 —
+over the $30 line. Sonnet runs one repeat: 64 runs, about $14. Haiku runs
+three, as planned.
+
+*A correction, made before its runs.* E2's ceiling of 65,536 tokens was
+carried over from the Gemini runs, where it was the model's own maximum.
+Sonnet 5.5 and Haiku 5.5 can output 128,000, so a document-as-code failure at
+1,120 elements under 65,536 would be the configured ceiling, not the model's.
+Two exploratory runs — document-as-code, `paint.revise-1120`, feedback
+`both`, each model at a 128,000-token ceiling, into their own directory —
+settle which.
+
+*E1 result.* Haiku 5.5, three repeats: 192 runs, $2.73. Sonnet 5.5, one
+repeat: 64 runs, $11.73. No harness failures. (The container restarted once
+mid-grid; the cells in flight were lost unrecorded and re-run on resume.)
+
+| | Coordinate | Measured | Relational | Document-as-code |
+|---|---|---|---|---|
+| Haiku, text fitting | 18/24 | 23/24 | 24/24 | 14/24 |
+| Haiku, diagrams | 3/24 | 10/24 | 24/24 | 3/24 |
+| Sonnet, text fitting | 7/8 | 8/8 | 8/8 | 6/8 |
+| Sonnet, diagrams | 4/8 | 7/8 | 8/8 | 4/8 |
+
+*Text fitting: the tool.* `measured` used `fit_text` in every run on both
+models and passed as often as relational (Haiku 23/24 against 24/24, Sonnet
+8/8 each), more cheaply than coordinate (cost per pass 0.42 times on Haiku,
+0.55 on Sonnet, both resolved) and no dearer than relational (Sonnet: relational
+1.27 times `measured`'s, resolved). The vocabulary around the tool adds
+nothing measurable here.
+
+*Diagrams: the tool, and whether it is reached for.* On Haiku `measured`
+passed 10 of 24 against relational's 24 (difference 0.58, interval 0.42–0.75,
+resolved). Every one of its ten passes was a run that used `connect`, and
+every one of its fourteen failures a run that drew the arrows with `draw` and
+typed coordinates — a perfect split. Offered numbers beside the tool, Haiku
+chose the numbers 58% of the time; relational, which has no numbers to fall
+back on, used `connect` in every run. Sonnet chose `connect` in six of eight,
+and its one `measured` failure was one of the two that did not. So the
+measuring tool does the work wherever it is used, and the vocabulary decides
+whether a weaker model uses it: taking the coordinates away is what made
+relational reliable on drawing.
+
+Neither family needed a judge, and one repeat on Sonnet is thin: its
+intervals are wide and several comparisons do not resolve. The Haiku split is
+the finding with weight.
+
+*E2 result.* 30 runs, $6.40, every run two turns. Every run passed except
+document-as-code at 1,120 elements on both models, which ended `max_tokens`
+at the configured 65,536.
+
+| Feedback `both` | 70 | 140 | 280 | 560 | 1,120 |
+|---|---|---|---|---|---|
+| Sonnet, coordinate | $0.078 | $0.123 | $0.211 | $0.388 | $0.745 |
+| Sonnet, relational | $0.093 | $0.136 | $0.222 | $0.404 | $0.757 |
+| Sonnet, document | $0.114 | $0.238 | $0.483 | $0.976 | $2.43 at 128K |
+| Haiku, coordinate | $0.005 | $0.006 | $0.011 | $0.020 | $0.038 |
+| Haiku, relational | $0.007 | $0.008 | $0.012 | $0.021 | $0.043 |
+| Haiku, document | $0.006 | $0.012 | $0.025 | $0.050 | $0.097 at 128K |
+
+With a description after every turn, coordinate's cost roughly doubles with
+each doubling of the document — 9.6 times from 70 to 1,120 elements on Sonnet —
+against 2.5 times from 70 to 560 with no feedback on Gemini: the description
+grows with the document and is re-sent each turn, so descriptive feedback
+becomes a size cost for every surface. Document-as-code stays the dearest, at
+about 2.5 times coordinate from 280 elements on.
+
+*The ceiling check.* At 128,000 tokens both models finished the 1,120-element
+revision with document-as-code: Sonnet writing 99,000 tokens for $2.43 (3.3
+times coordinate), Haiku 94,000 for $0.097 (2.6 times, and under-costed past
+100,000 input tokens). So that size is past Gemini 3.8 Flash's output limit
+and inside Claude's. The wall document-as-code meets is the model's output
+limit; at about 200,000 tokens, the next doubling, it is past every current
+model's.
+
+**2026-11-13 (third entry) — taking the numbers away.** Exploratory, written
+before its runs. `measured_strict` is `measured` with `connect` as the only
+way to draw a line on a task that draws. Haiku 5.5, the four diagrams,
+feedback `none` and `both`, three repeats, into E1's directory so it sits
+beside the same model's other surfaces: 24 runs, under $1.
+
+Expected: close to relational's 24 of 24. The result is nearly fixed by
+construction — with `connect` the only drawing tool, a run that calls it with
+the right pairs passes — so what it can show is narrow: whether Haiku's
+`measured` failures were the choice of tool and nothing else. A shortfall
+would mean something else in coordinate's vocabulary costs it the page.
+
+*Result.* 24 runs, $0.35: **24 of 24 passed**, as relational did, against
+`measured`'s 10. With typed coordinates gone as a way to draw, Haiku called
+`connect` and passed every time. The `measured` failures were the choice of
+tool and nothing else in coordinate's vocabulary: its boxes and numbers,
+still there for everything but lines, cost it nothing on these tasks.
+
+**2026-11-13 (fourth entry) — sessions, and designs judged head to head.**
+Exploratory, written before either runs. The geometry families saturate as
+models strengthen (2026-11-13, third entry, and the site); these two measure
+what did not: cost over a realistic session, and quality where there is no
+exact answer.
+
+*E3 — editing in rounds.* The loop can now hand a task over in rounds: when
+the agent signs off one instruction, the next arrives in the same
+conversation (`Task.rounds`, tested). Two sessions are derived from existing
+tasks and end at the same page under the same checks — `session.revise-280`
+(the 280-element revision's four edits, one per round) and `session.cycle`
+(the hub-and-ring diagram's sixteen arrows in three rounds) — so a session
+against its single-brief twin is the price of being told in rounds, with the
+page held.
+
+- *Design.* The two sessions and their twins; surfaces `coordinate`,
+  `relational`, `document`; feedback `none` and `both`; Haiku 5.5 at three
+  repeats (72 runs, about $1.50) and Sonnet 5.5 at one (24 runs, about $5);
+  effort `high`, a 128,000-token ceiling, no judge.
+- *Expected.* Every surface pays more for a session than for one brief, since
+  each round re-reads the conversation. Document-as-code pays the most extra on
+  the revision, rewriting 280 elements once per round instead of once; on the
+  diagram the incremental surfaces add only the new arrows each round, so
+  their premium is smallest there. Read as the cost ratio session / twin per
+  surface and model, with pass rates beside it; one model at three repeats,
+  so intervals where they exist are exploratory.
+
+*E4 — quality, judged.* `paint.lighthouse` has no exact answer: its checks are
+floors any honest attempt clears, and what separates two pages is whether
+they make a good picture.
+
+- *Design.* Sonnet 5.5 draws it on `coordinate`, `relational` and `document`,
+  feedback `both`, three repeats (9 runs, about $3). Then `compare --by
+  surface` shows the judge two pages of the same brief, in both orders, six
+  pairs per surface pair; a page wins only if it wins both orders. The judge
+  is GPT-5.6 Terra — another provider than the model drawing, so it cannot
+  prefer its own family's style.
+- *Expected.* No prediction of direction is made. The measured outcome is
+  each surface's share of decided pairs and the share of ties (position bias
+  makes ties, not wrong winners).
+- *Not validated.* §9 requires a human-rated subset before the judge is
+  trusted, and none exists for this task. `npm run cli -- sample` draws one
+  for the author to rate; until that is done, E4 is reported as the judge's
+  preference, labelled so.
+
+*E3 result.* 96 runs, $9.70, no harness failures.
+
+| Session cost / single-brief cost | Coordinate | Relational | Document-as-code |
+|---|---|---|---|
+| Haiku, revision, 4 rounds (3 repeats) | 3.7× | 2.2× | 4.7× |
+| Sonnet, revision, 4 rounds (1 repeat) | 2.6× | 2.6× | 3.9× |
+| Haiku, diagram, 3 rounds (3 repeats) | 1.2× | 1.7× | 1.2× |
+| Sonnet, diagram, 3 rounds (1 repeat) | 1.3× | 1.5× | 1.5× |
+
+As expected, every surface paid more to be told in rounds, and
+document-as-code paid the most on the revision: it wrote 104,000 output tokens
+over a Sonnet session against 24,000 for the single brief — the 280-element
+page once per round — and the session cost $1.76 against coordinate's $0.34.
+On the diagram the premium was small everywhere, and not smallest for the
+incremental surfaces as expected: their single-brief runs were already cheap,
+so the extra round-trips weigh more in proportion. Pass rates held from single
+brief to session (revision: every surface passed nearly every run; diagram:
+relational 6/6 on Haiku in both forms, coordinate and document-as-code 0 or
+1 of 6). One repeat on Sonnet: its ratios are read as a direction.
+
+*E4 result.* Sonnet drew nine pages for $1.58; GPT-5.6 Terra judged all 27
+cross-surface pairs in both orders for $0.24. Win rate, ties as half:
+coordinate 64% (10 wins, 3 ties, 5 losses), document-as-code 58% (8, 5, 5),
+relational 28% (3, 4, 11).
+
+Read with care. Looked at side by side, the nine pages are all competent and
+much alike — a striped tower, a beam, a headland, a sea, a dusk sky — and none
+of relational's is visibly worse. Nine pages, three per surface, make the 27
+pairs far from independent, and the judge has no human validation. So this is
+the judge's preference, not a finding about the surfaces. What the pages do
+show plainly is that on a strong model, open-ended illustration does not
+separate the surfaces either: each vocabulary produced a good picture.
+
+**2026-11-13 (fifth entry) — checks tightened after review, and every
+recorded run re-scored.** A review of the pull request found ways to satisfy
+the drawing tasks without doing what their briefs ask: rewriting a diagram's
+labels, covering the page with an opaque rectangle, hiding the shapes a line
+must avoid, opening the lake's outline, raising the sky over the sun, fading
+a crown to nothing. Each is now caught (`textUnchanged` and a no-additions
+check on every diagram, style checks on the board, the maze, the crowns and
+the title, closure and paint order on the revision), with a test that the
+shortcut scores below the honest page.
+
+This changes the check set of the four confirmed diagrams after the
+confirmation ran, so every recorded run was re-scored under the new checks:
+599 runs across every task, 0 changes of pass or fail. (Scores of failing
+runs move slightly, since total weights changed.) One maze pilot run did
+first flip, from pass to fail, because document-as-code had written a star's
+default `sides: 5` and `innerRatio: 0.5` out in full. That was a false
+positive in `styleUnchanged`, which now compares a key's value as drawn — a
+key spelled out at its default equals the key left out — and is tested.
+
+A second review round tightened four more, and the re-score was repeated:
+style requirements are now graded per element, not per key, so one arrow out
+of twenty in the wrong colour or faded (diagram arrows must now be fully
+opaque, the drawn sense of "stroked in") no longer passes; a forbidden
+arrowhead fails the board and the maze, the default counting as none; any
+deletion fails the revision, which at 1,120 elements one deleted tuft did
+not; and a path's area is no longer counted twice where its stroke overlaps
+its fill, nor painted in a dashed line's gaps. 815 recorded runs re-scored,
+0 changes of pass or fail.
+
+Also from the review: a round-based run that signs off its last allowed turn
+with a round undelivered now ends `max_turns`, not `completed`; Haiku 5.5's
+long-prompt rates are applied per request (so its reported costs above
+100,000 prompt tokens rise; the E2 1,120-element Haiku figures above were
+priced at the base rate); a forced sweep sets old scores aside before writing
+its new settings; and a judge of a session is shown every round's instruction.
+
+Every scored constraint must be stated in its brief (a rule this repository
+holds to, because a check the agent cannot see is a guessing game that can
+favour one surface). Two of the checks above were not fully stated, so two
+briefs gained words: the diagrams' now say not to *reword* the labels, and
+the revision's that every element keeps its place in front of or behind the
+others. Same rule for every surface; the re-score above already applied both
+checks to every recorded run.
+

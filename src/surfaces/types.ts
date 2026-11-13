@@ -12,10 +12,15 @@ import type { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import type { DocSession } from "../doc/session.js";
 
-export const SURFACE_IDS = ["coordinate", "relational", "document", "hybrid"] as const;
+export const SURFACE_IDS = ["coordinate", "relational", "document", "hybrid", "measured", "measured_strict"] as const;
 export type SurfaceId = (typeof SURFACE_IDS)[number];
 
-/** The four surfaces the headline comparison runs over. `hybrid` is an ablation. */
+/**
+ * The surfaces the headline comparison runs over. `hybrid`, `measured` and
+ * `measured_strict` are ablations: `measured` is coordinate plus the measuring
+ * tools alone, and `measured_strict` the same with `connect` as the only way
+ * to draw a line.
+ */
 export const HEADLINE_SURFACES: SurfaceId[] = ["coordinate", "relational", "document"];
 
 export interface ToolOutcome {
@@ -46,6 +51,12 @@ export interface ToolSurface {
   title: string;
   /** One paragraph, appended to the system prompt. */
   briefing: string;
+  /**
+   * Further paragraphs about the document itself, the same on every surface,
+   * for what only some tasks use (paths, for tasks that draw). Kept out of
+   * the base prompt so a task that does not use them is told nothing new.
+   */
+  notes?: string[];
   tools: ToolDef<any>[];
 }
 

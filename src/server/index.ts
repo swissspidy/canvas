@@ -8,12 +8,12 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgent } from "../agent/loop.js";
 import { createScriptedModel } from "../agent/scripted.js";
-import { getSurface, isSurfaceId, SURFACES } from "../surfaces/index.js";
+import { isSurfaceId, surfaceFor, SURFACES } from "../surfaces/index.js";
 import type { SurfaceId } from "../surfaces/types.js";
 import { createFeedbackChannel, FEEDBACK_MODES, feedbackLabel, type FeedbackMode } from "../feedback/index.js";
 import {
@@ -105,7 +105,10 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
 /** Serve a file from a fixed directory, refusing anything that escapes it. */
 function serveStatic(res: ServerResponse, baseDir: string, relative: string): boolean {
   const target = join(baseDir, normalize(relative).replace(/^(\.\.[/\\])+/, ""));
-  if (!target.startsWith(baseDir) || !existsSync(target)) return false;
+  if (!target.startsWith(baseDir)) return false;
+  // A file, not merely something that exists: reading a directory throws, and
+  // `GET /dist` took the server down.
+  if (!statSync(target, { throwIfNoEntry: false })?.isFile()) return false;
   send(res, 200, readFileSync(target), MIME[extname(target)] ?? "application/octet-stream");
   return true;
 }
@@ -120,6 +123,9 @@ function adHocTask(brief: string, canvas: { width: number; height: number }): Ta
     id: "adhoc",
     title: "Typed brief",
     family: "compose",
+    // A typed brief may ask for a drawing, so the live page always has the
+    // drawing tools; a registered task brings its own answer.
+    paint: true,
     brief,
     initial: () => blank({ width: canvas.width, height: canvas.height, background: "#ffffff" }),
     checks: [],
@@ -140,12 +146,28 @@ function resolveTask(params: URLSearchParams): Task {
   });
 }
 
+/**
+ * Turn a run down. The live page asks through an `EventSource`, which cannot
+ * read the body of anything but a 200 event stream — so a JSON 400 or 429
+ * reached the reader as "Connection to the server was lost", and nobody was
+ * ever told that two runs were already going. A caller that asked for an
+ * event stream is answered in one; anything else gets the status code.
+ */
+function refuseRun(req: IncomingMessage, res: ServerResponse, status: number, message: string): void {
+  if (!(req.headers.accept ?? "").includes("text/event-stream")) {
+    sendJson(res, status, { error: message });
+    return;
+  }
+  res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform" });
+  res.end(`data: ${JSON.stringify({ type: "error", message, fatal: true })}\n\n`);
+}
+
 async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLSearchParams): Promise<void> {
   let task: Task;
   try {
     task = resolveTask(params);
   } catch (err) {
-    sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    refuseRun(req, res, 400, err instanceof Error ? err.message : String(err));
     return;
   }
 
@@ -155,13 +177,13 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
   const runId = `live_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
   if (!FEEDBACK_MODES.includes(feedbackMode) || !isSurfaceId(surfaceId)) {
-    sendJson(res, 400, { error: "Unknown surface or feedback mode." });
+    refuseRun(req, res, 400, "Unknown surface or feedback mode.");
     return;
   }
   // Only the models this build knows about. A free-text model id would let a
   // caller point the operator's key at anything at all.
   if (!Object.hasOwn(MODELS, model)) {
-    sendJson(res, 400, { error: `Unknown model '${model}'.` });
+    refuseRun(req, res, 400, `Unknown model '${model}'.`);
     return;
   }
 
@@ -170,9 +192,7 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
   // Replays cost nothing; a real run costs money per turn, so only those are
   // rationed.
   if (!demo && live.size >= MAX_LIVE_RUNS) {
-    sendJson(res, 429, {
-      error: `Already running ${live.size} run(s); this server allows ${MAX_LIVE_RUNS} at a time. Try again shortly.`,
-    });
+    refuseRun(req, res, 429, `Already running ${live.size} run(s); this server allows ${MAX_LIVE_RUNS} at a time. Try again shortly.`);
     return;
   }
 
@@ -200,8 +220,8 @@ async function handleRun(req: IncomingMessage, res: ServerResponse, params: URLS
     const result = await runAgent({
       runId,
       task,
-      surface: getSurface(surfaceId),
-      surfaceProvider: () => getSurface(state.surface),
+      surface: surfaceFor(surfaceId, task),
+      surfaceProvider: () => surfaceFor(state.surface, task),
       feedback: createFeedbackChannel(feedbackMode),
       model,
       signal: state.abort.signal,
@@ -299,10 +319,65 @@ function handleSwitch(res: ServerResponse, params: URLSearchParams): void {
   sendJson(res, 200, { ok: true, surface });
 }
 
+/**
+ * True when a request to spend the operator's key did not come from this
+ * server's own page.
+ *
+ * Listening on loopback keeps other machines out and does nothing about the
+ * browser on this one: any page the operator has open can ask
+ * `127.0.0.1:5173/api/run` for a run, and a hostname rebound to 127.0.0.1
+ * makes that request same-origin as far as the browser is concerned. So the
+ * two endpoints that act are closed to anything a browser marks as coming
+ * from another site, and — while the server is on loopback — to any `Host`
+ * that is not a loopback name.
+ */
+function isForeignRequest(req: IncomingMessage): boolean {
+  const site = req.headers["sec-fetch-site"];
+  if (typeof site === "string" && site !== "same-origin" && site !== "none") return true;
+  const hostHeader = (req.headers.host ?? "").toLowerCase();
+  const origin = req.headers.origin;
+  if (typeof origin === "string") {
+    try {
+      if (new URL(origin).host.toLowerCase() !== hostHeader) return true;
+    } catch {
+      return true;
+    }
+  }
+  if (LOOPBACK.has(host)) {
+    const name = hostHeader.replace(/:\d+$/, "");
+    if (name !== "" && !LOOPBACK.has(name) && name !== "[::1]") return true;
+  }
+  return false;
+}
+
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+
 export function createApp() {
   return createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    // Nothing a client sends may take the server down. A request line of `//`
+    // or a `Host` with a space in it made `new URL` throw inside this
+    // listener, which is an uncaught exception and the end of the process.
+    try {
+      route(req, res);
+    } catch (err) {
+      if (!res.headersSent) send(res, 400, "Bad request");
+      else res.end();
+      console.error(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+}
+
+function route(req: IncomingMessage, res: ServerResponse): void {
+  {
+    // A fixed base: only the path and query are wanted, and the `Host` header
+    // is the client's to get wrong.
+    const url = new URL((req.url ?? "/").replace(/^\/+/, "/"), "http://localhost");
     const path = url.pathname;
+
+    if ((path === "/api/run" || path === "/api/switch") && isForeignRequest(req)) {
+      sendJson(res, 403, { error: "This endpoint only answers the page this server serves." });
+      return;
+    }
 
     if (path === "/api/meta") {
       sendJson(res, 200, {
@@ -340,7 +415,7 @@ export function createApp() {
 
     if (serveStatic(res, WEB_DIR, path === "/" ? "index.html" : path)) return;
     send(res, 404, "Not found");
-  });
+  }
 }
 
 const port = Number(process.env.PORT) || 5173;

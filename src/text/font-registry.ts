@@ -93,4 +93,5 @@ export function getFont(weight: FontWeight = "regular"): FontMetrics {
 /** Drop everything. Tests only. */
 export function resetFonts(): void {
   parsed.clear();
+  raw.clear();
 }

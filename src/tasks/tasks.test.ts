@@ -32,8 +32,12 @@ describe("task registry", () => {
 
   it("covers every family", () => {
     for (const family of TASK_FAMILIES) {
-      expect(tasksInFamily(family).length).toBeGreaterThan(0);
+      // `paint` is a prototype family: resolvable as `paint`, in no default sweep.
+      const found = family === "paint" ? resolveTasks("paint") : tasksInFamily(family);
+      expect(found.length, family).toBeGreaterThan(0);
+      expect(found.every((t) => t.family === family), family).toBe(true);
     }
+    expect(resolveTasks("all").some((t) => t.family === "paint")).toBe(false);
   });
 
   it("resolves selectors by id, family and 'all'", () => {

@@ -165,6 +165,27 @@ const DRY_RUN_SCRIPTS: Record<string, ScriptedTurn[]> = {
     },
     { text: "Dry run: no real work attempted." },
   ],
+  // Coordinate's vocabulary and the measuring tool it adds, one call each.
+  measured_strict: [
+    {
+      text: "Dry run: adding a probe element and fitting text.",
+      tools: [
+        { name: "create", input: { type: "text", text: "Probe", x: 100, y: 100, width: 200, height: 40 } },
+        { name: "fit_text", input: { id: "__no_such_element__", mode: "grow_box" } },
+      ],
+    },
+    { text: "Dry run: no real work attempted." },
+  ],
+  measured: [
+    {
+      text: "Dry run: adding a probe element and fitting text.",
+      tools: [
+        { name: "create", input: { type: "text", text: "Probe", x: 100, y: 100, width: 200, height: 40 } },
+        { name: "fit_text", input: { id: "__no_such_element__", mode: "grow_box" } },
+      ],
+    },
+    { text: "Dry run: no real work attempted." },
+  ],
 };
 
 /**

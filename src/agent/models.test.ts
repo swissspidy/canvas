@@ -15,6 +15,8 @@ import {
   resolveLanguageModel,
   tokenUsage,
   ZERO_USAGE,
+  REQUEST_TIMEOUT_MS,
+  costOfRequests,
 } from "./models.js";
 
 describe("model specs", () => {
@@ -302,3 +304,53 @@ describe("operator-named models", () => {
     );
   });
 });
+
+describe("a turn that takes longer than five minutes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  // Node's fetch cuts off a response whose headers take more than five
+  // minutes, and a turn sends nothing back until the model has finished. Every
+  // adapter has to send its requests through the patient client, or a long
+  // turn is retried into an `api_error` that the provider still bills for.
+  it("sends every provider's requests through a client that waits thirty minutes", async () => {
+    for (const provider of PROVIDER_IDS) {
+      onlySet(PROVIDER_ENV[provider], "k");
+      let dispatcher: unknown;
+      vi.stubGlobal("fetch", async (_url: string, init?: RequestInit & { dispatcher?: unknown }) => {
+        dispatcher = init?.dispatcher;
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), { status: 401, headers: { "content-type": "application/json" } });
+      });
+      const spec = `${provider}:${Object.keys(MODELS).find((id) => id.startsWith(`${provider}:`))?.slice(provider.length + 1) ?? "any-model"}`;
+      await generateText({ model: resolveLanguageModel(spec), prompt: "hi" }).catch(() => {});
+      expect(dispatcher, provider).toBeDefined();
+      const options = (dispatcher as { [k: symbol]: unknown });
+      const opts = Object.getOwnPropertySymbols(options).map((s) => options[s]).find((v) => v && typeof v === "object" && "headersTimeout" in (v as object)) as { headersTimeout?: number } | undefined;
+      expect(opts?.headersTimeout, provider).toBe(REQUEST_TIMEOUT_MS);
+    }
+  });
+});
+
+describe("a long-prompt tier", () => {
+  const haiku = getModel("anthropic:claude-haiku-5-5");
+  const request = (prompt: number, output: number) => ({ input: prompt, output, cacheRead: 0, cacheWrite: 0 });
+
+  it("prices a request above the threshold at the dearer rates, and one below at the base rates", () => {
+    expect(costUsd(request(50_000, 1_000), haiku)).toBeCloseTo(50_000 * 0.1e-6 + 1_000 * 0.5e-6, 12);
+    expect(costUsd(request(150_000, 1_000), haiku)).toBeCloseTo(150_000 * 0.5e-6 + 1_000 * 2.5e-6, 12);
+  });
+
+  it("counts cached input toward the threshold", () => {
+    const cached = { input: 10_000, output: 0, cacheRead: 95_000, cacheWrite: 0 };
+    expect(costUsd(cached, haiku)).toBeCloseTo(10_000 * 0.5e-6 + 95_000 * 0.05e-6, 12);
+  });
+
+  it("prices each request on its own: two small requests stay cheap though their sum would not", () => {
+    const two = [request(60_000, 0), request(60_000, 0)];
+    expect(costOfRequests(two, haiku)).toBeCloseTo(120_000 * 0.1e-6, 12);
+    expect(costUsd(request(120_000, 0), haiku)).toBeGreaterThan(costOfRequests(two, haiku));
+  });
+});
+

@@ -12,6 +12,7 @@
  */
 
 import { getTask } from "./index.js";
+import { PAINT_SOLUTIONS } from "./paint-solutions.js";
 import type { Doc, Element } from "../doc/types.js";
 import { largestFittingFontSize, largestFontSizeForLines, requiredHeight } from "../text/layout.js";
 
@@ -506,6 +507,7 @@ function animated(id: string, animations: Record<string, Element["animation"]>):
 }
 
 export const PROTOTYPE_SOLUTIONS: Record<string, () => Doc> = {
+  ...PAINT_SOLUTIONS,
   // The natural order — headline, blurbs, card, button, footer — fails twice
   // and misses the deadline: the card swings in from the left across the
   // blurbs, and the button rises through the footer's row. So the card comes
