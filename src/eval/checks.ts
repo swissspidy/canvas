@@ -922,11 +922,16 @@ export function usesPalette(colors: string[], weight = 1, selector?: Selector): 
 }
 
 /** Elements that must survive the edit, unchanged in content. */
-export function preservesElements(ids: string[], weight = 1): Check {
+export function preservesElements(ids: string[], weight = 1, opts: { strict?: boolean } = {}): Check {
   return check("preserved", "Existing elements are kept", weight, (doc) => {
-    const missing = ids.filter((id) => !doc.elements.some((e) => e.id === id));
+    const present = new Set(doc.elements.map((e) => e.id));
+    const missing = ids.filter((id) => !present.has(id));
+    // Graded by share, one deletion among a thousand ids is a 0.9999 that
+    // clears the pass mark. `strict` makes any deletion a zero, for a brief
+    // that forbids deleting at a size where the share would dilute it.
+    const share = ids.length ? (ids.length - missing.length) / ids.length : 1;
     return {
-      score: ids.length ? (ids.length - missing.length) / ids.length : 1,
+      score: opts.strict ? (missing.length ? 0 : 1) : share,
       detail: missing.length ? `Deleted: ${missing.join(", ")}` : "All kept.",
     };
   });
@@ -1291,7 +1296,7 @@ export function paintOrder(ids: string[], weight = 1): Check {
  * the layout use in its place. Shape-dependent where the renderer is — a star
  * has five points by default and a polygon six.
  */
-function styleDefault(el: Element, key: keyof Style): unknown {
+export function styleDefault(el: Element, key: keyof Style): unknown {
   switch (key) {
     case "fontSize":
       return el.type === "text" ? DEFAULT_FONT_SIZE : undefined;
@@ -1305,6 +1310,11 @@ function styleDefault(el: Element, key: keyof Style): unknown {
       return 1.25;
     case "opacity":
       return 1;
+    // What the renderer paints when these are left out.
+    case "fill":
+      return el.type === "rect" ? "#cccccc" : undefined;
+    case "color":
+      return el.type === "text" ? "#111111" : undefined;
     case "radius":
     case "padding":
       return 0;

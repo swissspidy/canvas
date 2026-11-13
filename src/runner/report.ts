@@ -250,9 +250,12 @@ export interface PairedDifference {
   floorP: number;
 }
 
+/** The run fields a paired comparison can be made across. */
+export type ConditionField = "model" | "surfaceId" | "feedbackMode";
+
 export function pairedDifference(
   scores: RunScore[],
-  condition: (s: RunScore) => string,
+  condition: ConditionField,
   a: string,
   b: string,
   valueOf: (s: RunScore) => number = (s) => s.normalizedScore,
@@ -267,14 +270,18 @@ export function pairedDifference(
   // difference between two identical surfaces came out resolved. So a side is
   // compared only on the cells both sides have. On a full grid with equal
   // repeats this is the same number as pooling.
-  const stratumOf = (s: RunScore, side: string) =>
-    [s.model, s.surfaceId, s.feedbackMode].map((v) => (v === side ? "*" : v)).join("|");
+  // Every field but the one compared. A field rather than any function of a
+  // run, so the compared field is the one left out: a derived label ("none"
+  // against "feedback") matched no raw value, so nothing was left out, no
+  // stratum held both sides, and a full grid reported zero pairs.
+  const others = (["model", "surfaceId", "feedbackMode"] as const).filter((f) => f !== condition);
+  const stratumOf = (s: RunScore) => others.map((f) => s[f]).join("|");
   const perTask = new Map<string, Map<string, { a: number[]; b: number[] }>>();
   for (const score of scores) {
-    const side = condition(score);
+    const side = score[condition];
     if (side !== a && side !== b) continue;
     const strata = perTask.get(score.taskId) ?? new Map<string, { a: number[]; b: number[] }>();
-    const key = stratumOf(score, side);
+    const key = stratumOf(score);
     const bucket = strata.get(key) ?? { a: [], b: [] };
     (side === a ? bucket.a : bucket.b).push(valueOf(score));
     strata.set(key, bucket);
@@ -1302,12 +1309,12 @@ function pairedSection(scores: RunScore[], surfaces: string[], feedbacks: string
 
   for (let i = 0; i < surfaces.length; i++) {
     for (let j = i + 1; j < surfaces.length; j++) {
-      add("surface", pairedDifference(scores, (s) => s.surfaceId, surfaces[i]!, surfaces[j]!));
+      add("surface", pairedDifference(scores, "surfaceId", surfaces[i]!, surfaces[j]!));
     }
   }
   for (let i = 0; i < feedbacks.length; i++) {
     for (let j = i + 1; j < feedbacks.length; j++) {
-      add("feedback", pairedDifference(scores, (s) => s.feedbackMode, feedbacks[i]!, feedbacks[j]!));
+      add("feedback", pairedDifference(scores, "feedbackMode", feedbacks[i]!, feedbacks[j]!));
     }
   }
 

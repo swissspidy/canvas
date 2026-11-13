@@ -5,12 +5,14 @@ import { surfaceFor } from "./index.js";
 import { systemPrompt } from "../agent/prompt.js";
 import { PAINT_NOTE } from "./paint.js";
 import { parseDoc } from "../doc/schema.js";
-import { boxOfPoints, pathLength, pathPieces, pointsBounds, segmentPolygonDistance, triangulate } from "../doc/path.js";
-import { outOfBoundsArea, polygonArea } from "../doc/geometry.js";
+import { boxOfPoints, dashRuns, pathLength, pathPieces, pointsBounds, segmentPolygonDistance, triangulate } from "../doc/path.js";
+import { outOfBoundsArea, overlapArea, polygonArea, shapeContainsPoint } from "../doc/geometry.js";
 import { renderSvg } from "../render/svg.js";
 import { describeDoc } from "../render/describe.js";
 import { getTask } from "../tasks/index.js";
 import { scoreDocument } from "../eval/score.js";
+import { runChecks, styleUnchanged } from "../eval/checks.js";
+import { effectiveBackdrop } from "../eval/color.js";
 import { PAINT_SOLUTIONS } from "../tasks/paint-solutions.js";
 import { DIAGRAM_SPECS, MAZE_CLEARANCE, MAZE_LINE, NETS, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH } from "../tasks/paint.js";
 import { aabb, polygonContainsPoint, shapePolygons } from "../doc/geometry.js";
@@ -81,6 +83,28 @@ describe("the path element", () => {
     expect(outOfBoundsArea(el, { x: 0, y: 0, width: 1000, height: 800 })).toBeCloseTo(2000, 3);
     expect(pathPieces(el).stroke).toHaveLength(1);
     expect(pathLength(el)).toBe(200);
+  });
+
+  it("counts a stroke over its own fill once, at every joint and over the fill", () => {
+    // A 100 square, filled, with a 10-wide butt stroke: 110 square painted.
+    const pts: [number, number][] = [[100, 100], [200, 100], [200, 200], [100, 200]];
+    const el: Element = { id: "p", type: "path", ...boxOfPoints(pts), rotation: 0, z: 0, points: pts, closed: true, style: { fill: "#ff0000", strokeColor: "#000000", strokeWidth: 10, lineCap: "butt" } };
+    const all = { x: 0, y: 0, width: 1000, height: 800 };
+    const square = (x: number, y: number, w: number): Element => box("r", x, y, w, w);
+    expect(overlapArea(el, square(0, 0, 1000))).toBeCloseTo(110 * 110 - 4 * 25, 3);
+    expect(overlapArea(el, square(100, 100, 100))).toBeCloseTo(10000, 3);
+    // Shifted half off the left edge: only what is painted out there counts, once.
+    const moved = { ...el, x: el.x - 150, points: pts.map(([x, y]) => [x - 150, y] as [number, number]) };
+    expect(outOfBoundsArea(moved, all)).toBeCloseTo(55 * 110 - 2 * 25, 3);
+  });
+
+  it("leaves a dashed line's gaps unpainted, as it is drawn", () => {
+    const pts: [number, number][] = [[0, 100], [100, 100]];
+    const el: Element = { id: "p", type: "path", ...boxOfPoints(pts), rotation: 0, z: 0, points: pts, style: { strokeWidth: 4, lineCap: "butt", dash: 10 } };
+    expect(dashRuns([{ x: 0, y: 0 }, { x: 35, y: 0 }], false, 10).map((r) => r.map((p) => p.x))).toEqual([[0, 10], [20, 30]]);
+    expect(shapeContainsPoint(el, { x: 5, y: 100 })).toBe(true);
+    expect(shapeContainsPoint(el, { x: 15, y: 100 })).toBe(false);
+    expect(outOfBoundsArea({ ...el, y: el.y - 101, points: [[0, -1], [100, -1]] }, { x: 0, y: 0, width: 1000, height: 800 })).toBeCloseTo(5 * 10 * 3, 3);
   });
 
   it("renders and describes a path, and paints a gradient whatever the element is called", () => {
@@ -513,6 +537,17 @@ describe("shortcuts a review found, each scoring below the honest page", () => {
       below(id, cover(doc));
     }
   });
+
+  it("arrowheads where none were asked for, a faded arrow, a deleted tuft at a thousand elements", () => {
+    const paths = (doc: Doc, fn: (el: Element) => Element): Doc => ({ ...doc, elements: doc.elements.map((e) => (e.type === "path" && !getTask("paint.maze").initial().elements.some((o) => o.id === e.id) ? fn(e) : e)) });
+    below("paint.maze", paths(solved("paint.maze"), (e) => ({ ...e, style: { ...e.style, arrow: "both" } })));
+    const diagram = solved("paint.diagram");
+    const arrow = diagram.elements.find((e) => e.type === "path")!.id;
+    below("paint.diagram", edit(diagram, arrow, (e) => ({ ...e, style: { ...e.style, opacity: 0.05 } })));
+    const big = PAINT_SOLUTIONS["paint.revise-1120"]!();
+    const tuft = big.elements.find((e) => /^(tuft|flower|stone|detail)/.test(e.id)) ?? big.elements.find((e) => !/^(sky|sun|ray|crown|trunk|bird|title)/.test(e.id))!;
+    below("paint.revise-1120", { ...big, elements: big.elements.filter((e) => e.id !== tuft.id) });
+  });
 });
 
 
@@ -524,5 +559,27 @@ describe("a style written out at its defaults", () => {
     expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(spelled))), task).score).toBeGreaterThanOrEqual(0.999);
     const changed = { ...doc, elements: doc.elements.map((e) => (e.id === "goal" ? { ...e, style: { ...e.style, sides: 6 } } : e)) };
     expect(scoreDocument(parseDoc(JSON.parse(JSON.stringify(changed))), task).score).toBeLessThan(0.999);
+  });
+
+  it("includes the colours a box and a line of text are painted when left out", () => {
+    const text: Element = { id: "t", type: "text", x: 0, y: 0, width: 100, height: 20, rotation: 0, z: 1, text: "Hi", style: {} };
+    const before: Doc = { ...blank(), elements: [box("r", 0, 0, 10, 10, {}), text] };
+    const same = styleUnchanged(before, ["r", "t"]);
+    const spelled: Doc = { ...before, elements: [box("r", 0, 0, 10, 10, { fill: "#cccccc" }), { ...text, style: { color: "#111111" } }] };
+    expect(runChecks(spelled, [same]).score).toBe(1);
+    const recoloured: Doc = { ...before, elements: [box("r", 0, 0, 10, 10, { fill: "#cc0000" }), text] };
+    expect(runChecks(recoloured, [same]).score).toBeLessThan(1);
+  });
+});
+
+describe("the colour behind a translucent line", () => {
+  it("lays the line over the path's own fill, not over what is under the path", () => {
+    const pts: [number, number][] = [[100, 100], [300, 100], [300, 300], [100, 300]];
+    const path: Element = { id: "p", type: "path", ...boxOfPoints(pts), rotation: 0, z: 0, points: pts, closed: true, style: { fill: "#ffffff", strokeColor: "#00000080", strokeWidth: 40 } };
+    const label: Element = { id: "t", type: "text", x: 150, y: 90, width: 100, height: 20, rotation: 0, z: 1, text: "x", style: {} };
+    const doc: Doc = { width: 400, height: 400, background: "#000000", elements: [path, label] };
+    const grey = parseInt(effectiveBackdrop(doc, label).slice(1, 3), 16);
+    expect(grey).toBeGreaterThan(120);
+    expect(grey).toBeLessThan(136);
   });
 });

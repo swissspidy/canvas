@@ -439,7 +439,13 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
             stopReason = "max_turns";
             break;
           }
-          messages.push({ role: "user", content: roundText(roundEndCalls.length + 1, rounds.length + 1, next) });
+          // The sign-off used a turn too: under a stated budget the next note
+          // carries the turns left, as a tool turn's feedback would.
+          const note = roundText(roundEndCalls.length + 1, rounds.length + 1, next);
+          messages.push({
+            role: "user",
+            content: config.turnBudget === undefined ? note : `${note}\n\n${remainingText(maxTurns - turn)}`,
+          });
           continue;
         }
         stopReason = "completed";

@@ -385,7 +385,7 @@ function pieceKey(el: Element): string {
   const s = el.style;
   return [
     el.x, el.y, el.width, el.height, el.rotation, el.closed ? 1 : 0, s.curve, s.strokeWidth, s.lineCap, s.arrow,
-    s.strokeColor === undefined ? 0 : 1, s.fill === undefined ? 0 : 1, JSON.stringify(el.points ?? []),
+    s.strokeColor === undefined ? 0 : 1, s.fill === undefined ? 0 : 1, s.dash, JSON.stringify(el.points ?? []),
   ].join("|");
 }
 
@@ -401,12 +401,133 @@ export function pathPieces(el: Element): PathPieces {
   const drawing = pathDrawing(el);
   const pieces: PathPieces = {
     fill: drawing.fill ? triangulate(drawing.fill) : [],
-    stroke: drawing.stroke
-      ? [...strokeQuads(drawing.stroke.points, drawing.stroke.closed, drawing.stroke.width, drawing.stroke.round), ...drawing.arrows]
-      : [],
+    stroke: drawing.stroke ? [...strokePieces(drawing.stroke, el.style.dash), ...drawing.arrows] : [],
   };
   pieceCache.set(el, { key, pieces });
   return pieces;
+}
+
+/** A stroke's quads, only where it is painted: a dashed line leaves its gaps bare. */
+function strokePieces(stroke: NonNullable<PathDrawing["stroke"]>, dash: number | undefined): Polygon[] {
+  if (!dash || dash <= 0) return strokeQuads(stroke.points, stroke.closed, stroke.width, stroke.round);
+  // Each dash takes its own caps, as SVG draws a dashed line.
+  return dashRuns(stroke.points, stroke.closed, dash).flatMap((run) => strokeQuads(run, false, stroke.width, stroke.round));
+}
+
+/**
+ * The painted runs of a dashed line: `dash` on, the same length off, measured
+ * from the first point along the whole line, as `stroke-dasharray` lays it out.
+ */
+export function dashRuns(points: Point[], closed: boolean, dash: number): Point[][] {
+  const pts = closed && points.length > 2 ? [...points, points[0]!] : points;
+  if (pts.length < 2) return [];
+  const runs: Point[][] = [];
+  let run: Point[] = [pts[0]!];
+  let on = true;
+  let pos = 0;
+  let next = dash;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    const d = dist(a, b);
+    while (next < pos + d) {
+      const t = (next - pos) / d;
+      const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      if (on) {
+        run.push(p);
+        runs.push(run);
+      } else {
+        run = [p];
+      }
+      on = !on;
+      next += dash;
+    }
+    if (on) run.push(b);
+    pos += d;
+  }
+  if (on && run.length > 1) runs.push(run);
+  return runs;
+}
+
+// --- coverage without double counting ---------------------------------------
+
+/** Keep the part of a convex polygon on one side of the line through a and b. */
+function clipHalfPlane(poly: Polygon, a: Point, b: Point, keepPositive: boolean): Polygon {
+  const side = (p: Point) => (keepPositive ? cross(a, b, p) : -cross(a, b, p));
+  const out: Polygon = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const q = poly[(i + 1) % poly.length]!;
+    const sp = side(p);
+    const sq = side(q);
+    if (sp >= 0) out.push(p);
+    if ((sp > 0 && sq < 0) || (sp < 0 && sq > 0)) {
+      const t = sp / (sp - sq);
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    }
+  }
+  return out;
+}
+
+const pieceArea = (poly: Polygon) => (poly.length < 3 ? 0 : Math.abs(signedArea2(poly)) / 2);
+
+function boxesMeet(a: Polygon, b: Polygon): boolean {
+  const box = (poly: Polygon) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of poly) {
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+    }
+    return { x0, y0, x1, y1 };
+  };
+  const p = box(a);
+  const q = box(b);
+  return p.x0 < q.x1 && q.x0 < p.x1 && p.y0 < q.y1 && q.y0 < p.y1;
+}
+
+/** A convex polygon minus another, as disjoint convex pieces: what lies outside each edge of `b` in turn. */
+export function subtractConvex(a: Polygon, b: Polygon): Polygon[] {
+  if (pieceArea(b) <= 1e-9 || !boxesMeet(a, b)) return [a];
+  const inside = signedArea2(b) > 0;
+  const out: Polygon[] = [];
+  let rest = a;
+  for (let i = 0; i < b.length; i++) {
+    const p = b[i]!;
+    const q = b[(i + 1) % b.length]!;
+    const beyond = clipHalfPlane(rest, p, q, !inside);
+    if (pieceArea(beyond) > 1e-9) out.push(beyond);
+    rest = clipHalfPlane(rest, p, q, inside);
+    if (pieceArea(rest) <= 1e-9) break;
+  }
+  return out;
+}
+
+/** Convex pieces that may overlap, re-cut so that none do: the same coverage, each point counted once. */
+export function disjointPieces(polys: Polygon[]): Polygon[] {
+  const out: Polygon[] = [];
+  for (const poly of polys) {
+    let frags = [poly];
+    const prior = out.length;
+    for (let j = 0; j < prior && frags.length; j++) frags = frags.flatMap((f) => subtractConvex(f, out[j]!));
+    out.push(...frags);
+  }
+  return out;
+}
+
+const coverageCache = new WeakMap<PathPieces, Polygon[]>();
+
+/**
+ * Everything a path paints — fill, stroke and arrowheads — as disjoint convex
+ * pieces. The pieces from `pathPieces` overlap (a stroke over its own fill,
+ * neighbouring segments at a joint), which is harmless for asking whether a
+ * point is painted but counts area twice wherever pieces are summed.
+ */
+export function pathCoverage(el: Element): Polygon[] {
+  const pieces = pathPieces(el);
+  const hit = coverageCache.get(pieces);
+  if (hit) return hit;
+  const out = disjointPieces([...pieces.fill, ...pieces.stroke]);
+  coverageCache.set(pieces, out);
+  return out;
 }
 
 // --- measuring a line against other things ----------------------------------

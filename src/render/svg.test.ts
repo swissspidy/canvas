@@ -40,4 +40,10 @@ describe("renderSvg and what is off the canvas", () => {
     const { rasterizeDoc } = await import("./rasterizer.js");
     expect((await rasterizeDoc(doc(far, edge), { pixelWidth: 100 })).length).toBeGreaterThan(0);
   });
+
+  it("keeps unclipped text whose box is above the canvas, since its later lines can reach it", () => {
+    const above: Element = { id: "above", type: "text", x: 100, y: -40, width: 300, height: 10, rotation: 0, z: 0, text: "a\nb\nc\nd\ne", style: { fontSize: 20, lineHeight: 1 } };
+    expect(renderSvg(doc(above))).not.toContain('data-id="above"');
+    expect(renderSvg(doc(above), { clipText: false })).toContain('data-id="above"');
+  });
 });

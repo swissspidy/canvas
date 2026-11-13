@@ -260,12 +260,16 @@ function prepareScoresFile(paths: SweepPaths, force: boolean): void {
     renameSync(paths.scoresFile, `${paths.scoresFile}.superseded-${new Date().toISOString().replace(/[:.]/g, "-")}`);
     return;
   }
+  let raw: string;
   try {
-    const raw = readFileSync(paths.scoresFile, "utf8");
-    if (raw.length > 0 && !raw.endsWith("\n")) appendFileSync(paths.scoresFile, "\n");
+    raw = readFileSync(paths.scoresFile, "utf8");
   } catch {
     // Unreadable: `loadExistingScores` is about to say so, with the reason.
+    return;
   }
+  // Not caught: if the newline cannot be written, the next score would be
+  // glued to the fragment and lost, so the sweep stops before paying for it.
+  if (raw.length > 0 && !raw.endsWith("\n")) appendFileSync(paths.scoresFile, "\n");
 }
 
 export async function runSweep(config: SweepConfig, progress: SweepProgress = {}): Promise<RunScore[]> {

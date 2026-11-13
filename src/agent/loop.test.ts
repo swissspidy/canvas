@@ -723,6 +723,22 @@ describe("a task delivered in rounds", () => {
     const third = JSON.stringify(messagesOf((model.doGenerateCalls as Call[])[2]!));
     expect(third).toContain("Round 2 of 3");
     expect(third).toContain("Now move it to x=40.");
+    expect(third).not.toContain("turns left");
+  });
+
+  it("tells the turns left with the next round when a budget is stated", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds-budget", rounds: ["Now move it to x=40."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+        { text: "Done." },
+      ]),
+    );
+    await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model, turnBudget: 5 });
+    const third = JSON.stringify(messagesOf((model.doGenerateCalls as Call[])[2]!));
+    expect(third).toContain("Round 2 of 2");
+    expect(third).toContain("[3 turns left]");
   });
 });
 

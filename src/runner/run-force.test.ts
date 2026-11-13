@@ -10,10 +10,15 @@ vi.mock("node:fs", async (importOriginal) => {
     renameSync: vi.fn(() => {
       throw new Error("EPERM: operation not permitted, rename (simulated)");
     }),
+    // Only the lone newline that repairs a cut-off last line fails.
+    appendFileSync: vi.fn((path: Parameters<typeof actual.appendFileSync>[0], data: string, ...rest: unknown[]) => {
+      if (data === "\n") throw new Error("ENOSPC: no space left on device, write (simulated)");
+      return (actual.appendFileSync as (...a: unknown[]) => void)(path, data, ...rest);
+    }),
   };
 });
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SWEEP, runSweep, sweepPaths, type SweepConfig } from "./run.js";
@@ -48,5 +53,17 @@ describe("--force when the old scores cannot be set aside", () => {
 
     expect(readFileSync(sweepPaths(dir).configFile, "utf8")).toBe(before);
     expect(JSON.parse(before).turnBudget).toBe(1);
+  });
+});
+
+describe("a cut-off scores file whose newline cannot be written", () => {
+  it("stops the sweep before any cell runs, so no score is glued to the fragment", async () => {
+    await runSweep(config());
+    const { scoresFile } = sweepPaths(dir);
+    const cut = readFileSync(scoresFile, "utf8").replace(/\n$/, "").slice(0, -5);
+    writeFileSync(scoresFile, cut);
+
+    await expect(runSweep(config({ repeats: 2 }))).rejects.toThrow(/ENOSPC/);
+    expect(readFileSync(scoresFile, "utf8")).toBe(cut);
   });
 });

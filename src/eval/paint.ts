@@ -29,7 +29,7 @@ import {
   segmentDistance,
   segmentPolygonDistance,
 } from "../doc/path.js";
-import { check, gradeDefect, select, type Check, type Selector } from "./checks.js";
+import { check, gradeDefect, select, styleDefault, type Check, type Selector } from "./checks.js";
 
 const sameColor = (a: string | undefined, b: string) => a !== undefined && a.toLowerCase() === b.toLowerCase();
 
@@ -182,12 +182,16 @@ export function styleIs(selector: Selector, want: Partial<Style>, weight = 1, la
   return check("style_is", label ?? `Styled ${keys.map((k) => `${k}=${want[k]}`).join(", ")}`, weight, (doc) => {
     const els = select(doc, selector);
     if (els.length === 0) return { score: 0, detail: "No matching element." };
+    // Graded by element, not by key: one arrow out of twenty faded or in the
+    // wrong colour was one key in sixty, a deduction too small to fail.
     const wrong: string[] = [];
-    let total = 0;
+    let wrongEls = 0;
     for (const el of els) {
+      let ok = true;
       for (const key of keys) {
-        total++;
-        const got = el.style[key];
+        // As drawn: a key left out is its default, so "no arrowheads" holds
+        // for a path that never set one and "opacity 1" for one never faded.
+        const got = el.style[key] ?? styleDefault(el, key);
         const expected = want[key];
         const same =
           typeof expected === "number"
@@ -195,10 +199,14 @@ export function styleIs(selector: Selector, want: Partial<Style>, weight = 1, la
             : typeof expected === "string" && typeof got === "string"
               ? got.toLowerCase() === expected.toLowerCase()
               : got === expected;
-        if (!same) wrong.push(`${el.id}.${key}=${got ?? "unset"}`);
+        if (!same) {
+          ok = false;
+          wrong.push(`${el.id}.${key}=${got ?? "unset"}`);
+        }
       }
+      if (!ok) wrongEls++;
     }
-    return { score: 1 - wrong.length / total, detail: wrong.length ? `Wanted ${keys.map((k) => `${k}=${want[k]}`).join(", ")}; got ${wrong.slice(0, 6).join(", ")}.` : "As specified." };
+    return { score: 1 - wrongEls / els.length, detail: wrong.length ? `Wanted ${keys.map((k) => `${k}=${want[k]}`).join(", ")}; got ${wrong.slice(0, 6).join(", ")}.` : "As specified." };
   });
 }
 

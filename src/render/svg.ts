@@ -384,8 +384,10 @@ export function renderSvg(doc: Doc, opts: RenderOptions = {}): string {
     // Not an optimization: the clip path of a text or image element far
     // enough outside the view box makes resvg abort the whole process — a
     // native panic no `try` can catch — and one stray `create` at y=4200 took
-    // down a sweep and every cell running beside it.
-    if (isOffCanvas(el, doc)) return;
+    // down a sweep and every cell running beside it. Unclipped text has no
+    // clip path, and its later lines can run onto the canvas from a box that
+    // is wholly above it, so it is left to draw.
+    if (!(el.type === "text" && !clipText) && isOffCanvas(el, doc)) return;
     let inner: string;
     if (el.type === "rect") inner = renderRect(el, i);
     else if (el.type === "path") inner = renderPath(el, i);

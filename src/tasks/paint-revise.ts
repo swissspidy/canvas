@@ -299,7 +299,8 @@ export function reviseTaskFor(spec: ReviseSpec) {
       birdsGone(3),
       retitled(1),
       nothingAdded(2),
-      preservesElements([...untouched, ...crownIds, "sun", ...rayIds, "title"], 3),
+      // Strict: at a thousand elements one deleted tuft would otherwise pass.
+      preservesElements([...untouched, ...crownIds, "sun", ...rayIds, "title"], 3, { strict: true }),
       geometryUnchanged(START, [...untouched, ...crownIds, "title"], 3),
       styleUnchanged(START, untouched, 2),
       styleUnchanged(START, ["sun", ...rayIds], 1),

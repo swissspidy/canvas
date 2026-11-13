@@ -190,7 +190,7 @@ export function simulatePower(params: Partial<PowerParams> = {}): PowerResult {
     }
 
     const seed = p.reseedBootstrap ? BOOTSTRAP_SEED + trial * 7919 : BOOTSTRAP_SEED;
-    const diff = pairedDifference(scores, (s) => s.surfaceId, "a", "b", (s) => s.normalizedScore, 2000, seed, p.method);
+    const diff = pairedDifference(scores, "surfaceId", "a", "b", (s) => s.normalizedScore, 2000, seed, p.method);
     widths.push((diff.high - diff.low) * 100);
     if (diff.resolved) {
       // `difference` is a - b, so a positive planted effect should resolve positive.

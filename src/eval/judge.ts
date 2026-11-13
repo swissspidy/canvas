@@ -380,7 +380,9 @@ export function alignCriteria(
   // An "Overall" or blank row is not a paraphrase of a criterion. When the
   // counts happened to agree — one criterion left out, one summary row added —
   // it was slotted into the missing criterion's place and scored as it.
-  const filler = unmatched.find(notACriterion);
+  // A blank label with a reason is still no criterion's name: nothing says
+  // which slot it was meant for.
+  const filler = unmatched.find((e) => notACriterion(e) || normalizeCriterion(e.criterion) === "");
   if (filler) {
     return { error: `Judge returned "${filler.criterion || "(blank)"}" in place of one of the ${requested.length} criteria asked for.` };
   }

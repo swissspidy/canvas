@@ -148,9 +148,9 @@ footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family:
 <tbody>
 <tr><td>Passes, four diagrams</td><td class="n hi">23 / 24</td><td class="n lo">0 / 24</td><td class="n lo">0 / 24</td></tr>
 <tr><td>Passes, the three not piloted</td><td class="n hi">18 / 18</td><td class="n lo">0 / 18</td><td class="n lo">0 / 18</td></tr>
-<tr><td>Cost per pass</td><td class="n hi">$0.15</td><td class="n">$19.99</td><td class="n">$10.38</td></tr>
+<tr><td>Cost per pass, pooled</td><td class="n hi">$0.15</td><td class="n">$19.99</td><td class="n">$10.38</td></tr>
 </tbody></table></div>
-<p class="note">Relational's lead in pass rate: +0.96, interval 0.88–1.00, against both. Its cost per pass: 0.027 and 0.051 times the others', intervals well clear of the 0.85 required. A cell with no pass is charged twice its spend per pass, so those two ratios rest on that rule. Most of document-as-code's runs hit the 32,000-token output ceiling; re-run with no ceiling but the model's own, it finished six of eight and passed none, missing the outlines by 10 to 17 units as coordinate does.</p>
+<p class="note">Relational's lead in pass rate: +0.96, interval 0.88–1.00, against both. Its cost per pass: 0.027 and 0.051 times the others', intervals well clear of the 0.85 required. Those ratios are not the pooled row divided out: they are the geometric mean, over the four diagrams, of each diagram's own ratio, the rule the confirmation was registered with. A cell with no pass is charged twice its spend per pass, so those two ratios rest on that rule. Most of document-as-code's runs hit the 32,000-token output ceiling; re-run with no ceiling but the model's own, it finished six of eight and passed none, missing the outlines by 10 to 17 units as coordinate does.</p>
 <p>Unlike text measurement, a stronger model did not close the gap in the pilots: GPT-5.6 Sol missed outlines on coordinate as Luna did, at ten times the price. Seeing the page did not close it either — a screenshot plus a description passed two of thirty-four coordinate and document-as-code runs across the pilots and the confirmation, against every relational run but one.</p>
 
 <h2 id="size">What a big document costs</h2>

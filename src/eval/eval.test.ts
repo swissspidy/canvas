@@ -764,6 +764,15 @@ describe("judge criterion alignment", () => {
     });
   });
 
+  it("refuses an unnamed row with a reason when the counts agree, rather than slotting it in", () => {
+    // Two criteria named, the third left out, an unnamed judged row in its
+    // place: nothing says it was the third.
+    const judged = { criterion: "", score: 2, reason: "Too tight against the edge." };
+    expect(alignCriteria(asked, [entry(asked[0]!, 3), entry(asked[1]!, 4), judged])).toMatchObject({
+      error: expect.stringContaining("(blank)"),
+    });
+  });
+
   it("still refuses an extra row that is not the overall rating", () => {
     expect(alignCriteria(asked, [...asked.map((c) => entry(c, 5)), entry("Bonus", 5)])).toMatchObject({
       error: expect.stringContaining("scored 4 criteria"),

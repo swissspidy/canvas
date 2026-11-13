@@ -1457,7 +1457,8 @@ effect is confirmed on Gemini 3.8 Flash, on these four diagrams.** Every
 relational run used `connect`; no coordinate or document-as-code run passed.
 (With no pass, a cell's cost per pass is twice its spend, per the eighth
 entry, so the D2 ratios are bounded by that rule rather than measured against
-a real pass.)
+a real pass. D2 is the geometric mean over diagrams of each diagram's ratio,
+so it is not the pooled row above divided out.)
 
 Three things the numbers alone do not say.
 
@@ -1917,6 +1918,16 @@ first flip, from pass to fail, because document-as-code had written a star's
 default `sides: 5` and `innerRatio: 0.5` out in full. That was a false
 positive in `styleUnchanged`, which now compares a key's value as drawn — a
 key spelled out at its default equals the key left out — and is tested.
+
+A second review round tightened four more, and the re-score was repeated:
+style requirements are now graded per element, not per key, so one arrow out
+of twenty in the wrong colour or faded (diagram arrows must now be fully
+opaque, the drawn sense of "stroked in") no longer passes; a forbidden
+arrowhead fails the board and the maze, the default counting as none; any
+deletion fails the revision, which at 1,120 elements one deleted tuft did
+not; and a path's area is no longer counted twice where its stroke overlaps
+its fill, nor painted in a dashed line's gaps. 815 recorded runs re-scored,
+0 changes of pass or fail.
 
 Also from the review: a round-based run that signs off its last allowed turn
 with a round undelivered now ends `max_turns`, not `completed`; Haiku 5.5's

@@ -129,7 +129,7 @@ describe("every reported interval is task-clustered", () => {
 
 describe("pairedDifference", () => {
   it("recovers a planted effect and calls it resolved", () => {
-    const diff = pairedDifference(syntheticScores(0.2), (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(syntheticScores(0.2), "surfaceId", "relational", "coordinate");
     expect(diff.difference).toBeCloseTo(0.2, 6);
     expect(diff.pairs).toBe(5);
     expect(diff.resolved).toBe(true);
@@ -137,13 +137,13 @@ describe("pairedDifference", () => {
   });
 
   it("reports the sign of the comparison as asked", () => {
-    const diff = pairedDifference(syntheticScores(0.2), (s) => s.surfaceId, "coordinate", "relational");
+    const diff = pairedDifference(syntheticScores(0.2), "surfaceId", "coordinate", "relational");
     expect(diff.difference).toBeCloseTo(-0.2, 6);
     expect(diff.resolved).toBe(true);
   });
 
   it("does not resolve a zero effect", () => {
-    const diff = pairedDifference(syntheticScores(0), (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(syntheticScores(0), "surfaceId", "relational", "coordinate");
     expect(diff.difference).toBeCloseTo(0, 9);
     expect(diff.resolved).toBe(false);
   });
@@ -154,7 +154,7 @@ describe("pairedDifference", () => {
       score({ taskId: "shared", surfaceId: "relational", normalizedScore: 0.6 }),
       score({ taskId: "coordinate-only", surfaceId: "coordinate", normalizedScore: 0.9 }),
     ];
-    const diff = pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate");
+    const diff = pairedDifference(scores, "surfaceId", "relational", "coordinate");
     expect(diff.pairs).toBe(1);
     expect(diff.difference).toBeCloseTo(0.2, 9);
   });
@@ -164,18 +164,18 @@ describe("pairedDifference", () => {
       score({ taskId: "only", surfaceId: "coordinate", normalizedScore: 0 }),
       score({ taskId: "only", surfaceId: "relational", normalizedScore: 1 }),
     ];
-    expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").resolved).toBe(false);
+    expect(pairedDifference(scores, "surfaceId", "relational", "coordinate").resolved).toBe(false);
   });
 
   it("keeps the bootstrap rule by default and switches only when asked", () => {
     const scores = syntheticScores(0.2);
-    expect(pairedDifference(scores, (s) => s.surfaceId, "relational", "coordinate").method).toBe("bootstrap");
+    expect(pairedDifference(scores, "surfaceId", "relational", "coordinate").method).toBe("bootstrap");
 
     // Five tasks. The bootstrap resolves it; the sign-flip test cannot, because
     // 2/2^5 = 0.0625 is the smallest p five pairs can produce. Both are looking
     // at the same effect, and only one of them is a 95% test at this size.
     const permuted = pairedDifference(
-      scores, (s) => s.surfaceId, "relational", "coordinate", (s) => s.normalizedScore, 2000, 20260916, "permutation",
+      scores, "surfaceId", "relational", "coordinate", (s) => s.normalizedScore, 2000, 20260916, "permutation",
     );
     expect(permuted.pairs).toBe(5);
     expect(permuted.floorP).toBeCloseTo(0.0625, 9);
@@ -770,7 +770,7 @@ describe("statistics on a grid that is not full", () => {
         }
       }
     }
-    const diff = pairedDifference(rows, (s) => s.surfaceId, "a", "b");
+    const diff = pairedDifference(rows, "surfaceId", "a", "b");
     expect(diff.difference).toBeCloseTo(0, 9);
     expect(diff.resolved).toBe(false);
   });
