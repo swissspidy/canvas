@@ -1607,3 +1607,22 @@ surfaces unequally in one known way: document-as-code reads the JSON it
 rewrites, and may copy its layout into what it writes. That is a reason to
 measure the scaling set again rather than to assume the saving.
 
+*Result, and a second change.* The scaling set re-run under the new format:
+12 runs, $1.38 against $1.69, every run passed. At 560 elements coordinate
+fell from $0.125 to $0.100 (input down 27%) and document-as-code from $0.397
+to $0.341 (input down 30%; its output, about 50,000 tokens of which half is
+the document and half thinking, did not move). Relational's figures varied
+too much to read — two to eight turns for identical edits — and its
+transcripts said why: it sent its calls one or two to a reply, waiting to see
+each land, though the edits depend on one another only in order (the rays are
+placed around the sun, so the sun moves first). Each extra turn re-sends the
+conversation.
+
+The loop has always run a reply's calls in order, each against the document
+the one before it left, and no surface was told so. The base prompt now
+says it, identically for every surface, and a test holds the loop to it. A
+gap in what every surface is told is the harness's, not a surface's, so it is
+closed for all of them; it may help the incremental surfaces more than
+document-as-code, which rarely needs two calls in a reply, and that is
+measured rather than assumed. Runs before and after this are not pooled.
+

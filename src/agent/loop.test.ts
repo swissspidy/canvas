@@ -682,3 +682,23 @@ describe("answering a call the SDK has already answered", () => {
     expect(r.turnRecords.reduce((sum, t) => sum + t.toolCalls, 0)).toBe(r.toolCalls);
   });
 });
+
+describe("calls in one reply", () => {
+  // The base prompt tells every surface that a reply's calls run in order,
+  // each seeing what the one before it did. This is that promise.
+  it("run in order, each against the document the previous one left", async () => {
+    const { result } = run("none", [
+      {
+        tools: [
+          { name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } },
+          { name: "move", input: { id: "el_1", x: 40, y: 50 } },
+        ],
+      },
+      { text: "Done." },
+    ]);
+    const r = await result;
+    expect(r.failedToolCalls).toBe(0);
+    expect(r.turnRecords[0]!.toolCalls).toBe(2);
+    expect(r.finalDoc.elements[0]).toMatchObject({ id: "el_1", x: 40, y: 50 });
+  });
+});

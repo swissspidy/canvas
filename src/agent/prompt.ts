@@ -46,6 +46,9 @@ export const BASE_SYSTEM = [
   "You cannot upload images. Image elements reference this fixed library:",
   assetCatalogue(),
   "",
+  "You can make several tool calls in one reply. They run in the order you give them, and each one sees the",
+  "document as the calls before it left it, so a call can depend on an earlier one in the same reply.",
+  "",
   "Work until the brief is satisfied, then stop and briefly say what you did.",
   "Nobody is available to answer questions, so make reasonable decisions and proceed.",
 ].join("\n");
