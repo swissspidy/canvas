@@ -1741,3 +1741,65 @@ Two exploratory runs — document-as-code, `paint.revise-1120`, feedback
 `both`, each model at a 128,000-token ceiling, into their own directory —
 settle which.
 
+*E1 result.* Haiku 5.5, three repeats: 192 runs, $2.73. Sonnet 5.5, one
+repeat: 64 runs, $11.73. No harness failures. (The container restarted once
+mid-grid; the cells in flight were lost unrecorded and re-run on resume.)
+
+| | Coordinate | Measured | Relational | Document-as-code |
+|---|---|---|---|---|
+| Haiku, text fitting | 18/24 | 23/24 | 24/24 | 14/24 |
+| Haiku, diagrams | 3/24 | 10/24 | 24/24 | 3/24 |
+| Sonnet, text fitting | 7/8 | 8/8 | 8/8 | 6/8 |
+| Sonnet, diagrams | 4/8 | 7/8 | 8/8 | 4/8 |
+
+*Text fitting: the tool.* `measured` used `fit_text` in every run on both
+models and passed as often as relational (Haiku 23/24 against 24/24, Sonnet
+8/8 each), more cheaply than coordinate (cost per pass 0.42 times on Haiku,
+0.55 on Sonnet, both resolved) and no dearer than relational (Sonnet: relational
+1.27 times `measured`'s, resolved). The vocabulary around the tool adds
+nothing measurable here.
+
+*Diagrams: the tool, and whether it is reached for.* On Haiku `measured`
+passed 10 of 24 against relational's 24 (difference 0.58, interval 0.42–0.75,
+resolved). Every one of its ten passes was a run that used `connect`, and
+every one of its fourteen failures a run that drew the arrows with `draw` and
+typed coordinates — a perfect split. Offered numbers beside the tool, Haiku
+chose the numbers 58% of the time; relational, which has no numbers to fall
+back on, used `connect` in every run. Sonnet chose `connect` in six of eight,
+and its one `measured` failure was one of the two that did not. So the
+measuring tool does the work wherever it is used, and the vocabulary decides
+whether a weaker model uses it: taking the coordinates away is what made
+relational reliable on drawing.
+
+Neither family needed a judge, and one repeat on Sonnet is thin: its
+intervals are wide and several comparisons do not resolve. The Haiku split is
+the finding with weight.
+
+*E2 result.* 30 runs, $6.40, every run two turns. Every run passed except
+document-as-code at 1,120 elements on both models, which ended `max_tokens`
+at the configured 65,536.
+
+| Feedback `both` | 70 | 140 | 280 | 560 | 1,120 |
+|---|---|---|---|---|---|
+| Sonnet, coordinate | $0.078 | $0.123 | $0.211 | $0.388 | $0.745 |
+| Sonnet, relational | $0.093 | $0.136 | $0.222 | $0.404 | $0.757 |
+| Sonnet, document | $0.114 | $0.238 | $0.483 | $0.976 | $2.43 at 128K |
+| Haiku, coordinate | $0.005 | $0.006 | $0.011 | $0.020 | $0.038 |
+| Haiku, relational | $0.007 | $0.008 | $0.012 | $0.021 | $0.043 |
+| Haiku, document | $0.006 | $0.012 | $0.025 | $0.050 | $0.097 at 128K |
+
+With a description after every turn, coordinate's cost roughly doubles with
+each doubling of the document — 9.6 times from 70 to 1,120 elements on Sonnet —
+against 2.5 times from 70 to 560 with no feedback on Gemini: the description
+grows with the document and is re-sent each turn, so descriptive feedback
+becomes a size cost for every surface. Document-as-code stays the dearest, at
+about 2.5 times coordinate from 280 elements on.
+
+*The ceiling check.* At 128,000 tokens both models finished the 1,120-element
+revision with document-as-code: Sonnet writing 99,000 tokens for $2.43 (3.3
+times coordinate), Haiku 94,000 for $0.097 (2.6 times, and under-costed past
+100,000 input tokens). So that size is past Gemini 3.8 Flash's output limit
+and inside Claude's. The wall document-as-code meets is the model's output
+limit; at about 200,000 tokens, the next doubling, it is past every current
+model's.
+
