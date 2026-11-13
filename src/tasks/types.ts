@@ -43,6 +43,13 @@ export interface Task {
    * explains a path (`withPaint`). Unset everywhere else, for the same reason.
    */
   paint?: boolean;
+  /**
+   * Further instructions, each handed over when the agent signs off the one
+   * before, in the same conversation: an editing session rather than one
+   * brief. The checks score the page after the last round. Absent means the
+   * task is the brief alone.
+   */
+  rounds?: string[];
 }
 
 export function defineTask(task: Task): Task {

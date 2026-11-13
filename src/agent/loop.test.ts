@@ -702,3 +702,26 @@ describe("calls in one reply", () => {
     expect(r.finalDoc.elements[0]).toMatchObject({ id: "el_1", x: 40, y: 50 });
   });
 });
+
+describe("a task delivered in rounds", () => {
+  it("hands over each round when the agent signs off the last, and records where each ended", async () => {
+    const task = defineTask({ ...trivialTask, id: "test.rounds", maxTurns: 10, rounds: ["Now move it to x=40.", "Now move it to y=50."] });
+    const model = createScriptedModel(
+      fixedScript([
+        { tools: [{ name: "create", input: { type: "rect", x: 0, y: 0, width: 10, height: 10 } }] },
+        { text: "Done with round one." },
+        { tools: [{ name: "move", input: { id: "el_1", x: 40, y: 0 } }] },
+        { text: "Done with round two." },
+        { tools: [{ name: "move", input: { id: "el_1", x: 40, y: 50 } }] },
+        { text: "Done." },
+      ]),
+    );
+    const r = await runAgent({ runId: "t", task, surface: coordinateSurface, feedback: createFeedbackChannel("none"), model: MODEL, languageModel: model });
+    expect(r.stopReason).toBe("completed");
+    expect(r.roundEndCalls).toEqual([1, 2, 3]);
+    expect(r.finalDoc.elements[0]).toMatchObject({ x: 40, y: 50 });
+    const third = JSON.stringify(messagesOf((model.doGenerateCalls as Call[])[2]!));
+    expect(third).toContain("Round 2 of 3");
+    expect(third).toContain("Now move it to x=40.");
+  });
+});

@@ -15,6 +15,7 @@ import { boxOfPoints, type Pt } from "../doc/path.js";
 import { routeAround } from "../surfaces/paint.js";
 import { getTask } from "./index.js";
 import { REVISE_SOLUTIONS } from "./paint-revise.js";
+import { SESSION_TWINS } from "./session.js";
 import {
   AREA_COLOR, AREA_RING, CHIPS, DATA_POINTS, DIAGRAM_SPECS, DOT, DOT_COLOR, EDGES, FLOW_STROKE, FLOW_WIDTH, LINE_COLOR, MAZE_LINE, MAZE_PLAN,
   NETS, PEAK_DOT, PIE, SLICES, SLICE_ANGLES, TRACE_CLEARANCE, TRACE_WIDTH, VISITORS, mazeCellCentre,
@@ -175,4 +176,10 @@ const MORE_SOLUTIONS: Record<string, () => Doc> = {
   },
 };
 
-export const PAINT_SOLUTIONS: Record<string, () => Doc> = { ...FIRST_SOLUTIONS, ...MORE_SOLUTIONS, ...REVISE_SOLUTIONS };
+const BASE_SOLUTIONS: Record<string, () => Doc> = { ...FIRST_SOLUTIONS, ...MORE_SOLUTIONS, ...REVISE_SOLUTIONS };
+
+/** A session ends at its single-brief twin's page, so it has the same solution. */
+export const PAINT_SOLUTIONS: Record<string, () => Doc> = {
+  ...BASE_SOLUTIONS,
+  ...Object.fromEntries(Object.entries(SESSION_TWINS).map(([session, twin]) => [session, BASE_SOLUTIONS[twin]!])),
+};

@@ -445,3 +445,21 @@ describe("the strict measured ablation", () => {
   });
 });
 
+
+describe("editing sessions", () => {
+  it("end at their single-brief twin's page, under the same checks, with every instruction delivered", async () => {
+    const { SESSION_TWINS } = await import("../tasks/session.js");
+    for (const [sessionId, twinId] of Object.entries(SESSION_TWINS)) {
+      const session = getTask(sessionId);
+      const twin = getTask(twinId);
+      expect(session.rounds?.length, sessionId).toBeGreaterThan(1);
+      expect(JSON.stringify(session.initial()), sessionId).toBe(JSON.stringify(twin.initial()));
+      expect(session.checks.map((c) => [c.id, c.label, c.weight]), sessionId).toEqual(twin.checks.map((c) => [c.id, c.label, c.weight]));
+      // Everything the single brief asked for is asked for somewhere in the session.
+      const all = [session.brief, ...session.rounds!].join("\n");
+      for (const line of twin.brief.split("\n").filter((l) => l.startsWith("- from ") || /^\d\. /.test(l))) {
+        expect(all, `${sessionId}: ${line}`).toContain(line.replace(/^\d\. /, ""));
+      }
+    }
+  });
+});

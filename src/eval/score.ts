@@ -106,6 +106,8 @@ export interface RunScore {
   firstPassCall?: number | null;
   /** Tool calls made in each turn, in order: what maps the trajectory onto turns. */
   callsByTurn?: number[];
+  /** For a task delivered in rounds: tool calls made by the end of each round. */
+  roundEndCalls?: number[];
   efficiency: Efficiency;
   toolUsage: Record<string, { ok: number; failed: number }>;
 }
@@ -225,6 +227,7 @@ export function scoreRun(run: RunResult, task: Task, judge?: JudgeResult): RunSc
     normalizedScore: normalize(constraintScore, baseline),
     ...scoreTrajectory(run.session.actions, task),
     callsByTurn: run.turnRecords.map((t) => t.toolCalls),
+    ...(run.roundEndCalls ? { roundEndCalls: run.roundEndCalls } : {}),
     efficiency: {
       turns: run.turns,
       toolCalls: run.toolCalls,

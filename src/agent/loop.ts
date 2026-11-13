@@ -139,6 +139,12 @@ export interface RunResult {
   session: DocSession;
   /** Transcript with image payloads replaced by placeholders. */
   transcript: unknown[];
+  /**
+   * For a task delivered in rounds (`Task.rounds`): the number of tool calls
+   * the session had made when each round, the opening brief included, was
+   * signed off. Shorter than the round count when the run ended early.
+   */
+  roundEndCalls?: number[];
 }
 
 /**
@@ -269,10 +275,21 @@ function lastSuccessful<T extends { ok: boolean }>(results: T[]): T | undefined 
   return undefined;
 }
 
+/**
+ * The next instruction of a task delivered in rounds. Worded the same on every
+ * surface and under every feedback condition, and it says what the round is,
+ * so the agent knows the earlier rounds stand and more may follow.
+ */
+export function roundText(round: number, of: number, instruction: string): string {
+  return `# Round ${round} of ${of}\n\nThe page now stands as you left it. Next:\n\n${instruction}\n\nKeep everything the earlier rounds asked for.`;
+}
+
 export async function runAgent(config: RunConfig): Promise<RunResult> {
   const startedAt = Date.now();
   const emit: EventSink = config.onEvent ?? noopSink;
   const maxTurns = config.turnBudget ?? config.maxTurns ?? config.task.maxTurns;
+  const rounds = config.task.rounds ?? [];
+  const roundEndCalls: number[] = [];
   const maxTokens = config.maxTokens ?? DEFAULT_MAX_TOKENS;
   const effort = config.effort ?? "high";
   const spec = getModel(config.model);
@@ -404,9 +421,18 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
         // unusable or half-written, and storing it would make an abandoned
         // turn read like a finished one.
         messages.push(...(result.responseMessages as ModelMessage[]));
-        stopReason = "completed";
         record(0);
         emit({ type: "turn_end", turn, usage: turnUsage, stopReason: result.finishReason });
+        roundEndCalls.push(session.actions.length);
+        // A task delivered in rounds hands over the next instruction when the
+        // agent signs off the last one, in the same conversation, the way an
+        // editor gets a second note on a page they have just finished.
+        const next = rounds[roundEndCalls.length - 1];
+        if (next !== undefined && turn < maxTurns) {
+          messages.push({ role: "user", content: roundText(roundEndCalls.length + 1, rounds.length + 1, next) });
+          continue;
+        }
+        stopReason = "completed";
         break;
       }
 
@@ -525,6 +551,7 @@ export async function runAgent(config: RunConfig): Promise<RunResult> {
     effort,
     stopReason,
     ...(error ? { error } : {}),
+    ...(rounds.length ? { roundEndCalls } : {}),
     turns: Math.min(turn, maxTurns),
     turnRecords,
     toolCalls: session.actions.length,

@@ -1821,3 +1821,48 @@ would mean something else in coordinate's vocabulary costs it the page.
 tool and nothing else in coordinate's vocabulary: its boxes and numbers,
 still there for everything but lines, cost it nothing on these tasks.
 
+**2026-11-13 (fourth entry) — sessions, and designs judged head to head.**
+Exploratory, written before either runs. The geometry families saturate as
+models strengthen (2026-11-13, third entry, and the site); these two measure
+what did not: cost over a realistic session, and quality where there is no
+exact answer.
+
+*E3 — editing in rounds.* The loop can now hand a task over in rounds: when
+the agent signs off one instruction, the next arrives in the same
+conversation (`Task.rounds`, tested). Two sessions are derived from existing
+tasks and end at the same page under the same checks — `session.revise-280`
+(the 280-element revision's four edits, one per round) and `session.cycle`
+(the hub-and-ring diagram's sixteen arrows in three rounds) — so a session
+against its single-brief twin is the price of being told in rounds, with the
+page held.
+
+- *Design.* The two sessions and their twins; surfaces `coordinate`,
+  `relational`, `document`; feedback `none` and `both`; Haiku 5.5 at three
+  repeats (72 runs, about $1.50) and Sonnet 5.5 at one (24 runs, about $5);
+  effort `high`, a 128,000-token ceiling, no judge.
+- *Expected.* Every surface pays more for a session than for one brief, since
+  each round re-reads the conversation. Document-as-code pays the most extra on
+  the revision, rewriting 280 elements once per round instead of once; on the
+  diagram the incremental surfaces add only the new arrows each round, so
+  their premium is smallest there. Read as the cost ratio session / twin per
+  surface and model, with pass rates beside it; one model at three repeats,
+  so intervals where they exist are exploratory.
+
+*E4 — quality, judged.* `paint.lighthouse` has no exact answer: its checks are
+floors any honest attempt clears, and what separates two pages is whether
+they make a good picture.
+
+- *Design.* Sonnet 5.5 draws it on `coordinate`, `relational` and `document`,
+  feedback `both`, three repeats (9 runs, about $3). Then `compare --by
+  surface` shows the judge two pages of the same brief, in both orders, six
+  pairs per surface pair; a page wins only if it wins both orders. The judge
+  is GPT-5.6 Terra — another provider than the model drawing, so it cannot
+  prefer its own family's style.
+- *Expected.* No prediction of direction is made. The measured outcome is
+  each surface's share of decided pairs and the share of ties (position bias
+  makes ties, not wrong winners).
+- *Not validated.* §9 requires a human-rated subset before the judge is
+  trusted, and none exists for this task. `npm run cli -- sample` draws one
+  for the author to rate; until that is done, E4 is reported as the judge's
+  preference, labelled so.
+
