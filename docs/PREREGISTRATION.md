@@ -1726,3 +1726,10 @@ npm run cli -- run --tasks scale --surfaces coordinate,relational,document --fee
   --max-tokens 65536 --out runs/e2-scale-both
 ```
 
+*Decided under the rule above, before Sonnet's second cell.* A key did reach
+this session after all (supplied by the author in another variable), so the
+round runs here. Sonnet 5.5's two pricing runs cost $0.189 (`paint.diagram`)
+and $0.262 (`measure.menu`), which prices its three-repeat grid at $43.33 —
+over the $30 line. Sonnet runs one repeat: 64 runs, about $14. Haiku runs
+three, as planned.
+
