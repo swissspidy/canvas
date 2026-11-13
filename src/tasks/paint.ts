@@ -337,7 +337,7 @@ const flow = defineTask({
     "",
     `Each arrow is an open path of exactly two points, stroked in ${FLOW_STROKE} at strokeWidth ${FLOW_WIDTH}, with an arrowhead at its end (style.arrow 'end').`,
     "It runs along the straight line joining the centres of the two shapes, but covers only the gap between them: it starts exactly on the outline of the shape it comes from and ends exactly on the outline of the shape it goes to, to within 2 units. The outline is the shape as drawn — an oval's curve and the diamond's slanted sides, not the box around them.",
-    "Do not move, restyle or delete the shapes or their labels, and add nothing but the seven arrows.",
+    "Do not move, restyle, reword or delete the shapes or their labels, and add nothing but the seven arrows.",
   ].join("\n"),
   initial: flowchart,
   checks: [
@@ -494,7 +494,7 @@ export function diagramTask(spec: DiagramSpec) {
       `Each arrow is an open path of exactly two points, stroked in ${FLOW_STROKE} at strokeWidth ${FLOW_WIDTH}, with an arrowhead at its end (style.arrow 'end').`,
       "It runs along the straight line joining the centres of the two shapes — a shape's centre is the centre of its box, the point its rotation turns it about — but covers only the gap between them: it starts exactly on the outline of the shape it comes from and ends exactly on the outline of the shape it goes to, to within 2 units.",
       "The outline is the shape as drawn: an oval's curve and a polygon's sides, stretched to fill the box and turned with it — not the box around them.",
-      `Do not move, restyle or delete the shapes or their labels, and add nothing but the ${arrows} arrows.`,
+      `Do not move, restyle, reword or delete the shapes or their labels, and add nothing but the ${arrows} arrows.`,
     ].join("\n"),
     initial: () => diagramDoc(spec),
     checks: [

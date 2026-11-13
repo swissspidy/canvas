@@ -290,7 +290,7 @@ export function reviseTaskFor(spec: ReviseSpec) {
       `3. Remove all ${spec.birds} birds.`,
       `4. Change the title to '${NEW_TITLE}'.`,
       "",
-      "Change nothing else: every other element keeps its position, size, rotation, shape and style, and nothing is added. Edit the elements that are there; do not delete and recreate them.",
+      "Change nothing else: every element keeps its place in front of or behind the others, every other element keeps its position, size, rotation, shape and style, and nothing is added. Edit the elements that are there; do not delete and recreate them.",
     ].join("\n"),
     initial: () => landscape(spec),
     checks: [

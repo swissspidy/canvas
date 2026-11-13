@@ -1925,3 +1925,11 @@ long-prompt rates are applied per request (so its reported costs above
 priced at the base rate); a forced sweep sets old scores aside before writing
 its new settings; and a judge of a session is shown every round's instruction.
 
+Every scored constraint must be stated in its brief (a rule this repository
+holds to, because a check the agent cannot see is a guessing game that can
+favour one surface). Two of the checks above were not fully stated, so two
+briefs gained words: the diagrams' now say not to *reword* the labels, and
+the revision's that every element keeps its place in front of or behind the
+others. Same rule for every surface; the re-score above already applied both
+checks to every recorded run.
+
