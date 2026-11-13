@@ -1650,3 +1650,15 @@ document-as-code does not finish, since one write of the document leaves
 Gemini about 12,000 of its 65,536 tokens to think in, and it used more than
 that at 560.
 
+*Result.* As predicted. 3 runs, $0.76. Coordinate finished in two turns and
+28 calls for $0.166; relational in two turns and 29 calls for $0.200; both
+passed. Document-as-code read the document, then spent 28 minutes and all
+65,536 of the model's output tokens on one write that never closed, and
+ended `max_tokens` with the painting as it was found, for $0.393.
+
+So there is a size past which document-as-code cannot make an edit at all,
+however small the edit, and it is set by the model's output limit, not by
+the task: on Gemini 3.8 Flash it lies between 560 and 1,120 elements of this
+painting. The incremental surfaces have no such wall — their output did not
+grow with the document — only a cost that rises with what they re-read.
+
