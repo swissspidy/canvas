@@ -12,12 +12,14 @@ import type { z } from "zod";
 import type { Doc } from "../doc/types.js";
 import type { DocSession } from "../doc/session.js";
 
-export const SURFACE_IDS = ["coordinate", "relational", "document", "hybrid", "measured"] as const;
+export const SURFACE_IDS = ["coordinate", "relational", "document", "hybrid", "measured", "measured_strict"] as const;
 export type SurfaceId = (typeof SURFACE_IDS)[number];
 
 /**
- * The surfaces the headline comparison runs over. `hybrid` and `measured` are
- * ablations: `measured` is coordinate plus the measuring tools alone.
+ * The surfaces the headline comparison runs over. `hybrid`, `measured` and
+ * `measured_strict` are ablations: `measured` is coordinate plus the measuring
+ * tools alone, and `measured_strict` the same with `connect` as the only way
+ * to draw a line.
  */
 export const HEADLINE_SURFACES: SurfaceId[] = ["coordinate", "relational", "document"];
 

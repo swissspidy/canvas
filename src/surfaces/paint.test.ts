@@ -434,3 +434,14 @@ describe("the measured ablation", () => {
     expect(scoreDocument(s.doc, task).score).toBeGreaterThanOrEqual(0.999);
   });
 });
+
+describe("the strict measured ablation", () => {
+  it("draws only through connect, and is measured everywhere else", () => {
+    const strict = surfaceFor("measured_strict", { paint: true });
+    const names = strict.tools.map((t) => t.name);
+    expect(names).toContain("connect");
+    expect(names).not.toContain("draw");
+    expect(surfaceFor("measured_strict").tools.map((t) => t.name)).toEqual(surfaceFor("measured").tools.map((t) => t.name));
+  });
+});
+

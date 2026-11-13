@@ -58,12 +58,23 @@ const measuredSurface: ToolSurface = {
   tools: [...coordinateSurface.tools, ...relationalTools.filter((t) => t.name === "fit_text")],
 };
 
+/**
+ * `measured`, with `connect` as the only way to draw a line on a task that
+ * draws (`withPaint` attaches no numeric `draw`). On Haiku 5.5 every
+ * `measured` diagram run that used `connect` passed and every one that drew
+ * with typed coordinates failed; this takes the second choice away, to see
+ * whether the choice was the whole of the gap. Everywhere else it is
+ * `measured`.
+ */
+const measuredStrictSurface: ToolSurface = { ...measuredSurface, id: "measured_strict" };
+
 export const SURFACES: Record<SurfaceId, ToolSurface> = {
   coordinate: coordinateSurface,
   relational: relationalSurface,
   document: documentSurface,
   hybrid: hybridSurface,
   measured: measuredSurface,
+  measured_strict: measuredStrictSurface,
 };
 
 /**

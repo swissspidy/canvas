@@ -1803,3 +1803,15 @@ and inside Claude's. The wall document-as-code meets is the model's output
 limit; at about 200,000 tokens, the next doubling, it is past every current
 model's.
 
+**2026-11-13 (third entry) — taking the numbers away.** Exploratory, written
+before its runs. `measured_strict` is `measured` with `connect` as the only
+way to draw a line on a task that draws. Haiku 5.5, the four diagrams,
+feedback `none` and `both`, three repeats, into E1's directory so it sits
+beside the same model's other surfaces: 24 runs, under $1.
+
+Expected: close to relational's 24 of 24. The result is nearly fixed by
+construction — with `connect` the only drawing tool, a run that calls it with
+the right pairs passes — so what it can show is narrow: whether Haiku's
+`measured` failures were the choice of tool and nothing else. A shortfall
+would mean something else in coordinate's vocabulary costs it the page.
+

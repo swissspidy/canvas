@@ -235,6 +235,7 @@ const SCRIPTS: Record<SurfaceId, ReplayTurn[]> = {
   document: DOCUMENT,
   hybrid: COORDINATE,
   measured: COORDINATE,
+  measured_strict: COORDINATE,
 };
 
 export const DEMO_NOTICE =
