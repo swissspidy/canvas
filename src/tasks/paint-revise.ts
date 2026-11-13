@@ -307,11 +307,11 @@ const original = reviseTaskFor(REVISE_SPEC);
 
 /**
  * The scaling set: the same edits — 12 crowns, a sun and 8 rays, 6 birds, the
- * title, 28 elements in all — in paintings of 70, 140, 280 and 560 elements.
+ * title, 28 elements in all — in paintings of 70 to 1,120 elements.
  * Only the untouched scenery grows, so a surface whose cost rises with the
  * size is paying for the document rather than for the edit.
  */
-export const SCALE_SIZES = [70, 140, 280, 560];
+export const SCALE_SIZES = [70, 140, 280, 560, 1120];
 const SCALE_BASE = { rays: 8, trees: 12, birds: 6 };
 const scaling = SCALE_SIZES.map((n) => reviseTaskFor({ id: `paint.revise-${n}`, ...SCALE_BASE, scenery: n - 70 }));
 

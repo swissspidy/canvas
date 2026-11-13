@@ -1626,3 +1626,27 @@ closed for all of them; it may help the incremental surfaces more than
 document-as-code, which rarely needs two calls in a reply, and that is
 measured rather than assumed. Runs before and after this are not pooled.
 
+*Result.* The scaling set at two repeats under both changes: 24 runs, $2.76,
+every run passed. Relational finished in two turns in seven of eight runs,
+against three to eight before, and the curves became readable:
+
+| Average of two | 70 | 140 | 280 | 560 | Rise |
+|---|---|---|---|---|---|
+| Coordinate | $0.040 | $0.044 | $0.066 | $0.100 | 2.5× |
+| Relational | $0.071 | $0.085 | $0.114 | $0.139 | 2.0× |
+| Document-as-code | $0.075 | $0.100 | $0.205 | $0.341 | 4.5× |
+
+The fifth entry's expectation holds in direction: document-as-code's cost
+rises fastest with the document, from level with relational at 70 elements to
+3.4 times coordinate at 560, because it writes what the others only read.
+Coordinate and relational still rise, more slowly, from re-reading the
+document each turn. Two repeats, so these are averages, not intervals.
+
+*Past the ceiling, predicted before its run.* `paint.revise-1120`, the same
+edits in a painting of 1,120 elements, about 53,000 tokens of JSON even one
+element to a line. Three runs, one per surface, as above. Expected:
+coordinate and relational finish at roughly twice their 560-element cost;
+document-as-code does not finish, since one write of the document leaves
+Gemini about 12,000 of its 65,536 tokens to think in, and it used more than
+that at 560.
+

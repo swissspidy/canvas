@@ -336,7 +336,7 @@ and the paragraph that explains a path.
 | `paint.orgchart` | A tree, one shape fanning out to four and each of those to two: fourteen arrows, several leaving one shape at shallow angles. | `connects`, one per arrow |
 | `paint.network` | Sixteen small shapes in a four-by-four grid: twenty-four arrows across, down and diagonally, over short gaps. | `connects`, one per arrow |
 | `paint.revise` | A 140-element landscape revised in four edits that each reach many elements — 40 crowns recoloured, the sun moved with its 16 rays, 12 birds removed, a retitle — with every other element held exactly. The first task where the document is big enough for the surfaces' cost to scale differently. | Per-edit checks, plus geometry, style, outline and identity held on everything untouched |
-| `paint.revise-70` … `-560` | The same revision — 28 edited elements — in paintings of 70, 140, 280 and 560 elements; only untouched scenery grows. Run as `--tasks scale`. | As `paint.revise` |
+| `paint.revise-70` … `-1120` | The same revision — 28 edited elements — in paintings of 70, 140, 280, 560 and 1,120 elements; only untouched scenery grows. Run as `--tasks scale`. | As `paint.revise` |
 | `paint.chart` | Twelve data points mapped onto a plot frame: a line, the area under it, a dot on each. | `pathThrough`, `regionCovers`, dots and paint order |
 | `paint.pie` | Five sectors with no arc primitive: the curved edge has to be approximated closely enough to cover the same paper. | `regionCovers` at 97% overlap per slice |
 | `paint.lighthouse` | An illustration. There is no right answer, only a better and a worse one. | Floors on what is drawn; the judge and `compare` carry it |
