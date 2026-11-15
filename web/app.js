@@ -65,14 +65,19 @@ async function loadMeta() {
   for (const m of state.meta.models) el.model.append(new Option(m.label, m.id));
   el.model.value = state.meta.defaultModel;
 
+  // Native radios inside a fieldset: arrow keys, one tab stop and the
+  // "n of m" announcement come from the browser rather than hand-rolled ARIA.
   for (const s of state.meta.surfaces) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.role = "radio";
-    button.dataset.surface = s.id;
-    button.textContent = s.title;
-    button.addEventListener("click", () => selectSurface(s.id));
-    el.surface.append(button);
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "surface";
+    input.value = s.id;
+    input.addEventListener("change", () => {
+      if (input.checked) selectSurface(s.id);
+    });
+    label.append(input, s.title);
+    el.surface.append(label);
   }
   selectSurface("coordinate");
 
@@ -104,8 +109,8 @@ function onTaskChange() {
 
 function selectSurface(id) {
   state.surface = id;
-  for (const button of el.surface.querySelectorAll("button")) {
-    button.setAttribute("aria-checked", String(button.dataset.surface === id));
+  for (const input of el.surface.querySelectorAll("input")) {
+    input.checked = input.value === id;
   }
   const surface = state.meta.surfaces.find((s) => s.id === id);
   text(el.surfaceTools, surface ? `Tools: ${surface.tools.join(", ")}` : "");
