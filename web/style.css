@@ -52,7 +52,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 1rem/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -86,7 +86,10 @@ body {
 .controls { display: grid; gap: 16px; margin-bottom: 20px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .field { display: grid; gap: 6px; min-width: 0; }
-.field label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+fieldset.field { margin: 0; padding: 0; border: 0; }
+.field > label, .field > legend, .field-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.field > legend { padding: 0; margin-bottom: 6px; }
+.field-label { margin: 0; }
 
 select, textarea, button {
   font: inherit;
@@ -104,20 +107,35 @@ select { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .segmented { display: flex; flex-wrap: wrap; gap: 6px; }
-.segmented button {
+.segmented label {
+  position: relative;
   flex: 1 1 auto;
   min-width: 132px;
   text-align: center;
   cursor: pointer;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
-.segmented button[aria-checked="true"] {
+/* The radio stays in the accessibility tree and the tab order; only its
+   native dot is hidden, and its label is the visible control. */
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.segmented label:has(:checked) {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-fg);
   font-weight: 600;
 }
-.segmented button:hover:not([aria-checked="true"]) { border-color: var(--accent); }
+.segmented label:hover:not(:has(:checked)) { border-color: var(--accent); }
+.segmented label:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .hint { margin: 0; font-size: 0.82rem; color: var(--muted); }
 .switch-hint { color: var(--warn); }
@@ -136,6 +154,11 @@ button.primary[disabled] { opacity: 0.55; cursor: not-allowed; }
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   font-size: 0.86rem;
 }
+/* The live page's notice is a live region, so it stays rendered while empty:
+   a region that appears and fills in the same task can go unannounced. Empty,
+   it is taken out of flow so it adds no grid row or gap, and has no box to show,
+   but stays in the accessibility tree. */
+.notice:empty { position: absolute; padding: 0; border: 0; }
 
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 1000px) {

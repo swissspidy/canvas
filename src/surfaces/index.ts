@@ -66,7 +66,13 @@ const measuredSurface: ToolSurface = {
  * whether the choice was the whole of the gap. Everywhere else it is
  * `measured`.
  */
-const measuredStrictSurface: ToolSurface = { ...measuredSurface, id: "measured_strict" };
+const measuredStrictSurface: ToolSurface = {
+  ...measuredSurface,
+  id: "measured_strict",
+  // A title of its own: the live page lists surfaces by title, and two
+  // identical labels left no way to tell which one a choice picked.
+  title: "Coordinate primitives, with measuring tools (lines only via connect)",
+};
 
 export const SURFACES: Record<SurfaceId, ToolSurface> = {
   coordinate: coordinateSurface,

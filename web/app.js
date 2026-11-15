@@ -65,19 +65,23 @@ async function loadMeta() {
   for (const m of state.meta.models) el.model.append(new Option(m.label, m.id));
   el.model.value = state.meta.defaultModel;
 
+  // Native radios inside a fieldset: arrow keys, one tab stop and the
+  // "n of m" announcement come from the browser rather than hand-rolled ARIA.
   for (const s of state.meta.surfaces) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.role = "radio";
-    button.dataset.surface = s.id;
-    button.textContent = s.title;
-    button.addEventListener("click", () => selectSurface(s.id));
-    el.surface.append(button);
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "surface";
+    input.value = s.id;
+    input.addEventListener("change", () => {
+      if (input.checked) selectSurface(s.id);
+    });
+    label.append(input, s.title);
+    el.surface.append(label);
   }
   selectSurface("coordinate");
 
   if (!state.meta.hasCredentials) {
-    el.notice.hidden = false;
     // The server knows which of the two replay cases this is — no key at all,
     // or a key for a provider no listed model names — and names the variables
     // it actually reads. Repeating one provider's variable here got that
@@ -104,8 +108,8 @@ function onTaskChange() {
 
 function selectSurface(id) {
   state.surface = id;
-  for (const button of el.surface.querySelectorAll("button")) {
-    button.setAttribute("aria-checked", String(button.dataset.surface === id));
+  for (const input of el.surface.querySelectorAll("input")) {
+    input.checked = input.value === id;
   }
   const surface = state.meta.surfaces.find((s) => s.id === id);
   text(el.surfaceTools, surface ? `Tools: ${surface.tools.join(", ")}` : "");
@@ -208,7 +212,6 @@ function handleEvent(event) {
       state.runId = event.runId;
       text(el.status, event.demo ? "replay" : "running");
       if (event.notice) {
-        el.notice.hidden = false;
         text(el.notice, event.notice);
       }
       break;
@@ -340,6 +343,5 @@ el.stop.addEventListener("click", () => {
 });
 
 loadMeta().catch((err) => {
-  el.notice.hidden = false;
   text(el.notice, `Could not load setup: ${err.message}`);
 });
