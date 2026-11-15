@@ -33,7 +33,7 @@ body {
   margin: 0; background: var(--bg); color: var(--fg);
   font: 1.0625rem/1.6 ui-serif, Georgia, "Iowan Old Style", serif;
 }
-main { max-width: 860px; margin: 0 auto; padding: 48px 16px 96px; }
+main { max-width: 860px; margin: 0 auto; padding: 48px 16px 96px; overflow-wrap: break-word; }
 h1, h2, h3, .sans, table, figcaption, nav {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -50,7 +50,7 @@ code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size:
 }
 nav { font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 16px 0 0; }
 nav a { text-decoration: none; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 24px 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 12px; margin: 24px 0; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
 .stat b { display: block; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 1.6rem; line-height: 1.2; }
 .stat span { font-size: 0.85rem; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; }
@@ -69,9 +69,12 @@ td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
 .g4 { grid-template-columns: repeat(4, 1fr); }
 .g5 { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 680px) { .g3, .g4, .g5 { grid-template-columns: repeat(2, 1fr); } }
+/* em, not px: the breakpoint moves with the text size, so figures drop to one
+   column when scaled-up captions need the room rather than clipping. */
+@media (max-width: 30em) { .g2, .g3, .g4, .g5 { grid-template-columns: 1fr; } }
 figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 figure img { display: block; width: 100%; height: auto; background: #fff; }
-figcaption { font-size: 0.8rem; padding: 8px 10px; color: var(--muted); }
+figcaption { font-size: 0.8rem; padding: 8px 10px; color: var(--muted); overflow-wrap: anywhere; }
 figcaption b { color: var(--fg); display: block; }
 .note { font-size: 0.88rem; color: var(--muted); }
 footer { margin-top: 64px; font-size: 0.85rem; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; }
