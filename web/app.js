@@ -82,7 +82,6 @@ async function loadMeta() {
   selectSurface("coordinate");
 
   if (!state.meta.hasCredentials) {
-    el.notice.hidden = false;
     // The server knows which of the two replay cases this is — no key at all,
     // or a key for a provider no listed model names — and names the variables
     // it actually reads. Repeating one provider's variable here got that
@@ -213,7 +212,6 @@ function handleEvent(event) {
       state.runId = event.runId;
       text(el.status, event.demo ? "replay" : "running");
       if (event.notice) {
-        el.notice.hidden = false;
         text(el.notice, event.notice);
       }
       break;
@@ -345,6 +343,5 @@ el.stop.addEventListener("click", () => {
 });
 
 loadMeta().catch((err) => {
-  el.notice.hidden = false;
   text(el.notice, `Could not load setup: ${err.message}`);
 });

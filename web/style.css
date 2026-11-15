@@ -154,6 +154,11 @@ button.primary[disabled] { opacity: 0.55; cursor: not-allowed; }
   border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   font-size: 0.86rem;
 }
+/* The live page's notice is a live region, so it stays rendered while empty:
+   a region that appears and fills in the same task can go unannounced. Empty,
+   it is taken out of flow so it adds no grid row or gap, and has no box to show,
+   but stays in the accessibility tree. */
+.notice:empty { position: absolute; padding: 0; border: 0; }
 
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 @media (max-width: 1000px) {
